@@ -13,7 +13,8 @@
  *   HOLIDAY_CALENDAR_ID 休日用カレンダー(種別が「休日」のもの)
  *
  * 予定はすべて終日。
- *   泊・日勤 : タイトル=番号 / メモ=出勤時間
+ *   泊       : タイトル=番号 / メモ=出勤時間
+ *   日勤     : タイトル=番号 / メモ=出勤〜退勤 (例: 10:15〜19:02)
  *   非番     : タイトル=「-」 / メモ=退勤時間 (泊の翌日に自動作成)
  *   休日     : タイトル=番号(特休など) / メモなし
  *   手入力   : タイトル=入力文字 / メモなし
@@ -123,7 +124,7 @@ function buildPlan(year, month, entries, prevLastCode, nextFirstEntry, master, h
         calendar: "work",
         kind: "day",
         title: e.code,
-        description: e.memo || (entry ? pickTime(entry.start, dayType) : ""),
+        description: e.memo || (entry ? dutyMemo(entry, dayType) : ""),
       });
     }
   }
@@ -144,6 +145,13 @@ function normalizeEntry(raw) {
 
 function codeOf(entry) {
   return normalizeEntry(entry).code;
+}
+
+// 泊は出勤時間だけ、日勤は「出勤〜退勤」
+function dutyMemo(entry, dayType) {
+  const start = pickTime(entry.start, dayType);
+  const end = pickTime(entry.end, dayType);
+  return entry.type === "日勤" && start && end ? start + "〜" + end : start;
 }
 
 function pickTime(times, dayType) {

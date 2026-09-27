@@ -40,10 +40,10 @@
     .type button.override { font-weight: bold; box-shadow: 0 0 0 2px #1a73e8; }
     .code { text-align: left; }
     .code select, .code input, .memo input { font-size: 1rem; padding: 6px 4px; }
-    .code select { width: 88px; }
-    .code input { width: 88px; margin-top: 4px; display: block; }
+    .code select { width: 80px; }
+    .code input { width: 80px; margin-top: 4px; display: block; }
     .offduty { color: #666; padding-left: 4px; }
-    .memo input { width: 72px; }
+    .memo input { width: 116px; }
     .memo input.override { color: #1a73e8; font-weight: bold; }
     footer {
       position: fixed; bottom: 0; left: 0; right: 0;
@@ -134,6 +134,13 @@
       return isHoliday ? "休日" : "平日";
     }
 
+    // 泊は出勤時間だけ、日勤は「出勤〜退勤」
+    function dutyMemo(entry, dayType) {
+      const start = pickTime(entry.start, dayType);
+      const end = pickTime(entry.end, dayType);
+      return entry.type === "日勤" && start && end ? start + "〜" + end : start;
+    }
+
     function pickTime(times, dayType) {
       return times[dayType] || times["平日"] || "";
     }
@@ -217,7 +224,7 @@
             });
             codeTd.appendChild(input);
           } else if (entry && entry.type !== "休日") {
-            autoMemo = pickTime(entry.start, dayType);
+            autoMemo = dutyMemo(entry, dayType);
           }
         }
 
