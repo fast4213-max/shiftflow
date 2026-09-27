@@ -1,15 +1,5 @@
 # secrets / local config
-.env
-.env.local
 gas/.clasp.json
-
-# node
-node_modules/
-npm-debug.log*
-
-# uploads (may contain personal shift data)
-webapp/uploads/*
-!webapp/uploads/.gitkeep
 
 # OS
 .DS_Store

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+      color: #222;
+      background: #f5f5f5;
+    }
+    header {
+      position: sticky; top: 0; z-index: 1;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 12px; background: #fff; border-bottom: 1px solid #ddd;
+    }
+    header h1 { margin: 0; font-size: 1.1rem; }
+    header button { font-size: 1.1rem; padding: 6px 14px; }
+    main { max-width: 560px; margin: 0 auto; padding: 8px 12px 96px; }
+    .row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 8px; margin-bottom: 4px;
+      background: #fff; border-radius: 6px;
+    }
+    .date { width: 56px; font-weight: bold; }
+    .date.sat, .date.sun { color: #c62828; }
+    .value { flex: 1; display: flex; gap: 6px; min-width: 0; }
+    .value select, .value input { font-size: 1rem; padding: 6px; min-width: 0; }
+    .value select { flex: 0 0 auto; }
+    .value input { flex: 1; }
+    .offduty { color: #666; padding: 6px 0; }
+    .memo { width: 48px; text-align: right; color: #666; font-size: 0.9rem; }
+    footer {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      padding: 10px 12px; background: #fff; border-top: 1px solid #ddd;
+      display: flex; align-items: center; gap: 12px;
+    }
+    footer button { font-size: 1.1rem; padding: 10px 24px; }
+    #status { flex: 1; font-size: 0.9rem; }
+    #status.error { color: #c62828; }
+  </style>
+</head>
+<body>
+  <header>
+    <button id="prev">◀</button>
+    <h1 id="title"></h1>
+    <button id="next">▶</button>
+  </header>
+  <main id="list"></main>
+  <footer>
+    <button id="register" disabled>登録</button>
+    <span id="status">読み込み中…</span>
+  </footer>
+
+  <script>
+    const MANUAL = "__manual__";
+    const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+
+    const today = new Date();
+    const state = {
+      year: today.getFullYear(),
+      month: today.getMonth() + 1,
+      data: null,
+      master: {},
+      dirty: false,
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    function pad(n) { return (n < 10 ? "0" : "") + n; }
+    function dateKey(y, m, d) { return y + "-" + pad(m) + "-" + pad(d); }
+    function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
+
+    function setStatus(text, isError) {
+      $("status").textContent = text;
+      $("status").className = isError ? "error" : "";
+    }
+
+    function load() {
+      $("title").textContent = state.year + "年" + state.month + "月";
+      $("list").innerHTML = "";
+      $("register").disabled = true;
+      setStatus("読み込み中…");
+      google.script.run
+        .withSuccessHandler((data) => {
+          state.data = data;
+          state.master = {};
+          data.master.forEach((m) => (state.master[m.code] = m));
+          state.dirty = false;
+          render();
+          $("register").disabled = false;
+          setStatus("");
+        })
+        .withFailureHandler((err) => setStatus(err.message, true))
+        .getMonthData(state.year, state.month);
+    }
+
+    function isHoliday(date) {
+      const w = date.getDay();
+      return w === 0 || w === 6 || state.data.holidays.indexOf(
+        dateKey(date.getFullYear(), date.getMonth() + 1, date.getDate())) !== -1;
+    }
+
+    function pickTime(times, date) {
+      return times[isHoliday(date) ? "休日" : "平日"] || times["平日"] || "";
+    }
+
+    function render() {
+      const { year, month, data } = state;
+      const list = $("list");
+      list.innerHTML = "";
+
+      for (let d = 1; d <= daysInMonth(year, month); d++) {
+        const date = new Date(year, month - 1, d);
+        const key = dateKey(year, month, d);
+        const prevValue = d === 1 ? data.prevLastEntry : data.entries[dateKey(year, month, d - 1)];
+        const prevMaster = state.master[prevValue];
+
+        const row = document.createElement("div");
+        row.className = "row";
+
+        const label = document.createElement("div");
+        const w = date.getDay();
+        label.className = "date" + (isHoliday(date) ? (w === 6 ? " sat" : " sun") : "");
+        label.textContent = d + "(" + WEEKDAYS[w] + ")";
+        row.appendChild(label);
+
+        const value = document.createElement("div");
+        value.className = "value";
+        const memo = document.createElement("div");
+        memo.className = "memo";
+
+        if (prevMaster && prevMaster.type === "泊") {
+          delete data.entries[key];
+          const off = document.createElement("span");
+          off.className = "offduty";
+          off.textContent = "非番";
+          value.appendChild(off);
+          memo.textContent = pickTime(prevMaster.end, date);
+        } else {
+          const current = data.entries[key] || "";
+          const entry = state.master[current];
+          const select = buildSelect(current && !entry ? MANUAL : current);
+          value.appendChild(select);
+
+          if (current && !entry) {
+            const input = document.createElement("input");
+            input.value = current.trim();
+            input.placeholder = "手入力";
+            input.addEventListener("input", () => {
+              // 空欄でも手入力モードを保つため空白1文字を入れておく(登録時は無視される)
+              data.entries[key] = input.value || " ";
+              state.dirty = true;
+            });
+            value.appendChild(input);
+          } else if (entry && entry.type !== "休日") {
+            memo.textContent = pickTime(entry.start, date);
+          }
+
+          select.addEventListener("change", () => {
+            if (select.value === MANUAL) {
+              data.entries[key] = " ";
+            } else if (select.value) {
+              data.entries[key] = select.value;
+            } else {
+              delete data.entries[key];
+            }
+            state.dirty = true;
+            render();
+            if (select.value === MANUAL) {
+              list.children[d - 1].querySelector("input").focus();
+            }
+          });
+        }
+
+        row.appendChild(value);
+        row.appendChild(memo);
+        list.appendChild(row);
+      }
+    }
+
+    function buildSelect(selected) {
+      const select = document.createElement("select");
+      select.appendChild(new Option("", ""));
+
+      const groups = [["勤務", (m) => m.type !== "休日"], ["休み", (m) => m.type === "休日"]];
+      groups.forEach(([label, match]) => {
+        const group = document.createElement("optgroup");
+        group.label = label;
+        state.data.master.filter(match).forEach((m) => group.appendChild(new Option(m.code, m.code)));
+        select.appendChild(group);
+      });
+      select.appendChild(new Option("手入力…", MANUAL));
+
+      select.value = selected;
+      return select;
+    }
+
+    function moveMonth(delta) {
+      if (state.dirty && !confirm("登録していない変更があります。移動しますか？")) return;
+      const date = new Date(state.year, state.month - 1 + delta, 1);
+      state.year = date.getFullYear();
+      state.month = date.getMonth() + 1;
+      load();
+    }
+
+    $("prev").addEventListener("click", () => moveMonth(-1));
+    $("next").addEventListener("click", () => moveMonth(1));
+
+    $("register").addEventListener("click", () => {
+      const button = $("register");
+      button.disabled = true;
+      setStatus("登録中…");
+      google.script.run
+        .withSuccessHandler((result) => {
+          state.dirty = false;
+          button.disabled = false;
+          setStatus(result.count + "件の予定を登録しました。");
+        })
+        .withFailureHandler((err) => {
+          button.disabled = false;
+          setStatus(err.message, true);
+        })
+        .register(state.year, state.month, state.data.entries);
+    });
+
+    load();
+  </script>
+</body>
+</html>
