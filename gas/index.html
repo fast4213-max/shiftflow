@@ -51,6 +51,15 @@
       display: flex; align-items: center; gap: 12px;
     }
     footer button { font-size: 1.1rem; padding: 10px 24px; }
+    footer #reset { font-size: 0.9rem; padding: 10px 12px; margin-left: auto; }
+    dialog { border: none; border-radius: 8px; padding: 20px; width: min(320px, 90vw); }
+    dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
+    dialog h2 { margin: 0 0 8px; font-size: 1.1rem; }
+    dialog p { margin: 0 0 12px; font-size: 0.9rem; color: #555; }
+    dialog input { font-size: 1rem; padding: 6px; width: 100%; }
+    dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    dialog .actions button { font-size: 1rem; padding: 8px 16px; }
+    #reset-run { background: #c62828; color: #fff; border: none; border-radius: 4px; }
     #status { flex: 1; font-size: 0.9rem; }
     #status.error { color: #c62828; }
   </style>
@@ -72,7 +81,18 @@
   <footer>
     <button id="register" disabled>登録</button>
     <span id="status">読み込み中…</span>
+    <button id="reset">リセット</button>
   </footer>
+
+  <dialog id="reset-dialog">
+    <h2>カレンダーのリセット</h2>
+    <p>選んだ月の、このアプリで登録した予定を削除します。手で入れた予定と、画面の入力内容は消えません。</p>
+    <input type="month" id="reset-month">
+    <div class="actions">
+      <button id="reset-cancel">やめる</button>
+      <button id="reset-run">削除</button>
+    </div>
+  </dialog>
 
   <script>
     const MANUAL = "__manual__";
@@ -303,6 +323,32 @@
           setStatus(err.message, true);
         })
         .register(state.year, state.month, state.data.entries);
+    });
+
+    $("reset").addEventListener("click", () => {
+      $("reset-month").value = state.year + "-" + pad(state.month);
+      $("reset-dialog").showModal();
+    });
+    $("reset-cancel").addEventListener("click", () => $("reset-dialog").close());
+    $("reset-run").addEventListener("click", () => {
+      const m = $("reset-month").value.match(/^(\d{4})-(\d{2})$/);
+      if (!m) return;
+      const year = Number(m[1]);
+      const month = Number(m[2]);
+      if (!confirm(year + "年" + month + "月の予定を削除します。よろしいですか？")) return;
+      $("reset-dialog").close();
+      $("reset").disabled = true;
+      setStatus("削除中…");
+      google.script.run
+        .withSuccessHandler((result) => {
+          $("reset").disabled = false;
+          setStatus(year + "年" + month + "月の予定を" + result.count + "件削除しました。");
+        })
+        .withFailureHandler((err) => {
+          $("reset").disabled = false;
+          setStatus(err.message, true);
+        })
+        .resetMonth(year, month);
     });
 
     load();

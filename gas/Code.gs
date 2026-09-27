@@ -75,6 +75,18 @@ function register(year, month, entries) {
   }
 }
 
+// 指定月のカレンダー予定(このアプリが作ったものだけ)を削除する。
+// 入力内容(勤務記録シート)は残すので、登録し直せば元に戻せる。
+function resetMonth(year, month) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    return { count: deleteAppEvents(getCalendars(), year, month) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 // ---------- 予定の組み立て ----------
 
 // 月内の入力から、登録する予定の一覧を作る。
@@ -169,26 +181,36 @@ function isHoliday(date, holidaySet) {
 // 翌月1日は、このアプリが作った非番だけを対象にする。
 function applyToCalendars(year, month, events) {
   const calendars = getCalendars();
-  const start = new Date(year, month - 1, 1);
-  const nextFirst = new Date(year, month, 1);
-  const nextSecond = new Date(year, month, 2);
-
-  [calendars.work, calendars.holiday].forEach((cal) => {
-    cal
-      .getEvents(start, nextFirst)
-      .filter((ev) => ev.getTag(APP_TAG) !== null)
-      .forEach((ev) => ev.deleteEvent());
-  });
-  calendars.work
-    .getEvents(nextFirst, nextSecond)
-    .filter((ev) => ev.getTag(APP_TAG) === "offduty")
-    .forEach((ev) => ev.deleteEvent());
+  deleteAppEvents(calendars, year, month);
 
   events.forEach((e) => {
     const cal = e.calendar === "holiday" ? calendars.holiday : calendars.work;
     const options = e.description ? { description: e.description } : {};
     cal.createAllDayEvent(e.title, e.date, options).setTag(APP_TAG, e.kind);
   });
+}
+
+// 対象月の、このアプリが作った予定を削除して件数を返す。
+// 翌月1日は、この月の月末の泊から作られる非番だけを対象にする。
+function deleteAppEvents(calendars, year, month) {
+  const start = new Date(year, month - 1, 1);
+  const nextFirst = new Date(year, month, 1);
+  const nextSecond = new Date(year, month, 2);
+
+  const targets = [];
+  [calendars.work, calendars.holiday].forEach((cal) => {
+    cal
+      .getEvents(start, nextFirst)
+      .filter((ev) => ev.getTag(APP_TAG) !== null)
+      .forEach((ev) => targets.push(ev));
+  });
+  calendars.work
+    .getEvents(nextFirst, nextSecond)
+    .filter((ev) => ev.getTag(APP_TAG) === "offduty")
+    .forEach((ev) => targets.push(ev));
+
+  targets.forEach((ev) => ev.deleteEvent());
+  return targets.length;
 }
 
 function getCalendars() {
