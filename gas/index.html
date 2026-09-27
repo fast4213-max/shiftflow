@@ -12,30 +12,45 @@
       background: #f5f5f5;
     }
     header {
-      position: sticky; top: 0; z-index: 1;
       display: flex; align-items: center; justify-content: space-between;
       padding: 8px 12px; background: #fff; border-bottom: 1px solid #ddd;
     }
     header h1 { margin: 0; font-size: 1.1rem; }
     header button { font-size: 1.1rem; padding: 6px 14px; }
-    main { max-width: 560px; margin: 0 auto; padding: 8px 12px 96px; }
-    .row {
-      display: flex; align-items: center; gap: 8px;
-      padding: 6px 8px; margin-bottom: 4px;
-      background: #fff; border-radius: 6px;
+    .scroller {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: 12px 0;
+      background: #fff;
+      border-top: 1px solid #ddd;
+      border-bottom: 1px solid #ddd;
     }
-    .date { width: 56px; font-weight: bold; }
-    .date.sat, .date.sun { color: #c62828; }
-    .value { flex: 1; display: flex; gap: 6px; min-width: 0; }
-    .value select, .value input { font-size: 1rem; padding: 6px; min-width: 0; }
-    .value select { flex: 0 0 auto; }
-    .value input { flex: 1; }
-    .offduty { color: #666; padding: 6px 0; }
-    .memo { width: 48px; text-align: right; color: #666; font-size: 0.9rem; }
+    table { border-collapse: collapse; }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 4px;
+      text-align: center;
+      white-space: nowrap;
+    }
+    th {
+      position: sticky; left: 0; z-index: 1;
+      background: #fafafa;
+      font-size: 0.8rem;
+      font-weight: normal;
+      color: #666;
+      min-width: 44px;
+    }
+    td { min-width: 72px; height: 40px; }
+    td.holiday { background: #fdecea; color: #c62828; }
+    td.today { outline: 2px solid #1a73e8; outline-offset: -2px; }
+    .day { font-size: 1.1rem; font-weight: bold; }
+    td select, td input { width: 64px; font-size: 1rem; padding: 4px 2px; }
+    td input { margin-top: 4px; }
+    .offduty { color: #666; }
+    .memo { color: #666; font-size: 0.9rem; }
     footer {
-      position: fixed; bottom: 0; left: 0; right: 0;
-      padding: 10px 12px; background: #fff; border-top: 1px solid #ddd;
       display: flex; align-items: center; gap: 12px;
+      padding: 0 12px;
     }
     footer button { font-size: 1.1rem; padding: 10px 24px; }
     #status { flex: 1; font-size: 0.9rem; }
@@ -48,7 +63,14 @@
     <h1 id="title"></h1>
     <button id="next">▶</button>
   </header>
-  <main id="list"></main>
+  <div class="scroller" id="scroller">
+    <table>
+      <tr id="row-date"><th>日付</th></tr>
+      <tr id="row-weekday"><th>曜日</th></tr>
+      <tr id="row-code"><th>番号</th></tr>
+      <tr id="row-memo"><th>メモ</th></tr>
+    </table>
+  </div>
   <footer>
     <button id="register" disabled>登録</button>
     <span id="status">読み込み中…</span>
@@ -57,11 +79,13 @@
   <script>
     const MANUAL = "__manual__";
     const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+    const ROWS = ["row-date", "row-weekday", "row-code", "row-memo"];
 
     const today = new Date();
+    const firstMonth = { year: today.getFullYear(), month: today.getMonth() + 1 };
     const state = {
-      year: today.getFullYear(),
-      month: today.getMonth() + 1,
+      year: firstMonth.year,
+      month: firstMonth.month,
       data: null,
       master: {},
       dirty: false,
@@ -72,16 +96,25 @@
     function pad(n) { return (n < 10 ? "0" : "") + n; }
     function dateKey(y, m, d) { return y + "-" + pad(m) + "-" + pad(d); }
     function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
+    function isFirstMonth() { return state.year === firstMonth.year && state.month === firstMonth.month; }
 
     function setStatus(text, isError) {
       $("status").textContent = text;
       $("status").className = isError ? "error" : "";
     }
 
+    function clearTable() {
+      ROWS.forEach((id) => {
+        const row = $(id);
+        while (row.children.length > 1) row.removeChild(row.lastChild);
+      });
+    }
+
     function load() {
       $("title").textContent = state.year + "年" + state.month + "月";
-      $("list").innerHTML = "";
+      $("prev").disabled = isFirstMonth();
       $("register").disabled = true;
+      clearTable();
       setStatus("読み込み中…");
       google.script.run
         .withSuccessHandler((data) => {
@@ -90,6 +123,7 @@
           data.master.forEach((m) => (state.master[m.code] = m));
           state.dirty = false;
           render();
+          scrollToToday();
           $("register").disabled = false;
           setStatus("");
         })
@@ -107,78 +141,84 @@
       return times[isHoliday(date) ? "休日" : "平日"] || times["平日"] || "";
     }
 
+    function cell(rowId, className) {
+      const td = document.createElement("td");
+      if (className) td.className = className;
+      $(rowId).appendChild(td);
+      return td;
+    }
+
+    // 日ごとに1列。日数(28〜31日)は月に合わせて変わる
     function render() {
       const { year, month, data } = state;
-      const list = $("list");
-      list.innerHTML = "";
+      clearTable();
 
       for (let d = 1; d <= daysInMonth(year, month); d++) {
         const date = new Date(year, month - 1, d);
         const key = dateKey(year, month, d);
         const prevValue = d === 1 ? data.prevLastEntry : data.entries[dateKey(year, month, d - 1)];
         const prevMaster = state.master[prevValue];
+        const isToday = date.toDateString() === today.toDateString();
+        const cls = (isHoliday(date) ? "holiday" : "") + (isToday ? " today" : "");
 
-        const row = document.createElement("div");
-        row.className = "row";
-
-        const label = document.createElement("div");
-        const w = date.getDay();
-        label.className = "date" + (isHoliday(date) ? (w === 6 ? " sat" : " sun") : "");
-        label.textContent = d + "(" + WEEKDAYS[w] + ")";
-        row.appendChild(label);
-
-        const value = document.createElement("div");
-        value.className = "value";
-        const memo = document.createElement("div");
-        memo.className = "memo";
+        const dayCell = cell("row-date", cls);
+        dayCell.innerHTML = '<span class="day"></span>';
+        dayCell.firstChild.textContent = d;
+        dayCell.dataset.key = key;
+        cell("row-weekday", cls).textContent = WEEKDAYS[date.getDay()];
+        const codeCell = cell("row-code", isToday ? "today" : "");
+        const memoCell = cell("row-memo", "memo" + (isToday ? " today" : ""));
 
         if (prevMaster && prevMaster.type === "泊") {
           delete data.entries[key];
-          const off = document.createElement("span");
-          off.className = "offduty";
-          off.textContent = "非番";
-          value.appendChild(off);
-          memo.textContent = pickTime(prevMaster.end, date);
-        } else {
-          const current = data.entries[key] || "";
-          const entry = state.master[current];
-          const select = buildSelect(current && !entry ? MANUAL : current);
-          value.appendChild(select);
-
-          if (current && !entry) {
-            const input = document.createElement("input");
-            input.value = current.trim();
-            input.placeholder = "手入力";
-            input.addEventListener("input", () => {
-              // 空欄でも手入力モードを保つため空白1文字を入れておく(登録時は無視される)
-              data.entries[key] = input.value || " ";
-              state.dirty = true;
-            });
-            value.appendChild(input);
-          } else if (entry && entry.type !== "休日") {
-            memo.textContent = pickTime(entry.start, date);
-          }
-
-          select.addEventListener("change", () => {
-            if (select.value === MANUAL) {
-              data.entries[key] = " ";
-            } else if (select.value) {
-              data.entries[key] = select.value;
-            } else {
-              delete data.entries[key];
-            }
-            state.dirty = true;
-            render();
-            if (select.value === MANUAL) {
-              list.children[d - 1].querySelector("input").focus();
-            }
-          });
+          codeCell.innerHTML = '<span class="offduty">非番</span>';
+          memoCell.textContent = pickTime(prevMaster.end, date);
+          continue;
         }
 
-        row.appendChild(value);
-        row.appendChild(memo);
-        list.appendChild(row);
+        const current = data.entries[key] || "";
+        const entry = state.master[current];
+        const select = buildSelect(current && !entry ? MANUAL : current);
+        codeCell.appendChild(select);
+
+        if (current && !entry) {
+          const input = document.createElement("input");
+          input.value = current.trim();
+          input.placeholder = "入力";
+          input.addEventListener("input", () => {
+            // 空欄でも手入力モードを保つため空白1文字を入れておく(登録時は無視される)
+            data.entries[key] = input.value || " ";
+            state.dirty = true;
+          });
+          codeCell.appendChild(document.createElement("br"));
+          codeCell.appendChild(input);
+        } else if (entry && entry.type !== "休日") {
+          memoCell.textContent = pickTime(entry.start, date);
+        }
+
+        select.addEventListener("change", () => {
+          if (select.value === MANUAL) {
+            data.entries[key] = " ";
+          } else if (select.value) {
+            data.entries[key] = select.value;
+          } else {
+            delete data.entries[key];
+          }
+          state.dirty = true;
+          const scrollLeft = $("scroller").scrollLeft;
+          render();
+          $("scroller").scrollLeft = scrollLeft;
+          if (select.value === MANUAL) {
+            $("row-code").children[d].querySelector("input").focus();
+          }
+        });
       }
+    }
+
+    function scrollToToday() {
+      const target = document.querySelector("#row-date td.today");
+      const scroller = $("scroller");
+      scroller.scrollLeft = target ? target.offsetLeft - scroller.clientWidth / 3 : 0;
     }
 
     function buildSelect(selected) {
@@ -199,6 +239,7 @@
     }
 
     function moveMonth(delta) {
+      if (delta < 0 && isFirstMonth()) return;
       if (state.dirty && !confirm("登録していない変更があります。移動しますか？")) return;
       const date = new Date(state.year, state.month - 1 + delta, 1);
       state.year = date.getFullYear();
