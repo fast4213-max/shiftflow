@@ -27,6 +27,7 @@ const RECORD_SHEET = "勤務記録";
 const RECORD_HEADER = ["日付", "勤務", "日種別", "メモ"];
 const APP_TAG = "shiftflow";
 const OFFDUTY_TITLE = "-";
+const CALENDAR_WAIT_MS = 100;
 const HOLIDAY_CALENDAR_IDS = [
   "ja.japanese.official#holiday@group.v.calendar.google.com",
   "ja.japanese#holiday@group.v.calendar.google.com",
@@ -186,8 +187,23 @@ function applyToCalendars(year, month, events) {
   events.forEach((e) => {
     const cal = e.calendar === "holiday" ? calendars.holiday : calendars.work;
     const options = e.description ? { description: e.description } : {};
-    cal.createAllDayEvent(e.title, e.date, options).setTag(APP_TAG, e.kind);
+    const ev = withRetry(() => cal.createAllDayEvent(e.title, e.date, options));
+    withRetry(() => ev.setTag(APP_TAG, e.kind));
+    Utilities.sleep(CALENDAR_WAIT_MS);
   });
+}
+
+// カレンダーは短時間に大量に作成・削除すると
+// 「too many calendar events」などで失敗することがあるので、待ってから再試行する
+function withRetry(fn) {
+  for (let i = 0; ; i++) {
+    try {
+      return fn();
+    } catch (err) {
+      if (i >= 4) throw err;
+      Utilities.sleep(1000 * Math.pow(2, i));
+    }
+  }
 }
 
 // 対象月の、このアプリが作った予定を削除して件数を返す。
@@ -209,7 +225,10 @@ function deleteAppEvents(calendars, year, month) {
     .filter((ev) => ev.getTag(APP_TAG) === "offduty")
     .forEach((ev) => targets.push(ev));
 
-  targets.forEach((ev) => ev.deleteEvent());
+  targets.forEach((ev) => {
+    withRetry(() => ev.deleteEvent());
+    Utilities.sleep(CALENDAR_WAIT_MS);
+  });
   return targets.length;
 }
 

@@ -381,8 +381,11 @@
     });
     $("reset-cancel").addEventListener("click", () => $("reset-dialog").close());
     $("reset-run").addEventListener("click", () => {
-      const m = $("reset-month").value.match(/^(\d{4})-(\d{2})$/);
-      if (!m) return;
+      const m = $("reset-month").value.trim().match(/^(\d{4})-(\d{1,2})$/);
+      if (!m) {
+        alert("月を「2026-10」の形で選んでください。");
+        return;
+      }
       const year = Number(m[1]);
       const month = Number(m[2]);
       if (!confirm(year + "年" + month + "月の予定を削除します。よろしいですか？")) return;
