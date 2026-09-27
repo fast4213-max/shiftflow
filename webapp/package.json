@@ -1,0 +1,17 @@
+{
+  "name": "shiftflow-webapp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "勤務表PDFをアップロードし、GAS経由でスプレッドシート/カレンダーに登録するWebアプリ",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "node-fetch": "^2.7.0",
+    "pdf-parse": "^1.1.1"
+  }
+}

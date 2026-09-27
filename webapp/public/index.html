@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>shiftflow - 勤務表アップロード</title>
+  <style>
+    body { font-family: sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; }
+    h1 { font-size: 1.3rem; }
+    table { border-collapse: collapse; width: 100%; margin-top: 16px; }
+    th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 0.9rem; }
+    #status { margin-top: 12px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>shiftflow: 勤務表PDFアップロード</h1>
+  <form id="upload-form">
+    <input type="file" name="shiftPdf" accept="application/pdf" required />
+    <button type="submit">アップロード</button>
+  </form>
+  <div id="status"></div>
+  <table id="result-table" hidden>
+    <thead><tr><th>日付</th><th>曜日</th><th>勤務</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    const form = document.getElementById("upload-form");
+    const statusEl = document.getElementById("status");
+    const table = document.getElementById("result-table");
+    const tbody = table.querySelector("tbody");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      statusEl.textContent = "アップロード中...";
+      table.hidden = true;
+      tbody.innerHTML = "";
+
+      const formData = new FormData(form);
+      try {
+        const res = await fetch("/api/upload", { method: "POST", body: formData });
+        const data = await res.json();
+
+        if (!res.ok) {
+          statusEl.textContent = "エラー: " + data.error;
+          return;
+        }
+
+        statusEl.textContent = "登録が完了しました。";
+        for (const row of data.rows) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td>${row.date}</td><td>${row.weekday}</td><td>${row.duty}</td>`;
+          tbody.appendChild(tr);
+        }
+        table.hidden = false;
+      } catch (err) {
+        statusEl.textContent = "エラー: " + err.message;
+      }
+    });
+  </script>
+</body>
+</html>
