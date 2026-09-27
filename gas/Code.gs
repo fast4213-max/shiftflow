@@ -5,7 +5,8 @@
  *
  * シート
  *   勤務コード: 番号 | 種別(泊/日勤/休日) | 平日出勤 | 平日退勤 | 休日出勤 | 休日退勤 | 泊
- *   勤務記録  : 日付(yyyy-MM-dd) | 勤務  (画面の入力内容。無ければ自動作成)
+ *   勤務記録  : 日付(yyyy-MM-dd) | 勤務 | 日種別 | メモ  (画面の入力内容。無ければ自動作成)
+ *               日種別・メモは画面で手修正したときだけ入る(空なら自動)
  *
  * スクリプトプロパティ
  *   WORK_CALENDAR_ID    勤務用カレンダー(泊・日勤・非番・手入力)
@@ -17,10 +18,12 @@
  *   休日     : タイトル=番号(特休など) / メモなし
  *   手入力   : タイトル=入力文字 / メモなし
  * 時間は、その日が土日祝なら「休日」、それ以外は「平日」の列を使う。
+ * 年末年始など、日種別(平日/休日)とメモは日ごとに手で上書きできる。
  */
 
 const MASTER_SHEET = "勤務コード";
 const RECORD_SHEET = "勤務記録";
+const RECORD_HEADER = ["日付", "勤務", "日種別", "メモ"];
 const APP_TAG = "shiftflow";
 const OFFDUTY_TITLE = "-";
 const HOLIDAY_CALENDAR_IDS = [
@@ -46,7 +49,7 @@ function getMonthData(year, month) {
   return {
     master: loadMaster(),
     entries: entries,
-    prevLastEntry: record[toKey(new Date(year, month - 1, 0))] || "",
+    prevLastCode: codeOf(record[toKey(new Date(year, month - 1, 0))]),
     holidays: loadHolidays(year, month),
   };
 }
@@ -57,10 +60,11 @@ function register(year, month, entries) {
   try {
     const master = indexMaster(loadMaster());
     const record = loadRecord();
-    const prevLastEntry = record[toKey(new Date(year, month - 1, 0))] || "";
+    const prevLastCode = codeOf(record[toKey(new Date(year, month - 1, 0))]);
+    const nextFirstEntry = record[toKey(new Date(year, month, 1))];
     const holidays = loadHolidays(year, month);
 
-    const plan = buildPlan(year, month, entries, prevLastEntry, master, holidays);
+    const plan = buildPlan(year, month, entries, prevLastCode, nextFirstEntry, master, holidays);
     saveRecord(year, month, plan.entries);
     applyToCalendars(year, month, plan.events);
 
@@ -73,8 +77,9 @@ function register(year, month, entries) {
 // ---------- 予定の組み立て ----------
 
 // 月内の入力から、登録する予定の一覧を作る。
-// 非番の日は入力を無視し、翌月1日の非番(月末が泊の場合)も含める。
-function buildPlan(year, month, entries, prevLastEntry, master, holidays) {
+// entries: { "yyyy-MM-dd": { code, dayType, memo } }  (dayType・memoは手修正したときだけ)
+// 非番の日は番号を無視し、翌月1日の非番(月末が泊の場合)も含める。
+function buildPlan(year, month, entries, prevLastCode, nextFirstEntry, master, holidays) {
   const holidaySet = {};
   holidays.forEach((key) => (holidaySet[key] = true));
 
@@ -85,44 +90,60 @@ function buildPlan(year, month, entries, prevLastEntry, master, holidays) {
   for (let d = 1; d <= days + 1; d++) {
     const date = new Date(year, month - 1, d);
     const key = toKey(date);
-    const dayType = isHoliday(date, holidaySet) ? "休日" : "平日";
+    const e = normalizeEntry(d > days ? nextFirstEntry : entries[key]);
+    const dayType = e.dayType || (isHoliday(date, holidaySet) ? "休日" : "平日");
 
-    const prevValue =
-      d === 1 ? prevLastEntry : cleanEntries[dateKey(year, month, d - 1)];
-    const prevMaster = master[prevValue];
+    const prevCode = d === 1 ? prevLastCode : codeOf(cleanEntries[dateKey(year, month, d - 1)]);
+    const prevMaster = master[prevCode];
     if (prevMaster && prevMaster.type === "泊") {
       events.push({
         date: date,
         calendar: "work",
         kind: "offduty",
         title: OFFDUTY_TITLE,
-        description: pickTime(prevMaster.end, dayType),
+        description: e.memo || pickTime(prevMaster.end, dayType),
       });
+      if (d <= days && (e.dayType || e.memo)) {
+        cleanEntries[key] = { code: "", dayType: e.dayType, memo: e.memo };
+      }
       continue;
     }
     if (d > days) break;
 
-    const value = String(entries[key] || "").trim();
-    if (!value) continue;
-    cleanEntries[key] = value;
+    if (!e.code && !e.dayType && !e.memo) continue;
+    cleanEntries[key] = e;
+    if (!e.code) continue;
 
-    const entry = master[value];
+    const entry = master[e.code];
     if (entry && entry.type === "休日") {
-      events.push({ date: date, calendar: "holiday", kind: "day", title: value, description: "" });
-    } else if (entry) {
+      events.push({ date: date, calendar: "holiday", kind: "day", title: e.code, description: e.memo });
+    } else {
       events.push({
         date: date,
         calendar: "work",
         kind: "day",
-        title: value,
-        description: pickTime(entry.start, dayType),
+        title: e.code,
+        description: e.memo || (entry ? pickTime(entry.start, dayType) : ""),
       });
-    } else {
-      events.push({ date: date, calendar: "work", kind: "day", title: value, description: "" });
     }
   }
 
   return { entries: cleanEntries, events: events };
+}
+
+function normalizeEntry(raw) {
+  if (!raw) return { code: "", dayType: "", memo: "" };
+  if (typeof raw === "string") return { code: raw.trim(), dayType: "", memo: "" };
+  const dayType = String(raw.dayType || "").trim();
+  return {
+    code: String(raw.code || "").trim(),
+    dayType: dayType === "平日" || dayType === "休日" ? dayType : "",
+    memo: String(raw.memo || "").trim(),
+  };
+}
+
+function codeOf(entry) {
+  return normalizeEntry(entry).code;
 }
 
 function pickTime(times, dayType) {
@@ -233,7 +254,10 @@ function getRecordSheet() {
   let sheet = ss.getSheetByName(RECORD_SHEET);
   if (!sheet) {
     sheet = ss.insertSheet(RECORD_SHEET);
-    sheet.getRange(1, 1, 1, 2).setValues([["日付", "勤務"]]);
+  }
+  const header = sheet.getRange(1, 1, 1, RECORD_HEADER.length);
+  if (header.getDisplayValues()[0].join() !== RECORD_HEADER.join()) {
+    header.setValues([RECORD_HEADER]);
   }
   return sheet;
 }
@@ -245,7 +269,9 @@ function loadRecord() {
     .getDisplayValues()
     .slice(1)
     .forEach((row) => {
-      if (row[0] && row[1]) record[row[0]] = row[1];
+      if (row[0] && (row[1] || row[2] || row[3])) {
+        record[row[0]] = { code: row[1] || "", dayType: row[2] || "", memo: row[3] || "" };
+      }
     });
   return record;
 }
@@ -259,14 +285,18 @@ function saveRecord(year, month, entries) {
     .getDisplayValues()
     .slice(1)
     .filter((row) => row[0] && row[0].indexOf(prefix) !== 0)
-    .map((row) => [row[0], row[1]]);
-  Object.keys(entries).forEach((key) => rows.push([key, entries[key]]));
+    .map((row) => [row[0], row[1] || "", row[2] || "", row[3] || ""]);
+  Object.keys(entries).forEach((key) => {
+    const e = entries[key];
+    rows.push([key, e.code, e.dayType, e.memo]);
+  });
   rows.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
 
   const lastRow = sheet.getLastRow();
-  if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, 2).clearContent();
+  const width = RECORD_HEADER.length;
+  if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, width).clearContent();
   if (rows.length > 0) {
-    const range = sheet.getRange(2, 1, rows.length, 2);
+    const range = sheet.getRange(2, 1, rows.length, width);
     range.setNumberFormat("@");
     range.setValues(rows);
   }
