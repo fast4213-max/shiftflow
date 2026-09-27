@@ -39,8 +39,27 @@
     .type button.holiday { background: #fdecea; color: #c62828; border-color: #e57373; }
     .type button.override { font-weight: bold; box-shadow: 0 0 0 2px #1a73e8; }
     .code { text-align: left; }
-    .code select, .code input, .memo input { font-size: 1rem; padding: 6px 4px; }
-    .code select { width: 80px; }
+    .code input, .memo input { font-size: 1rem; padding: 6px 4px; }
+    .code .pick {
+      width: 80px; font-size: 1rem; padding: 6px 4px;
+      border: 1px solid #bbb; border-radius: 4px; background: #fff; color: #222;
+    }
+    .code .pick:empty::before { content: "選択"; color: #aaa; }
+    #picker { width: min(420px, 94vw); max-height: 85vh; padding: 12px; }
+    #picker h2 { margin: 0 0 8px; font-size: 1rem; }
+    #picker h3 { margin: 10px 0 4px; font-size: 0.8rem; color: #666; font-weight: normal; }
+    #picker .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
+    #picker .grid button {
+      font-size: 1rem; padding: 8px 0;
+      border: 1px solid #ccc; border-radius: 4px; background: #fff; color: #222;
+    }
+    #picker .grid button.holiday { color: #c62828; }
+    #picker .grid button.current { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+    #picker .actions {
+      display: flex; gap: 8px; margin-top: 12px;
+      position: sticky; bottom: -12px; padding: 8px 0; background: #fff;
+    }
+    #picker .actions button { flex: 1; font-size: 1rem; padding: 10px 0; }
     .code input { width: 80px; margin-top: 4px; display: block; }
     .offduty { color: #666; padding-left: 4px; }
     .memo input { width: 116px; }
@@ -83,6 +102,19 @@
     <span id="status">読み込み中…</span>
     <button id="reset">リセット</button>
   </footer>
+
+  <dialog id="picker">
+    <h2 id="picker-title"></h2>
+    <h3>勤務</h3>
+    <div class="grid" id="picker-duty"></div>
+    <h3>休み</h3>
+    <div class="grid" id="picker-off"></div>
+    <div class="actions">
+      <button id="picker-manual">手入力</button>
+      <button id="picker-clear">クリア</button>
+      <button id="picker-cancel">やめる</button>
+    </div>
+  </dialog>
 
   <dialog id="reset-dialog">
     <h2>カレンダーのリセット</h2>
@@ -224,14 +256,18 @@
         } else {
           const entry = state.master[e.code];
           const isManual = e.code && !entry;
-          const select = buildSelect(isManual ? MANUAL : e.code);
-          select.addEventListener("change", () => {
-            e.code = select.value === MANUAL ? " " : select.value;
-            e.memo = "";
-            changed();
-            if (select.value === MANUAL) list.children[d - 1].querySelector(".code input").focus();
+          const pick = document.createElement("button");
+          pick.className = "pick";
+          pick.textContent = isManual ? "手入力" : e.code;
+          pick.addEventListener("click", () => {
+            openPicker(d + "(" + WEEKDAYS[date.getDay()] + ")", isManual ? MANUAL : e.code, (value) => {
+              e.code = value === MANUAL ? " " : value;
+              e.memo = "";
+              changed();
+              if (value === MANUAL) list.children[d - 1].querySelector(".code input").focus();
+            });
           });
-          codeTd.appendChild(select);
+          codeTd.appendChild(pick);
 
           if (isManual) {
             const input = document.createElement("input");
@@ -279,22 +315,36 @@
       else window.scrollTo(0, 0);
     }
 
-    function buildSelect(selected) {
-      const select = document.createElement("select");
-      select.appendChild(new Option("", ""));
+    // 番号の選択: 一覧をボタンのグリッドで出す(プルダウンだと縦に長いため)
+    let onPick = null;
 
-      const groups = [["勤務", (m) => m.type !== "休日"], ["休み", (m) => m.type === "休日"]];
-      groups.forEach(([label, match]) => {
-        const group = document.createElement("optgroup");
-        group.label = label;
-        state.data.master.filter(match).forEach((m) => group.appendChild(new Option(m.code, m.code)));
-        select.appendChild(group);
+    function openPicker(title, current, callback) {
+      onPick = callback;
+      $("picker-title").textContent = title;
+      [["picker-duty", (m) => m.type !== "休日"], ["picker-off", (m) => m.type === "休日"]].forEach(([id, match]) => {
+        const grid = $(id);
+        grid.innerHTML = "";
+        state.data.master.filter(match).forEach((m) => {
+          const button = document.createElement("button");
+          button.textContent = m.code;
+          button.className = (m.type === "休日" ? "holiday" : "") + (m.code === current ? " current" : "");
+          button.addEventListener("click", () => pick(m.code));
+          grid.appendChild(button);
+        });
       });
-      select.appendChild(new Option("手入力…", MANUAL));
-
-      select.value = selected;
-      return select;
+      $("picker").showModal();
+      $("picker").scrollTop = 0;
     }
+
+    function pick(value) {
+      $("picker").close();
+      if (onPick) onPick(value);
+      onPick = null;
+    }
+
+    $("picker-manual").addEventListener("click", () => pick(MANUAL));
+    $("picker-clear").addEventListener("click", () => pick(""));
+    $("picker-cancel").addEventListener("click", () => { onPick = null; $("picker").close(); });
 
     function moveMonth(delta) {
       if (delta < 0 && isFirstMonth()) return;
