@@ -15,7 +15,7 @@
  * 予定はすべて終日。
  *   泊       : タイトル=番号 / メモ=出勤時間
  *   日勤     : タイトル=番号 / メモ=出勤〜退勤 (例: 10:15〜19:02)
- *   非番     : タイトル=「-」 / メモ=退勤時間 (泊の翌日に自動作成)
+ *   非番     : タイトル=「〜」 / メモ=退勤時間 (泊の翌日に自動作成)
  *   休日     : タイトル=番号(特休など) / メモなし
  *   手入力   : タイトル=入力文字 / メモなし
  * 時間は、その日が土日祝なら「休日」、それ以外は「平日」の列を使う。
@@ -26,7 +26,7 @@ const MASTER_SHEET = "勤務コード";
 const RECORD_SHEET = "勤務記録";
 const RECORD_HEADER = ["日付", "勤務", "日種別", "メモ"];
 const APP_TAG = "shiftflow";
-const OFFDUTY_TITLE = "-";
+const OFFDUTY_TITLE = "〜";
 const CALENDAR_WAIT_MS = 100;
 const HOLIDAY_CALENDAR_IDS = [
   "ja.japanese.official#holiday@group.v.calendar.google.com",
