@@ -32,12 +32,11 @@
     .day { width: 32px; font-weight: bold; font-size: 1.05rem; }
     .weekday { width: 28px; }
     .weekday.red { color: #c62828; }
-    .type button {
-      width: 36px; padding: 6px 0; font-size: 0.9rem;
+    .type span {
+      display: inline-block; width: 36px; padding: 6px 0; font-size: 0.9rem;
       border: 1px solid #bbb; border-radius: 4px; background: #fff;
     }
-    .type button.holiday { background: #fdecea; color: #c62828; border-color: #e57373; }
-    .type button.override { font-weight: bold; box-shadow: 0 0 0 2px #1a73e8; }
+    .type span.holiday { background: #fdecea; color: #c62828; border-color: #e57373; }
     .code { text-align: left; }
     .code input, .memo input { font-size: 1rem; padding: 6px 4px; }
     .code .pick {
@@ -173,9 +172,9 @@
         .getMonthData(state.year, state.month);
     }
 
-    // entries[key] = { code, dayType, memo }  dayType・memo は手修正したときだけ入れる
+    // entries[key] = { code, memo }  memo は手修正したときだけ入れる
     function entryOf(key) {
-      if (!state.data.entries[key]) state.data.entries[key] = { code: "", dayType: "", memo: "" };
+      if (!state.data.entries[key]) state.data.entries[key] = { code: "", memo: "" };
       return state.data.entries[key];
     }
 
@@ -206,8 +205,7 @@
         const date = new Date(year, month - 1, d);
         const key = dateKey(year, month, d);
         const e = entryOf(key);
-        const auto = autoDayType(date);
-        const dayType = e.dayType || auto;
+        const dayType = autoDayType(date);
 
         const prevCode = d === 1 ? data.prevLastCode : (data.entries[dateKey(year, month, d - 1)] || {}).code;
         const prevMaster = state.master[prevCode];
@@ -223,23 +221,17 @@
         tr.appendChild(dayTd);
 
         const weekdayTd = document.createElement("td");
-        weekdayTd.className = "weekday" + (auto === "休日" ? " red" : "");
+        weekdayTd.className = "weekday" + (dayType === "休日" ? " red" : "");
         weekdayTd.textContent = WEEKDAYS[date.getDay()];
         tr.appendChild(weekdayTd);
 
-        // 平/休: 土日祝で自動。タップで切り替え(年末年始など)
+        // 平/休: 土日祝・年末年始(12/30〜1/3)で自動。表示のみ
         const typeTd = document.createElement("td");
         typeTd.className = "type";
-        const typeButton = document.createElement("button");
-        typeButton.textContent = dayType === "休日" ? "休" : "平";
-        typeButton.className = (dayType === "休日" ? "holiday" : "") + (e.dayType ? " override" : "");
-        typeButton.addEventListener("click", () => {
-          const next = dayType === "休日" ? "平日" : "休日";
-          e.dayType = next === auto ? "" : next;
-          e.memo = "";
-          changed();
-        });
-        typeTd.appendChild(typeButton);
+        const typeLabel = document.createElement("span");
+        typeLabel.textContent = dayType === "休日" ? "休" : "平";
+        typeLabel.className = dayType === "休日" ? "holiday" : "";
+        typeTd.appendChild(typeLabel);
         tr.appendChild(typeTd);
 
         const codeTd = document.createElement("td");
@@ -284,7 +276,7 @@
           }
         }
 
-        // メモ: 番号や平/休を選ぶと自動で入る。手で書き換えも可
+        // メモ: 番号を選ぶと自動で入る。手で書き換えも可
         const memoTd = document.createElement("td");
         memoTd.className = "memo";
         const memoInput = document.createElement("input");

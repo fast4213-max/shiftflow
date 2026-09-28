@@ -6,7 +6,7 @@
  * シート
  *   勤務コード: 番号 | 種別(泊/日勤/休日) | 平日出勤 | 平日退勤 | 休日出勤 | 休日退勤 | 泊
  *   勤務記録  : 日付(yyyy-MM-dd) | 勤務 | 日種別 | メモ  (画面の入力内容。無ければ自動作成)
- *               日種別・メモは画面で手修正したときだけ入る(空なら自動)
+ *               メモは画面で手修正したときだけ入る(空なら自動)。日種別は使わない(常に空)
  *
  * スクリプトプロパティ
  *   WORK_CALENDAR_ID    勤務用カレンダー(泊・日勤・非番・手入力)
@@ -19,7 +19,7 @@
  *   休日     : タイトル=番号(特休など) / メモなし
  *   手入力   : タイトル=入力文字 / メモなし
  * 時間は、その日が土日祝・年末年始(12/30〜1/3)なら「休日」、それ以外は「平日」の列を使う。
- * 日種別(平日/休日)とメモは日ごとに手で上書きできる。
+ * メモは日ごとに手で上書きできる。
  */
 
 const MASTER_SHEET = "勤務コード";
@@ -91,7 +91,8 @@ function resetMonth(year, month) {
 // ---------- 予定の組み立て ----------
 
 // 月内の入力から、登録する予定の一覧を作る。
-// entries: { "yyyy-MM-dd": { code, dayType, memo } }  (dayType・memoは手修正したときだけ)
+// entries: { "yyyy-MM-dd": { code, memo } }  (memoは手修正したときだけ)
+// 平日/休日は土日祝・年末年始から自動で決める。
 // 非番の日は番号を無視し、翌月1日の非番(月末が泊の場合)も含める。
 function buildPlan(year, month, entries, prevLastCode, nextFirstEntry, master, holidays) {
   const holidaySet = {};
@@ -105,7 +106,7 @@ function buildPlan(year, month, entries, prevLastCode, nextFirstEntry, master, h
     const date = new Date(year, month - 1, d);
     const key = toKey(date);
     const e = normalizeEntry(d > days ? nextFirstEntry : entries[key]);
-    const dayType = e.dayType || (isHoliday(date, holidaySet) ? "休日" : "平日");
+    const dayType = isHoliday(date, holidaySet) ? "休日" : "平日";
 
     const prevCode = d === 1 ? prevLastCode : codeOf(cleanEntries[dateKey(year, month, d - 1)]);
     const prevMaster = master[prevCode];
@@ -117,14 +118,14 @@ function buildPlan(year, month, entries, prevLastCode, nextFirstEntry, master, h
         title: OFFDUTY_TITLE,
         description: e.memo || pickTime(prevMaster.end, dayType),
       });
-      if (d <= days && (e.dayType || e.memo)) {
-        cleanEntries[key] = { code: "", dayType: e.dayType, memo: e.memo };
+      if (d <= days && e.memo) {
+        cleanEntries[key] = { code: "", memo: e.memo };
       }
       continue;
     }
     if (d > days) break;
 
-    if (!e.code && !e.dayType && !e.memo) continue;
+    if (!e.code && !e.memo) continue;
     cleanEntries[key] = e;
     if (!e.code) continue;
 
@@ -146,12 +147,10 @@ function buildPlan(year, month, entries, prevLastCode, nextFirstEntry, master, h
 }
 
 function normalizeEntry(raw) {
-  if (!raw) return { code: "", dayType: "", memo: "" };
-  if (typeof raw === "string") return { code: raw.trim(), dayType: "", memo: "" };
-  const dayType = String(raw.dayType || "").trim();
+  if (!raw) return { code: "", memo: "" };
+  if (typeof raw === "string") return { code: raw.trim(), memo: "" };
   return {
     code: String(raw.code || "").trim(),
-    dayType: dayType === "平日" || dayType === "休日" ? dayType : "",
     memo: String(raw.memo || "").trim(),
   };
 }
@@ -330,8 +329,9 @@ function loadRecord() {
     .getDisplayValues()
     .slice(1)
     .forEach((row) => {
-      if (row[0] && (row[1] || row[2] || row[3])) {
-        record[row[0]] = { code: row[1] || "", dayType: row[2] || "", memo: row[3] || "" };
+      // 日種別(row[2])は以前の手修正の名残なので読まない
+      if (row[0] && (row[1] || row[3])) {
+        record[row[0]] = { code: row[1] || "", memo: row[3] || "" };
       }
     });
   return record;
@@ -349,7 +349,7 @@ function saveRecord(year, month, entries) {
     .map((row) => [row[0], row[1] || "", row[2] || "", row[3] || ""]);
   Object.keys(entries).forEach((key) => {
     const e = entries[key];
-    rows.push([key, e.code, e.dayType, e.memo]);
+    rows.push([key, e.code, "", e.memo]);
   });
   rows.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
 
