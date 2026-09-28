@@ -18,8 +18,8 @@
  *   非番     : タイトル=「〜」 / メモ=退勤時間 (泊の翌日に自動作成)
  *   休日     : タイトル=番号(特休など) / メモなし
  *   手入力   : タイトル=入力文字 / メモなし
- * 時間は、その日が土日祝なら「休日」、それ以外は「平日」の列を使う。
- * 年末年始など、日種別(平日/休日)とメモは日ごとに手で上書きできる。
+ * 時間は、その日が土日祝・年末年始(12/30〜1/3)なら「休日」、それ以外は「平日」の列を使う。
+ * 日種別(平日/休日)とメモは日ごとに手で上書きできる。
  */
 
 const MASTER_SHEET = "勤務コード";
@@ -255,10 +255,22 @@ function loadHolidays(year, month) {
     throw new Error("Googleカレンダーに「日本の祝日」を追加してください。");
   }
 
-  return cal
+  const holidays = cal
     .getEvents(new Date(year, month - 1, 1), new Date(year, month, 2))
     .filter((ev) => official || !ev.getDescription() || ev.getDescription().indexOf("祝日") !== -1)
     .map((ev) => toKey(ev.getAllDayStartDate()));
+
+  // 年末年始(12/30〜1/3)は祝日でなくても休日扱い
+  const last = new Date(year, month, 1);
+  for (let d = new Date(year, month - 1, 1); d <= last; d.setDate(d.getDate() + 1)) {
+    const m = d.getMonth() + 1;
+    const day = d.getDate();
+    const key = toKey(d);
+    if (((m === 12 && day >= 30) || (m === 1 && day <= 3)) && holidays.indexOf(key) === -1) {
+      holidays.push(key);
+    }
+  }
+  return holidays;
 }
 
 // ---------- シート ----------
