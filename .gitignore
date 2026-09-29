@@ -1,5 +1,22 @@
 # secrets / local config
+.env
+.env.*
+!.env.example
+supabase/.env
+supabase/.env.*
+!supabase/.env.example
+supabase/.temp/
+supabase/.branches/
+# サービスアカウントの鍵ファイル(JSON)を置いてしまっても入らないように
+*service-account*.json
+*serviceaccount*.json
+*-credentials.json
+credentials.json
 gas/.clasp.json
+
+# 実データ(マスタCSV・勤務記録の書き出しなど)
+*.csv
+!supabase/seed/*.example.csv
 
 # OS
 .DS_Store
