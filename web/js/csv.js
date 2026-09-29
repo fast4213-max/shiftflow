@@ -81,3 +81,45 @@ export function masterRowsFromCsv(text) {
     })
     .filter((r) => r.code !== "");
 }
+
+// "09:01:00" や "(9:01)" を "9:01" にそろえる(DB の normalize_time と同じ)
+export function normalizeTime(value) {
+  const m = String(value || "").match(/(\d{1,2}):(\d{2})/);
+  return m ? Number(m[1]) + ":" + m[2] : "";
+}
+
+const TIME_FIELDS = ["weekday_start", "weekday_end", "holiday_start", "holiday_end"];
+
+// 取り込み前の確認: 時刻をそろえ、行ごとの問題を返す
+//   戻り値: [{ ...row(時刻はそろえた値), errors: ["..."] }]
+export function checkMasterRows(rows) {
+  const count = {};
+  rows.forEach((r) => (count[r.code] = (count[r.code] || 0) + 1));
+  return rows.map((r) => {
+    const errors = [];
+    const out = { ...r };
+    if (["泊", "日勤", "休日"].indexOf(r.kind) === -1) errors.push("種別は 泊/日勤/休日");
+    if (count[r.code] > 1) errors.push("番号が重複");
+    TIME_FIELDS.forEach((f) => {
+      out[f] = normalizeTime(r[f]);
+      if (r[f] && !out[f]) errors.push("時刻が読めない: " + r[f]);
+    });
+    if (r.kind !== "休日" && !out.weekday_start) errors.push("平日出勤が空");
+    out.errors = errors;
+    return out;
+  });
+}
+
+function csvCell(v) {
+  v = String(v == null ? "" : v);
+  return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+
+// マスタの行 → CSV(Excel でも文字化けしないよう BOM 付き)
+export function masterToCsv(rows) {
+  const header = ["番号", "種別", "平日出勤", "平日退勤", "休日出勤", "休日退勤", "泊"];
+  const lines = [header.join(",")].concat(rows.map((r) =>
+    [r.code, r.kind, r.weekday_start, r.weekday_end, r.holiday_start, r.holiday_end, r.stay].map(csvCell).join(",")
+  ));
+  return "﻿" + lines.join("\r\n") + "\r\n";
+}

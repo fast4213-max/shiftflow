@@ -27,7 +27,7 @@ button {
 button:disabled { opacity: 0.5; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
-input[type="text"], input[type="email"], input:not([type]) {
+input[type="text"], input[type="email"], input[type="password"], input:not([type]) {
   font: inherit; font-size: 1rem; padding: 8px; border: 1px solid #bbb; border-radius: 6px; width: 100%;
 }
 
@@ -50,6 +50,7 @@ input[type="text"], input[type="email"], input:not([type]) {
 .ok { color: var(--ok); }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .row > input { flex: 1; min-width: 0; }
+select { font: inherit; font-size: 1rem; padding: 8px; border: 1px solid #bbb; border-radius: 6px; background: #fff; width: 100%; }
 label { display: block; font-weight: bold; margin: 12px 0 4px; }
 code, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; word-break: break-all; }
 .hidden { display: none !important; }
@@ -76,3 +77,10 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 dialog h2 { margin: 0 0 8px; font-size: 1.1rem; }
 dialog p { margin: 0 0 12px; font-size: 0.9rem; color: #555; }
 dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* 管理画面(PC でも見やすいよう少し広く) */
+.page.wide { max-width: 960px; }
+table.master td, table.master th { white-space: nowrap; }
+table.master tr.bad td { background: #fdecea; }
+table.master td.err { color: var(--danger); white-space: normal; min-width: 10em; }
+table.master td.num { color: var(--muted); }

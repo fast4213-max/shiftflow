@@ -24,7 +24,7 @@ async function main() {
     const member = await loadMembership(session);
     if (!member) return go("index.html"); // 許可されていない案内は index 側で出す
     const settings = await loadSettings(session);
-    return go(settings && settings.verified_at ? "index.html" : "settings.html");
+    return go(settings && settings.verified_at && settings.office_id ? "index.html" : "settings.html");
   }
 
   $("login").disabled = false;

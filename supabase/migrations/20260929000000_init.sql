@@ -2,13 +2,20 @@
 --
 -- テーブル
 --   members        利用を許可する Google アカウント(許可リスト)と管理者フラグ
+--   offices        区所(区所ごとに勤務コードマスタを持つ)
 --   shift_master   勤務コードマスタ(全員が読む。書くのは管理者だけ)
---   user_settings  カレンダーIDと検証状態(本人だけ)
+--   user_settings  区所・カレンダーID・検証状態(本人だけ)
 --   shift_records  勤務記録(本人だけ)
 --   holidays       祝日のキャッシュ(全員が読む。書くのは Edge Function だけ)
+--   admin_secret   管理画面のパスワード(ハッシュだけ。誰も読めない)
+--   admin_unlocks  管理画面の解除状態(ログインセッションごと)
 --
 -- すべて RLS を有効にする。anon(未ログイン)には何も見せない。
 -- Edge Function は service_role で動く部分(検証済みフラグ・ロック・祝日)だけ RLS を越える。
+-- 管理の操作は「管理者フラグ」かつ「パスワード解除済み」のときだけ許す(is_admin())。
+
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
 
 -- ============================================================
 -- 共通関数
@@ -22,6 +29,16 @@ stable
 set search_path = ''
 as $$
   select lower(coalesce(auth.jwt() ->> 'email', ''))
+$$;
+
+-- ログインセッションのID(管理画面の解除はセッションごと)
+create or replace function public.current_session_id()
+returns text
+language sql
+stable
+set search_path = ''
+as $$
+  select coalesce(auth.jwt() ->> 'session_id', '')
 $$;
 
 -- "09:01:00" や "(9:01)" などを "9:01" にそろえる。時刻が無ければ ''
@@ -78,7 +95,34 @@ create trigger members_normalize_email
   before insert or update on public.members
   for each row execute function public.members_normalize_email();
 
--- RLS から呼ぶので security definer(members 自身の RLS を越えて判定する)
+-- ============================================================
+-- 管理画面のパスワード
+-- ============================================================
+
+-- パスワードのハッシュ(1行だけ)。RLS 有効・ポリシーなし・権限なしで誰にも読ませない
+create table public.admin_secret (
+  id            int primary key default 1 check (id = 1),
+  passcode_hash text not null,
+  updated_at    timestamptz not null default now()
+);
+
+-- 解除状態と失敗回数(ログインセッションごと)
+create table public.admin_unlocks (
+  email          text not null,
+  session_id     text not null,
+  unlocked_until timestamptz,
+  failed_count   int not null default 0,
+  locked_until   timestamptz,
+  primary key (email, session_id)
+);
+
+alter table public.admin_secret enable row level security;
+alter table public.admin_unlocks enable row level security;
+
+-- ============================================================
+-- 判定用の関数(RLS から呼ぶので security definer)
+-- ============================================================
+
 create or replace function public.is_member()
 returns boolean
 language sql
@@ -89,7 +133,8 @@ as $$
   select exists (select 1 from public.members where email = public.current_email())
 $$;
 
-create or replace function public.is_admin()
+-- 管理者フラグだけを見る(「管理」リンクを出すか、パスワード入力を受け付けるか)
+create or replace function public.has_admin_role()
 returns boolean
 language sql
 stable
@@ -97,6 +142,102 @@ security definer
 set search_path = ''
 as $$
   select exists (select 1 from public.members where email = public.current_email() and is_admin)
+$$;
+
+-- 管理者フラグ + このログインでパスワード解除済み
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+      from public.members m
+      join public.admin_unlocks u on u.email = m.email
+     where m.email = public.current_email()
+       and m.is_admin
+       and u.session_id = public.current_session_id()
+       and u.unlocked_until > now()
+  )
+$$;
+
+-- パスワードを確かめて、このログインを1時間解除する。
+-- 戻り値: 'ok' / 'wrong'(違う)/ 'locked'(5回間違えて15分ロック中)/ 'not_set'(未設定)/ 'not_admin'
+-- 失敗回数を残すため、失敗しても例外にせず値で返す
+create or replace function public.unlock_admin(passcode text)
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  me text := public.current_email();
+  sid text := public.current_session_id();
+  hash text;
+  rec public.admin_unlocks;
+begin
+  if not public.has_admin_role() then
+    return 'not_admin';
+  end if;
+  select passcode_hash into hash from public.admin_secret where id = 1;
+  if hash is null then
+    return 'not_set';
+  end if;
+
+  insert into public.admin_unlocks (email, session_id) values (me, sid)
+    on conflict (email, session_id) do nothing;
+  select * into rec from public.admin_unlocks where email = me and session_id = sid for update;
+
+  if rec.locked_until is not null and rec.locked_until > now() then
+    return 'locked';
+  end if;
+
+  if extensions.crypt(coalesce(passcode, ''), hash) = hash then
+    update public.admin_unlocks
+       set unlocked_until = now() + interval '1 hour', failed_count = 0, locked_until = null
+     where email = me and session_id = sid;
+    return 'ok';
+  end if;
+
+  update public.admin_unlocks
+     set failed_count = case when rec.failed_count + 1 >= 5 then 0 else rec.failed_count + 1 end,
+         locked_until = case when rec.failed_count + 1 >= 5 then now() + interval '15 minutes' else null end,
+         unlocked_until = null
+   where email = me and session_id = sid;
+  return case when rec.failed_count + 1 >= 5 then 'locked' else 'wrong' end;
+end;
+$$;
+
+create or replace function public.lock_admin()
+returns void
+language sql
+security definer
+set search_path = ''
+as $$
+  update public.admin_unlocks set unlocked_until = null
+   where email = public.current_email() and session_id = public.current_session_id()
+$$;
+
+-- SQL Editor で実行してパスワードを設定・変更する(画面からは呼べない)
+--   select public.set_admin_passcode('ここに新しいパスワード');
+create or replace function public.set_admin_passcode(new_passcode text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if length(coalesce(new_passcode, '')) < 8 then
+    raise exception 'パスワードは8文字以上にしてください';
+  end if;
+  insert into public.admin_secret (id, passcode_hash)
+    values (1, extensions.crypt(new_passcode, extensions.gen_salt('bf', 10)))
+    on conflict (id) do update set passcode_hash = excluded.passcode_hash, updated_at = now();
+  -- 変えたら全員の解除を取り消す
+  update public.admin_unlocks set unlocked_until = null where true;
+end;
 $$;
 
 alter table public.members enable row level security;
@@ -122,11 +263,36 @@ create policy members_delete on public.members
   using (public.is_admin() and email <> public.current_email());
 
 -- ============================================================
--- shift_master(勤務コードマスタ)
+-- offices(区所)
+-- ============================================================
+
+create table public.offices (
+  id         bigint generated always as identity primary key,
+  name       text not null unique check (btrim(name) <> ''),
+  sort_order int not null default 0,
+  created_at timestamptz not null default now()
+);
+
+comment on table public.offices is '区所。区所ごとに勤務コードマスタを持つ';
+
+alter table public.offices enable row level security;
+
+create policy offices_select on public.offices
+  for select to authenticated
+  using (public.is_member());
+
+create policy offices_admin_write on public.offices
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ============================================================
+-- shift_master(勤務コードマスタ。区所ごと)
 -- ============================================================
 
 create table public.shift_master (
-  code          text primary key check (code <> ''),       -- 番号(行路番号)
+  office_id     bigint not null references public.offices (id) on delete cascade,
+  code          text not null check (code <> ''),          -- 番号(行路番号)
   kind          text not null check (kind in ('泊', '日勤', '休日')),  -- 種別
   weekday_start text not null default '',                  -- 平日出勤 (H:MM)
   weekday_end   text not null default '',                  -- 平日退勤
@@ -134,10 +300,11 @@ create table public.shift_master (
   holiday_end   text not null default '',                  -- 休日退勤
   stay          text not null default '',                  -- 泊(泊地)
   sort_order    int  not null default 0,                   -- 一覧の並び順(CSVの行順)
-  updated_at    timestamptz not null default now()
+  updated_at    timestamptz not null default now(),
+  primary key (office_id, code)
 );
 
-comment on table public.shift_master is '勤務コードマスタ。管理画面の CSV 取り込みで入れ替える';
+comment on table public.shift_master is '勤務コードマスタ。管理画面で区所を選んで CSV を取り込み、丸ごと入れ替える';
 
 alter table public.shift_master enable row level security;
 
@@ -150,9 +317,9 @@ create policy shift_master_admin_write on public.shift_master
   using (public.is_admin())
   with check (public.is_admin());
 
--- マスタを丸ごと入れ替える(管理画面の CSV 取り込み)
+-- 区所のマスタを丸ごと入れ替える(管理画面の CSV 取り込み)
 -- rows: [{code, kind, weekday_start, weekday_end, holiday_start, holiday_end, stay}, ...] (並び順どおり)
-create or replace function public.replace_shift_master(rows jsonb)
+create or replace function public.replace_shift_master(p_office_id bigint, rows jsonb)
 returns int
 language plpgsql
 security definer
@@ -164,6 +331,9 @@ declare
 begin
   if not public.is_admin() then
     raise exception '管理者だけが実行できます' using errcode = '42501';
+  end if;
+  if not exists (select 1 from public.offices where id = p_office_id) then
+    raise exception '区所が見つかりません';
   end if;
   if jsonb_typeof(rows) <> 'array' or jsonb_array_length(rows) = 0 then
     raise exception 'マスタが空です';
@@ -194,10 +364,10 @@ begin
     raise exception '番号が重複しています: %', bad;
   end if;
 
-  delete from public.shift_master where true;
+  delete from public.shift_master where office_id = p_office_id;
   insert into public.shift_master
-    (code, kind, weekday_start, weekday_end, holiday_start, holiday_end, stay, sort_order)
-  select code, kind, weekday_start, weekday_end, holiday_start, holiday_end, stay, sort_order
+    (office_id, code, kind, weekday_start, weekday_end, holiday_start, holiday_end, stay, sort_order)
+  select p_office_id, code, kind, weekday_start, weekday_end, holiday_start, holiday_end, stay, sort_order
     from incoming;
   get diagnostics n = row_count;
   return n;
@@ -210,6 +380,7 @@ $$;
 
 create table public.user_settings (
   user_id             uuid primary key default auth.uid() references auth.users (id) on delete cascade,
+  office_id           bigint references public.offices (id) on delete set null,  -- 自分の区所
   work_calendar_id    text not null default '',
   holiday_calendar_id text not null default '',
   verified_at         timestamptz,   -- 接続テストに成功した日時(= 検証済みフラグ)。Edge Function だけが書く
@@ -257,11 +428,6 @@ create policy user_settings_update on public.user_settings
   for update to authenticated
   using (user_id = auth.uid() and public.is_member())
   with check (user_id = auth.uid() and public.is_member());
-
--- 利用者が書けるのはカレンダーIDだけ(検証済みフラグなどは書けない)
-revoke insert, update, delete on public.user_settings from authenticated;
-grant insert (user_id, work_calendar_id, holiday_calendar_id) on public.user_settings to authenticated;
-grant update (work_calendar_id, holiday_calendar_id) on public.user_settings to authenticated;
 
 -- 二重実行防止のロック(Edge Function から service_role で呼ぶ)
 create or replace function public.acquire_user_lock(p_user_id uuid, p_seconds int default 120)
@@ -393,6 +559,15 @@ begin
                    join auth.users u on u.id = s.user_id
                    join public.members m on m.email = lower(u.email)
                   where s.last_registered_at > now() - interval '30 days'),
+    'offices', coalesce((
+      select jsonb_agg(jsonb_build_object(
+               'id', o.id,
+               'name', o.name,
+               'master_count', (select count(*) from public.shift_master sm where sm.office_id = o.id),
+               'user_count', (select count(*) from public.user_settings s where s.office_id = o.id)
+             ) order by o.sort_order, o.id)
+        from public.offices o
+    ), '[]'::jsonb),
     'users', coalesce((
       select jsonb_agg(jsonb_build_object(
                'email', m.email,
@@ -401,6 +576,7 @@ begin
                'plan', m.plan,
                'added_at', m.created_at,
                'last_sign_in_at', u.last_sign_in_at,
+               'office', o.name,
                'verified', s.verified_at is not null,
                'last_registered_at', s.last_registered_at,
                'record_days', (select count(*) from public.shift_records r where r.user_id = u.id)
@@ -408,6 +584,7 @@ begin
         from public.members m
         left join auth.users u on lower(u.email) = m.email
         left join public.user_settings s on s.user_id = u.id
+        left join public.offices o on o.id = s.office_id
     ), '[]'::jsonb),
     -- ログインしたが許可リストに無い人(許可する候補)
     'pending', coalesce((
@@ -428,26 +605,34 @@ $$;
 -- 権限
 -- ============================================================
 
--- 新しいプロジェクトでは表の権限が自動で付かない場合があるので明示する(実際に触れる行は RLS で絞る)
+-- 表: 新しいプロジェクトでは権限が自動で付かない場合があるので明示する(実際に触れる行は RLS で絞る)
 grant usage on schema public to authenticated, service_role;
-grant select, insert, update, delete on public.members, public.shift_master, public.shift_records to authenticated;
-grant select on public.user_settings to authenticated;
+revoke all on all tables in schema public from anon, authenticated;
+grant select, insert, update, delete on public.members, public.offices, public.shift_master, public.shift_records
+  to authenticated;
+grant select on public.user_settings, public.holidays, public.holiday_years to authenticated;
+-- 利用者が書けるのは区所とカレンダーIDだけ(検証済みフラグなどは書けない)
+grant insert (user_id, office_id, work_calendar_id, holiday_calendar_id) on public.user_settings to authenticated;
+grant update (office_id, work_calendar_id, holiday_calendar_id) on public.user_settings to authenticated;
+-- admin_secret / admin_unlocks は authenticated に一切渡さない(関数経由だけ)
 grant all on all tables in schema public to service_role;
 
--- 未ログイン(anon)には何も触らせない
-revoke all on all tables in schema public from anon;
-revoke execute on all functions in schema public from public, anon;
+-- 関数: Supabase は新しい関数に anon / authenticated の実行権限を自動で付けるので、
+-- いったん全部外してから必要なものだけ付ける
+revoke execute on all functions in schema public from public, anon, authenticated;
 
 grant execute on function public.current_email() to authenticated;
+grant execute on function public.current_session_id() to authenticated;
 grant execute on function public.normalize_time(text) to authenticated;
 grant execute on function public.is_member() to authenticated;
+grant execute on function public.has_admin_role() to authenticated;
 grant execute on function public.is_admin() to authenticated;
-grant execute on function public.replace_shift_master(jsonb) to authenticated;
+grant execute on function public.unlock_admin(text) to authenticated;
+grant execute on function public.lock_admin() to authenticated;
+grant execute on function public.replace_shift_master(bigint, jsonb) to authenticated;
 grant execute on function public.save_month_records(int, int, jsonb) to authenticated;
 grant execute on function public.admin_stats() to authenticated;
 
--- ロックと祝日の書き込みは Edge Function(service_role)だけ
-revoke all on public.holidays, public.holiday_years from authenticated;
-grant select on public.holidays, public.holiday_years to authenticated;
+-- ロックは Edge Function(service_role)だけ。set_admin_passcode は SQL Editor(postgres)専用
 grant execute on function public.acquire_user_lock(uuid, int) to service_role;
 grant execute on function public.release_user_lock(uuid) to service_role;

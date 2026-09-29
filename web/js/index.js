@@ -15,6 +15,7 @@ const state = {
   master: {},
   entries: {},       // { "yyyy-MM-dd": { code, memo } }  memo は手修正したときだけ
   prevLastCode: "",
+  officeId: null,
   holidays: [],
   dirty: false,
 };
@@ -55,7 +56,7 @@ async function load() {
   const nextFirst = addDays(last, 1);
   try {
     const [masterRes, recordsRes, holidays] = await Promise.all([
-      supabase.from("shift_master").select("*").order("sort_order"),
+      supabase.from("shift_master").select("*").eq("office_id", state.officeId).order("sort_order"),
       supabase.from("shift_records").select("date, code, memo").gte("date", prevLast).lte("date", last),
       loadHolidays(first, nextFirst),
     ]);
@@ -76,7 +77,7 @@ async function load() {
     scrollToToday();
     $("register").disabled = false;
     $("reset").disabled = false;
-    setStatus(state.masterList.length ? "" : "勤務コードのマスタが空です。管理者に登録を頼んでください。", !state.masterList.length);
+    setStatus(state.masterList.length ? "" : "この区所の勤務コードのマスタが空です。管理者に登録を頼んでください。", !state.masterList.length);
   } catch (err) {
     setStatus(err.message || String(err), true);
   }
@@ -305,6 +306,8 @@ $("reset-run").addEventListener("click", async () => {
 
 requireLogin("index.html", { needVerified: true })
   .then((ctx) => {
-    if (ctx) load();
+    if (!ctx) return;
+    state.officeId = ctx.settings.office_id;
+    load();
   })
   .catch((err) => setStatus(err.message || String(err), true));

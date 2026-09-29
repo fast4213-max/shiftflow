@@ -76,7 +76,7 @@ export async function loadMembership(session) {
 export async function loadSettings(session) {
   const { data, error } = await supabase
     .from("user_settings")
-    .select("work_calendar_id, holiday_calendar_id, verified_at")
+    .select("work_calendar_id, holiday_calendar_id, verified_at, office_id")
     .eq("user_id", session.user.id)
     .maybeSingle();
   if (error) throw error;
@@ -104,7 +104,7 @@ function showNotAllowed(email) {
 }
 
 // ログイン必須のページの入口。
-//   needVerified: 接続テスト済みでなければ設定画面へ
+//   needVerified: 区所を選んでいない・接続テスト済みでなければ設定画面へ
 //   needAdmin   : 管理者でなければ勤務入力へ
 // 戻り値: { session, member, settings }(移動するときは null)
 export async function requireLogin(current, { needVerified = false, needAdmin = false } = {}) {
@@ -123,7 +123,7 @@ export async function requireLogin(current, { needVerified = false, needAdmin = 
     return null;
   }
   const settings = await loadSettings(session);
-  if (needVerified && !(settings && settings.verified_at)) {
+  if (needVerified && !(settings && settings.verified_at && settings.office_id)) {
     go("settings.html");
     return null;
   }

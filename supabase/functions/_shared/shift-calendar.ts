@@ -6,14 +6,14 @@ import type { Context } from "./auth.ts";
 import { AppError } from "./http.ts";
 import { APP_TAG, calendarAccessError, deleteEvent, insertAllDayEvent, listEvents, runPool } from "./google.ts";
 
-export type Calendars = { work: string; holiday: string };
+export type Calendars = { work: string; holiday: string; officeId?: number | null };
 
 const CONCURRENCY = 4;
 
 export async function loadVerifiedCalendars(ctx: Context): Promise<Calendars> {
   const { data, error } = await ctx.db
     .from("user_settings")
-    .select("work_calendar_id, holiday_calendar_id, verified_at")
+    .select("work_calendar_id, holiday_calendar_id, verified_at, office_id")
     .eq("user_id", ctx.userId)
     .maybeSingle();
   if (error) throw error;
@@ -23,7 +23,7 @@ export async function loadVerifiedCalendars(ctx: Context): Promise<Calendars> {
   if (!data.verified_at) {
     throw new AppError(400, "設定画面で「接続テスト」を行ってください。", "not_verified");
   }
-  return { work: data.work_calendar_id, holiday: data.holiday_calendar_id };
+  return { work: data.work_calendar_id, holiday: data.holiday_calendar_id, officeId: data.office_id };
 }
 
 // 二重実行防止のロックを取って fn を実行する

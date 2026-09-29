@@ -20,6 +20,7 @@ serve(async (req) => {
   if (Object.keys(entries).length > 62) throw new AppError(400, "入力が多すぎます。");
 
   const calendars = await loadVerifiedCalendars(ctx);
+  if (!calendars.officeId) throw new AppError(400, "設定画面で区所を選んでください。", "no_office");
 
   return await withUserLock(ctx, async () => {
     const first = dateKey(year, month, 1);
@@ -28,7 +29,7 @@ serve(async (req) => {
     const nextFirst = addDays(last, 1);
 
     const [masterRes, recordsRes, holidays] = await Promise.all([
-      ctx.db.from("shift_master").select("*").order("sort_order"),
+      ctx.db.from("shift_master").select("*").eq("office_id", calendars.officeId).order("sort_order"),
       ctx.db.from("shift_records").select("date, code, memo").in("date", [prevLast, nextFirst]),
       loadHolidays(ctx.admin, first, nextFirst),
     ]);
