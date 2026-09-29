@@ -8,7 +8,7 @@ serve(async (req) => {
   const ctx = await requireMember(req);
   return {
     serviceAccountEmail: serviceAccount().client_email,
-    email: ctx.email,
+    employeeNo: ctx.employeeNo,
     isAdmin: ctx.isAdmin,
   };
 });

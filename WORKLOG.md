@@ -360,3 +360,42 @@
 
 ### 手動でやる作業の残り
 - なし(すべて実装後にまとめて README に書く)
+
+---
+
+## 2026-09-29 実装フェーズB: Edge Functions(ログイン・登録・管理)
+
+### やったこと
+- 新しい Edge Function を追加した
+  - `login`: 社員番号+PIN でログインしてセッションを返す。失敗5回でその社員番号を15分ロック
+  - `sign-up`: 共通パスワードを確かめて利用者を作る(名字・名前・社員番号・PIN)。共通パスワード違い5回でそのIPを15分ロック。共通パスワードが未設定なら受け付けない
+  - `admin-login`: 管理用パスワード(シークレット `ADMIN_PASSWORD`、12文字以上)でログイン。初回に管理用ユーザーを作る。失敗5回で15分ロック
+  - `admin-users`: 管理者だけ。利用者の削除、仮のPINの発行
+  - `change-pin`: 自分のPINの変更(いまのPINを確かめる)
+- 既存の関数を、メール許可リストからプロフィールでの判定に変えた(`requireMember` / `requireAdmin`)
+- 接続テストで、メールアドレスの形のカレンダーID(メインのカレンダー)を断るようにした
+- ログイン・登録・管理者ログインの本体は `_shared/login-core.ts` にまとめ、偽の Supabase でテストした(15件)。既存のテストと合わせて32件成功
+- `config.toml` から Google ログインを外し、画面からの直接の新規登録を無効にした。`.env.example` に `ADMIN_PASSWORD` を追加
+
+### 変更したファイル
+- `supabase/functions/_shared/`(`accounts.ts`、`attempts.ts`、`login-core.ts`、`login-core_test.ts`、`auth.ts`)
+- `supabase/functions/{login,sign-up,admin-login,admin-users,change-pin}/index.ts`(新規)、`app-config`、`verify-calendar`
+- `supabase/config.toml`、`.env.example`、`WORKLOG.md`
+
+### 決めたこと(理由)
+- ログインを Edge Function 経由にした(Supabase Auth に直接ログインさせると、社員番号ごとの失敗回数を数えてロックできないため)
+- PIN から作るパスワードには接頭辞 `sf-` を付ける(Supabase のパスワードの最小文字数を満たすため)。PIN の変更も Edge Function で行い、画面にはこの変換を持たせない
+- 管理用パスワードは DB でなくシークレットに置く(SQL を実行する手順を減らすため)。管理者ログインのたびに管理用ユーザーのパスワードを使い捨ての値に変える
+- 共通パスワードは管理画面から設定・変更する(設定するまで新規登録は受け付けない)
+- 登録の途中で止まって残ったユーザー(プロフィールなし)は、次の登録・管理者ログインで再利用する
+- 全角の数字で入力されても半角にして受け付ける(スマホの日本語キーボード対策)
+
+### 実環境で確認が必要なこと(ローカルでは確かめられない)
+- 実在しない内部用メール(`@users.shiftflow.invalid`)で、Supabase Auth のユーザー作成とパスワードログインが通ること(公式ドキュメントでは、管理用のユーザー作成はメールの形式を検査しないとされている)
+- `supabase functions deploy` で全部の関数がデプロイされること
+
+### 次にやること
+- フェーズC: 画面(最初の画面のタブ、新規登録、設定、勤務入力、管理ダッシュボード)
+
+### 手動でやる作業の残り
+- なし(まとめて README に書く)

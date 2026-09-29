@@ -6,7 +6,7 @@ import { calendarAccessError, deleteEvent, insertAllDayEvent } from "../_shared/
 import { AppError, serve } from "../_shared/http.ts";
 import { addDays } from "../_shared/plan.js";
 
-// "xxx@group.calendar.google.com" などの追加カレンダーではなく、メールアドレス形式のID(メインのカレンダー)か
+// メインのカレンダーのID(メールアドレスの形。"xxx@group.calendar.google.com" などの追加カレンダーではないもの)
 function isPrimaryCalendarId(id: string): boolean {
   return id.includes("@") && !/\.calendar\.google\.com$/i.test(id);
 }
@@ -26,13 +26,14 @@ serve(async (req) => {
     throw new AppError(400, "勤務用と休日用のカレンダーIDを入力して保存してください。", "not_configured");
   }
 
-  // メインのカレンダー(ID=メールアドレス)は、ログイン中の本人のものだけ使える
+  // メインのカレンダー(ID=メールアドレス)は使えない。社員番号のログインでは本人のものか確かめられないため、
+  // このアプリ用に新しく作ったカレンダーを使ってもらう
   for (const [id, name] of [[work, "勤務用"], [holiday, "休日用"]]) {
-    if (isPrimaryCalendarId(id) && id.toLowerCase() !== ctx.email) {
+    if (isPrimaryCalendarId(id)) {
       throw new AppError(
         400,
-        `${name}カレンダーIDがメールアドレスの形です。自分以外のメインのカレンダーは使えません。新しく作ったカレンダーのIDを使ってください。`,
-        "foreign_primary",
+        `${name}カレンダーIDがメールアドレスの形です。メインのカレンダーは使えません。このアプリ用に新しく作ったカレンダーのIDを入れてください。`,
+        "primary_calendar",
       );
     }
   }

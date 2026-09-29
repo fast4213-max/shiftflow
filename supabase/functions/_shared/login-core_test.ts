@@ -1,0 +1,269 @@
+// ログイン・新規登録・管理者ログインのテスト(Supabase は偽物に差し替える)
+//   deno test supabase/functions --allow-read --allow-env
+
+import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
+import { adminLogin, loginWithPin, signUp } from "./login-core.ts";
+import { AppError } from "./http.ts";
+import { emailFor, passwordFor, randomPin, toHalfWidth } from "./accounts.ts";
+
+type User = { id: string; email: string; password: string };
+type Profile = { user_id: string; employee_no: string | null; role: string; family_name?: string; given_name?: string };
+
+// 最小限の偽物: DB の関数(rpc)、profiles、Supabase Auth のユーザー
+function fakes(opts: { sharedPassword?: string | null; failProfileInsert?: boolean } = {}) {
+  const attempts = new Map<string, { count: number; lockedUntil: number | null }>();
+  const users: User[] = [];
+  const profiles: Profile[] = [];
+  const shared = opts.sharedPassword === undefined ? "kyotsu-pass-1" : opts.sharedPassword;
+  let seq = 0;
+
+  const admin = {
+    rpc(name: string, args: Record<string, unknown>) {
+      const key = String(args.p_key ?? "");
+      const a = attempts.get(key);
+      switch (name) {
+        case "auth_attempt_locked_until":
+          return Promise.resolve({ data: a?.lockedUntil && a.lockedUntil > Date.now() ? new Date(a.lockedUntil).toISOString() : null, error: null });
+        case "auth_attempt_fail": {
+          const cur = a ?? { count: 0, lockedUntil: null };
+          cur.count++;
+          attempts.set(key, cur);
+          if (cur.count >= Number(args.p_max)) {
+            cur.count = 0;
+            cur.lockedUntil = Date.now() + Number(args.p_minutes) * 60000;
+            return Promise.resolve({ data: new Date(cur.lockedUntil).toISOString(), error: null });
+          }
+          return Promise.resolve({ data: null, error: null });
+        }
+        case "auth_attempt_reset":
+          attempts.delete(key);
+          return Promise.resolve({ data: null, error: null });
+        case "check_signup_password":
+          return Promise.resolve({ data: shared === null ? "not_set" : args.p_password === shared ? "ok" : "wrong", error: null });
+      }
+      throw new Error("unexpected rpc " + name);
+    },
+    from(table: string) {
+      assertEquals(table, "profiles");
+      const filters: [string, unknown][] = [];
+      const builder = {
+        select: () => builder,
+        eq: (col: string, val: unknown) => (filters.push([col, val]), builder),
+        maybeSingle: () => {
+          const row = profiles.find((p) => filters.every(([c, v]) => (p as Record<string, unknown>)[c] === v));
+          return Promise.resolve({ data: row ?? null, error: null });
+        },
+        insert: (row: Profile) => {
+          if (opts.failProfileInsert) return Promise.resolve({ error: new Error("insert failed") });
+          profiles.push(row);
+          return Promise.resolve({ error: null });
+        },
+      };
+      return builder;
+    },
+    auth: {
+      admin: {
+        createUser({ email, password }: { email: string; password: string }) {
+          if (users.some((u) => u.email === email)) return Promise.resolve({ data: { user: null }, error: new Error("already registered") });
+          const user = { id: `id-${++seq}`, email, password };
+          users.push(user);
+          return Promise.resolve({ data: { user }, error: null });
+        },
+        updateUserById(id: string, attrs: { password?: string }) {
+          const u = users.find((x) => x.id === id)!;
+          if (attrs.password) u.password = attrs.password;
+          return Promise.resolve({ data: { user: u }, error: null });
+        },
+        deleteUser(id: string) {
+          const i = users.findIndex((x) => x.id === id);
+          if (i >= 0) users.splice(i, 1);
+          return Promise.resolve({ data: null, error: null });
+        },
+        listUsers() {
+          return Promise.resolve({ data: { users }, error: null });
+        },
+      },
+    },
+  };
+
+  const anon = {
+    auth: {
+      signInWithPassword({ email, password }: { email: string; password: string }) {
+        const u = users.find((x) => x.email === email && x.password === password);
+        return Promise.resolve(
+          u
+            ? { data: { session: { access_token: `at-${u.id}`, refresh_token: `rt-${u.id}` } }, error: null }
+            : { data: { session: null }, error: new Error("Invalid login credentials") },
+        );
+      },
+    },
+  };
+
+  return {
+    deps: { admin: admin as unknown as SupabaseClient, anon: anon as unknown as SupabaseClient },
+    users,
+    profiles,
+    attempts,
+  };
+}
+
+const reg = {
+  employee_no: "1234567",
+  family_name: "山田",
+  given_name: "太郎",
+  pin: "482913",
+  shared_password: "kyotsu-pass-1",
+};
+
+async function code(fn: () => Promise<unknown>): Promise<string> {
+  const err = await assertRejects(fn, AppError);
+  return err.code;
+}
+
+Deno.test("PIN/社員番号の補助: 全角の数字を半角にする・仮のPINは6桁", () => {
+  assertEquals(toHalfWidth(" １２３４５６７ "), "1234567");
+  assertEquals(emailFor("1234567"), "1234567@users.shiftflow.invalid");
+  assert(/^\d{6}$/.test(randomPin()));
+});
+
+Deno.test("新規登録 → その社員番号+PINでログインできる", async () => {
+  const f = fakes();
+  await signUp(f.deps, reg, "1.2.3.4");
+  assertEquals(f.profiles.length, 1);
+  assertEquals(f.profiles[0].employee_no, "1234567");
+  assertEquals(f.profiles[0].family_name, "山田");
+  const session = await loginWithPin(f.deps, { employee_no: "1234567", pin: "482913" });
+  assertEquals(session.access_token, "at-id-1");
+  // 全角でもログインできる
+  await loginWithPin(f.deps, { employee_no: "１２３４５６７", pin: "４８２９１３" });
+});
+
+Deno.test("新規登録: 入力チェック", async () => {
+  const f = fakes();
+  assertEquals(await code(() => signUp(f.deps, { ...reg, employee_no: "12345" }, "ip")), "bad_employee_no");
+  assertEquals(await code(() => signUp(f.deps, { ...reg, employee_no: "abcdefg" }, "ip")), "bad_employee_no");
+  assertEquals(await code(() => signUp(f.deps, { ...reg, family_name: "  " }, "ip")), "bad_name");
+  assertEquals(await code(() => signUp(f.deps, { ...reg, given_name: "あ".repeat(31) }, "ip")), "bad_name");
+  assertEquals(await code(() => signUp(f.deps, { ...reg, pin: "1234" }, "ip")), "bad_pin");
+  assertEquals(await code(() => signUp(f.deps, { ...reg, pin: "12345a" }, "ip")), "bad_pin");
+  assertEquals(await code(() => signUp(f.deps, { ...reg, shared_password: "" }, "ip")), "bad_shared_password");
+  assertEquals(f.users.length, 0);
+});
+
+Deno.test("新規登録: 共通パスワードが未設定なら受け付けない / 違えば拒否", async () => {
+  const closed = fakes({ sharedPassword: null });
+  assertEquals(await code(() => signUp(closed.deps, reg, "ip")), "signup_closed");
+  assertEquals(closed.users.length, 0);
+
+  const f = fakes();
+  assertEquals(await code(() => signUp(f.deps, { ...reg, shared_password: "wrong" }, "ip")), "bad_shared_password");
+  assertEquals(f.users.length, 0);
+});
+
+Deno.test("新規登録: 共通パスワードを5回間違えるとそのIPはロックされ、正しくても通らない", async () => {
+  const f = fakes();
+  for (let i = 0; i < 4; i++) {
+    assertEquals(await code(() => signUp(f.deps, { ...reg, shared_password: "wrong" }, "9.9.9.9")), "bad_shared_password");
+  }
+  assertEquals(await code(() => signUp(f.deps, { ...reg, shared_password: "wrong" }, "9.9.9.9")), "locked");
+  assertEquals(await code(() => signUp(f.deps, reg, "9.9.9.9")), "locked");
+  // 別のIPは影響を受けない
+  await signUp(f.deps, reg, "8.8.8.8");
+  assertEquals(f.profiles.length, 1);
+});
+
+Deno.test("新規登録: 同じ社員番号は二重に登録できない", async () => {
+  const f = fakes();
+  await signUp(f.deps, reg, "ip");
+  assertEquals(await code(() => signUp(f.deps, { ...reg, pin: "111111" }, "ip")), "already_registered");
+  // 元のPINのまま(乗っ取られない)
+  await loginWithPin(f.deps, { employee_no: "1234567", pin: "482913" });
+  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "111111" })), "bad_credentials");
+});
+
+Deno.test("新規登録: プロフィールの作成に失敗したらユーザーも消す", async () => {
+  const f = fakes({ failProfileInsert: true });
+  await assertRejects(() => signUp(f.deps, reg, "ip"));
+  assertEquals(f.users.length, 0);
+});
+
+Deno.test("新規登録: 前回の途中で止まってユーザーだけ残っていたら、それを使って登録できる", async () => {
+  const f = fakes();
+  f.users.push({ id: "left-over", email: emailFor("1234567"), password: passwordFor("000000") });
+  await signUp(f.deps, reg, "ip");
+  assertEquals(f.profiles[0].user_id, "left-over");
+  await loginWithPin(f.deps, { employee_no: "1234567", pin: "482913" });
+  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "000000" })), "bad_credentials");
+});
+
+Deno.test("ログイン: 登録が無い・PINが違うと弾く。形式の間違いは失敗に数えない", async () => {
+  const f = fakes();
+  await signUp(f.deps, reg, "ip");
+  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "7654321", pin: "482913" })), "bad_credentials");
+  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "000000" })), "bad_credentials");
+  for (let i = 0; i < 10; i++) {
+    assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "12" })), "bad_pin");
+  }
+  // まだロックされていない
+  await loginWithPin(f.deps, { employee_no: "1234567", pin: "482913" });
+});
+
+Deno.test("ログイン: 5回間違えるとその社員番号は15分ロック。正しいPINでもロック中は入れない", async () => {
+  const f = fakes();
+  await signUp(f.deps, reg, "ip");
+  for (let i = 0; i < 4; i++) {
+    assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "000000" })), "bad_credentials");
+  }
+  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "000000" })), "locked");
+  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "482913" })), "locked");
+  // 別の社員番号には影響しない
+  await signUp(f.deps, { ...reg, employee_no: "2345678" }, "ip2");
+  await loginWithPin(f.deps, { employee_no: "2345678", pin: "482913" });
+});
+
+Deno.test("ログイン: 成功すると失敗回数が0に戻る", async () => {
+  const f = fakes();
+  await signUp(f.deps, reg, "ip");
+  for (let i = 0; i < 4; i++) await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "000000" }));
+  await loginWithPin(f.deps, { employee_no: "1234567", pin: "482913" });
+  for (let i = 0; i < 4; i++) {
+    assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "000000" })), "bad_credentials");
+  }
+});
+
+Deno.test("管理者ログイン: パスワード未設定・短すぎると使えない", async () => {
+  const f = fakes();
+  assertEquals(await code(() => adminLogin(f.deps, { password: "x" }, undefined)), "admin_not_set");
+  assertEquals(await code(() => adminLogin(f.deps, { password: "short" }, "short")), "admin_not_set");
+});
+
+Deno.test("管理者ログイン: 正しいパスワードでセッションが返り、管理用ユーザーは1人だけ作られる", async () => {
+  const f = fakes();
+  const secret = "admin-secret-1234";
+  const s1 = await adminLogin(f.deps, { password: secret }, secret);
+  assert(s1.access_token);
+  assertEquals(f.profiles.filter((p) => p.role === "admin").length, 1);
+  assertEquals(f.profiles[0].employee_no, undefined);
+  await adminLogin(f.deps, { password: secret }, secret);
+  assertEquals(f.users.length, 1);
+  assertEquals(f.profiles.length, 1);
+});
+
+Deno.test("管理者ログイン: 違うパスワードは弾き、5回でロック", async () => {
+  const f = fakes();
+  const secret = "admin-secret-1234";
+  for (let i = 0; i < 4; i++) assertEquals(await code(() => adminLogin(f.deps, { password: "nope" }, secret)), "bad_credentials");
+  assertEquals(await code(() => adminLogin(f.deps, { password: "nope" }, secret)), "locked");
+  assertEquals(await code(() => adminLogin(f.deps, { password: secret }, secret)), "locked");
+  assertEquals(f.users.length, 0);
+});
+
+Deno.test("管理者ログイン: 管理用ユーザーだけ残っていてもプロフィールを作り直して入れる", async () => {
+  const f = fakes();
+  const secret = "admin-secret-1234";
+  f.users.push({ id: "left-admin", email: "admin@admin.shiftflow.invalid", password: "old" });
+  const s = await adminLogin(f.deps, { password: secret }, secret);
+  assertEquals(s.access_token, "at-left-admin");
+  assertEquals(f.profiles[0].user_id, "left-admin");
+});

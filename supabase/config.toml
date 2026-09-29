@@ -14,15 +14,24 @@ sql_paths = ["./seed.sql"]
 
 [auth]
 site_url = "http://localhost:8000"
-additional_redirect_urls = ["http://localhost:8000/index.html"]
+# ユーザーは Edge Function(sign-up / admin-login)だけが作る。画面から直接の新規登録は受け付けない
+enable_signup = false
 
-[auth.external.google]
-enabled = true
-client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
-secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
-skip_nonce_check = false
+[auth.email]
+enable_signup = false
+enable_confirmations = false
 
-# Edge Functions は関数の中で JWT を検証する(新しい署名鍵方式でも動くように、ゲートウェイの検証は切る)
+# Edge Functions は関数の中でトークンを確かめる(新しい署名鍵方式でも動くように、ゲートウェイの検証は切る)
+[functions.login]
+verify_jwt = false
+[functions.sign-up]
+verify_jwt = false
+[functions.admin-login]
+verify_jwt = false
+[functions.admin-users]
+verify_jwt = false
+[functions.change-pin]
+verify_jwt = false
 [functions.app-config]
 verify_jwt = false
 [functions.verify-calendar]

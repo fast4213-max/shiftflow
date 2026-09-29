@@ -5,7 +5,7 @@ import { AppError } from "./http.ts";
 
 export type Context = {
   userId: string;
-  email: string;
+  employeeNo: string | null; // 管理者は null
   isAdmin: boolean;
   // 利用者の権限で DB を触る(RLS が効く)
   db: SupabaseClient;
@@ -43,6 +43,14 @@ export function adminClient(): SupabaseClient {
   });
 }
 
+export function anonClient(token?: string): SupabaseClient {
+  return createClient(env("SUPABASE_URL"), key("SUPABASE_ANON_KEY", "SUPABASE_PUBLISHABLE_KEYS"), {
+    ...(token ? { global: { headers: { Authorization: `Bearer ${token}` } } } : {}),
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+// ログイン中の利用者(プロフィールがある人)。リクエスト本文の値は信用しない
 export async function requireMember(req: Request): Promise<Context> {
   const header = req.headers.get("Authorization") || "";
   const token = header.replace(/^Bearer\s+/i, "");
@@ -52,14 +60,24 @@ export async function requireMember(req: Request): Promise<Context> {
   const { data, error } = await admin.auth.getUser(token);
   if (error || !data.user) throw new AppError(401, "ログインし直してください。", "unauthenticated");
 
-  const email = (data.user.email || "").toLowerCase();
-  const { data: member } = await admin.from("members").select("is_admin").eq("email", email).maybeSingle();
-  if (!member) throw new AppError(403, "このアカウントは利用が許可されていません。", "not_member");
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("employee_no, role")
+    .eq("user_id", data.user.id)
+    .maybeSingle();
+  if (!profile) throw new AppError(403, "このアカウントは利用できません。", "not_member");
 
-  const db = createClient(env("SUPABASE_URL"), key("SUPABASE_ANON_KEY", "SUPABASE_PUBLISHABLE_KEYS"), {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  return {
+    userId: data.user.id,
+    employeeNo: profile.employee_no,
+    isAdmin: profile.role === "admin",
+    db: anonClient(token),
+    admin,
+  };
+}
 
-  return { userId: data.user.id, email, isAdmin: !!member.is_admin, db, admin };
+export async function requireAdmin(req: Request): Promise<Context> {
+  const ctx = await requireMember(req);
+  if (!ctx.isAdmin) throw new AppError(403, "管理者だけが実行できます。", "not_admin");
+  return ctx;
 }
