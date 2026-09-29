@@ -1,0 +1,62 @@
+/* 勤務入力画面(GAS 版 index.html の見た目を踏襲) */
+.month-header {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; background: #fff; border-bottom: 1px solid var(--line);
+}
+.month-header h1 { margin: 0; font-size: 1.1rem; }
+.month-header button { font-size: 1.1rem; padding: 6px 14px; }
+.shift { max-width: 560px; margin: 0 auto; padding: 0 8px 96px; }
+.shift table { width: 100%; border-collapse: collapse; background: #fff; }
+.shift th {
+  position: sticky; top: 51px; z-index: 1;
+  background: #fafafa; color: var(--muted);
+  font-size: 0.8rem; font-weight: normal;
+  padding: 6px 4px; border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.shift td { padding: 4px; border-bottom: 1px solid #eee; text-align: center; vertical-align: middle; }
+.shift tr.today td { background: var(--today); }
+.shift .day { width: 32px; font-weight: bold; font-size: 1.05rem; }
+.shift .weekday { width: 28px; }
+.shift .weekday.red { color: var(--danger); }
+.shift .type span {
+  display: inline-block; width: 36px; padding: 6px 0; font-size: 0.9rem;
+  border: 1px solid #bbb; border-radius: 4px; background: #fff;
+}
+.shift .type span.holiday { background: #fdecea; color: var(--danger); border-color: #e57373; }
+.shift .code { text-align: left; }
+.shift .code input, .shift .memo input { font-size: 1rem; padding: 6px 4px; }
+.shift .code .pick { width: 80px; padding: 6px 4px; border-radius: 4px; }
+.shift .code .pick:empty::before { content: "選択"; color: #aaa; }
+.shift .code input { width: 80px; margin-top: 4px; display: block; }
+.shift .offduty { color: var(--muted); padding-left: 4px; }
+.shift .memo { text-align: left; }
+.shift .memo input { width: 116px; border: 1px solid #bbb; border-radius: 4px; }
+.shift .memo input.override { color: var(--accent); font-weight: bold; }
+.shift .memo .stay { display: block; font-size: 0.8rem; color: var(--muted); padding: 2px 2px 0; }
+
+#picker { width: min(420px, 94vw); max-height: 85vh; padding: 12px; }
+#picker h2 { margin: 0 0 8px; font-size: 1rem; }
+#picker h3 { margin: 10px 0 4px; font-size: 0.8rem; color: var(--muted); font-weight: normal; }
+#picker .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
+#picker .grid button { font-size: 1rem; padding: 8px 0; border: 1px solid #ccc; border-radius: 4px; }
+#picker .grid button.holiday { color: var(--danger); }
+#picker .grid button.current { background: var(--accent); border-color: var(--accent); color: #fff; }
+#picker .actions {
+  display: flex; gap: 8px; margin-top: 12px;
+  position: sticky; bottom: -12px; padding: 8px 0; background: #fff;
+}
+#picker .actions button { flex: 1; padding: 10px 0; }
+
+.shift-footer {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 2;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: #fff; border-top: 1px solid var(--line);
+  display: flex; align-items: center; gap: 12px;
+}
+.shift-footer #register { font-size: 1.1rem; padding: 10px 24px; }
+.shift-footer #reset { font-size: 0.9rem; padding: 10px 12px; margin-left: auto; }
+#status { flex: 1; font-size: 0.9rem; }
+#status.error { color: var(--danger); }
+#reset-dialog input { font-size: 1rem; padding: 6px; width: 100%; }
+#reset-run { background: var(--danger); color: #fff; border: none; }

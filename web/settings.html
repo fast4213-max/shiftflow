@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>設定 - shiftflow</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#1a73e8">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <main class="page">
+    <h1>設定</h1>
+    <p id="first-time" class="muted hidden">はじめに、登録先のGoogleカレンダーを設定します。この設定は最初の1回だけです。</p>
+
+    <div class="card">
+      <strong>1. カレンダーを共有する</strong>
+      <p class="muted">勤務用・休日用のカレンダーを、それぞれ下のアドレスと「<b>予定の変更権限</b>」で共有します。</p>
+      <div class="row">
+        <input id="sa-email" class="mono" readonly value="読み込み中…">
+        <button id="copy-sa">コピー</button>
+      </div>
+      <p class="muted">
+        共有は PC 用の Googleカレンダーの画面で行います(スマホのカレンダーアプリではできません)。
+        <a href="https://calendar.google.com/calendar/u/0/r/settings" target="_blank" rel="noopener">Googleカレンダーの設定を開く</a><br>
+        スマホではリンクがカレンダーアプリで開いてしまうことがあります。
+        そのときはブラウザで calendar.google.com を開き「PC版サイト」に切り替えてください。
+        詳しくは <a href="help.html#share">使い方の「カレンダーを共有する」</a>。
+      </p>
+      <p class="muted">手順: カレンダーの「︙」→「設定と共有」→「特定のユーザーまたはグループと共有する」→「ユーザーやグループを追加」→ 上のアドレスを入力 → 権限「予定の変更権限」→「送信」。</p>
+    </div>
+
+    <div class="card">
+      <strong>2. カレンダーIDを入力する</strong>
+      <p class="muted">同じ「設定と共有」の画面の下の方、「カレンダーの統合」にある「カレンダー ID」をコピーして貼り付けます。</p>
+      <label for="work-id">勤務用カレンダーID</label>
+      <input id="work-id" class="mono" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="xxxx@group.calendar.google.com">
+      <label for="holiday-id">休日用カレンダーID</label>
+      <input id="holiday-id" class="mono" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="xxxx@group.calendar.google.com">
+    </div>
+
+    <div class="card">
+      <strong>3. 接続テスト</strong>
+      <p class="muted">入力したIDを保存し、両方のカレンダーにテストの予定を書いてすぐ消します。</p>
+      <button id="verify" class="primary">保存して接続テスト</button>
+      <p id="result"></p>
+      <p id="go-input" class="hidden"><a href="index.html">勤務入力へ進む →</a></p>
+    </div>
+
+    <p class="muted">うまくいかないときは <a href="help.html#test">使い方の「接続テスト」</a> の対処表を見てください。</p>
+  </main>
+  <script type="module" src="js/settings.js"></script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+# Edge Functions のテスト(予定の組み立て・カレンダー操作)
+name: Test
+
+on:
+  push:
+    branches: [main]
+    paths: ["supabase/functions/**", "web/js/plan.js", ".github/workflows/test.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deno:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno lint
+        working-directory: supabase/functions
+      - run: deno check */index.ts
+        working-directory: supabase/functions
+      - run: deno test --allow-read --allow-env supabase/functions

@@ -1,0 +1,78 @@
+* { box-sizing: border-box; }
+:root {
+  --text: #222;
+  --muted: #666;
+  --line: #ddd;
+  --bg: #f5f5f5;
+  --card: #fff;
+  --accent: #1a73e8;
+  --danger: #c62828;
+  --ok: #2e7d32;
+  --today: #e8f0fe;
+}
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.6;
+}
+a { color: var(--accent); }
+button {
+  font: inherit; font-size: 1rem; padding: 8px 14px;
+  border: 1px solid #bbb; border-radius: 6px; background: #fff; color: var(--text);
+  cursor: pointer;
+}
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+input[type="text"], input[type="email"], input:not([type]) {
+  font: inherit; font-size: 1rem; padding: 8px; border: 1px solid #bbb; border-radius: 6px; width: 100%;
+}
+
+/* 上のナビ */
+.topbar {
+  display: flex; align-items: center; gap: 14px;
+  padding: 6px 12px; background: #fff; border-bottom: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+.topbar .brand { font-weight: bold; margin-right: auto; color: var(--text); text-decoration: none; }
+.topbar a { text-decoration: none; }
+.topbar a.current { color: var(--text); font-weight: bold; }
+
+.page { max-width: 560px; margin: 0 auto; padding: 12px 12px 48px; }
+.page h1 { font-size: 1.3rem; margin: 8px 0 12px; }
+.page h2 { font-size: 1.1rem; margin: 24px 0 8px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin: 12px 0; }
+.muted { color: var(--muted); font-size: 0.9rem; }
+.error { color: var(--danger); }
+.ok { color: var(--ok); }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row > input { flex: 1; min-width: 0; }
+label { display: block; font-weight: bold; margin: 12px 0 4px; }
+code, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; word-break: break-all; }
+.hidden { display: none !important; }
+
+/* ログイン */
+.login { text-align: center; padding-top: 40px; }
+.login button { font-size: 1.1rem; padding: 12px 24px; margin: 24px 0; }
+
+/* 表 */
+table.list { width: 100%; border-collapse: collapse; background: #fff; font-size: 0.9rem; }
+table.list th, table.list td { padding: 6px 4px; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; }
+table.list button { white-space: nowrap; padding: 6px 10px; }
+table.list th { color: var(--muted); font-weight: normal; background: #fafafa; }
+.scroll-x { overflow-x: auto; }
+
+/* 管理画面の数字 */
+.stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.stat { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.stat .num { font-size: 1.6rem; font-weight: bold; }
+.stat .label { color: var(--muted); font-size: 0.85rem; }
+
+dialog { border: none; border-radius: 8px; padding: 20px; width: min(320px, 90vw); }
+dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
+dialog h2 { margin: 0 0 8px; font-size: 1.1rem; }
+dialog p { margin: 0 0 12px; font-size: 0.9rem; color: #555; }
+dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }

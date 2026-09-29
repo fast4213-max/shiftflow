@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ログイン - shiftflow</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#1a73e8">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="勤務登録">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <main class="page login">
+    <h1>勤務登録</h1>
+    <p>勤務を入力して、Googleカレンダーに登録するアプリです。</p>
+    <button id="login" class="primary" disabled>Googleでログイン</button>
+    <p id="message" class="muted">読み込み中…</p>
+    <p class="muted">はじめての方は <a href="help.html">使い方</a> を見てください。</p>
+  </main>
+  <script type="module" src="js/login.js"></script>
+</body>
+</html>

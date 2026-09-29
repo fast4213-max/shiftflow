@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>管理 - shiftflow</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <main class="page">
+    <h1>管理</h1>
+    <p id="message"></p>
+
+    <h2>利用状況</h2>
+    <div class="stats">
+      <div class="stat"><div class="num" id="stat-members">—</div><div class="label">許可している人</div></div>
+      <div class="stat"><div class="num" id="stat-signed-in">—</div><div class="label">ログインしたことがある人</div></div>
+      <div class="stat"><div class="num" id="stat-verified">—</div><div class="label">接続テスト済みの人</div></div>
+      <div class="stat"><div class="num" id="stat-active">—</div><div class="label">30日以内に登録した人</div></div>
+    </div>
+
+    <div id="pending-box" class="card hidden">
+      <strong>ログインしたが未許可の人</strong>
+      <p class="muted">知っている人なら「許可」を押してください。</p>
+      <div class="scroll-x"><table class="list"><tbody id="pending"></tbody></table></div>
+    </div>
+
+    <h2>利用者</h2>
+    <div class="card">
+      <label for="new-email">メールアドレスを追加</label>
+      <div class="row">
+        <input id="new-email" type="email" autocomplete="off" autocapitalize="off" placeholder="example@gmail.com">
+      </div>
+      <label for="new-note">メモ(誰か分かるように。任意)</label>
+      <div class="row">
+        <input id="new-note" autocomplete="off">
+        <button id="add-member" class="primary">追加</button>
+      </div>
+    </div>
+    <div class="scroll-x">
+      <table class="list">
+        <thead><tr><th>メール / メモ</th><th>最終ログイン</th><th>接続</th><th>最終登録</th><th>記録</th><th></th></tr></thead>
+        <tbody id="users"></tbody>
+      </table>
+    </div>
+
+    <h2>勤務コードマスタ</h2>
+    <div class="card">
+      <p class="muted">CSV の1行目は <code>番号,種別,平日出勤,平日退勤,休日出勤,休日退勤,泊</code>(「泊」列は無くてもよい)。種別は 泊 / 日勤 / 休日。取り込むと今のマスタは丸ごと入れ替わります。</p>
+      <input type="file" id="csv-file" accept=".csv,text/csv">
+      <div id="csv-preview" class="hidden">
+        <p id="csv-summary"></p>
+        <div class="row">
+          <button id="csv-apply" class="primary">この内容で入れ替える</button>
+          <button id="csv-cancel">やめる</button>
+        </div>
+      </div>
+      <p id="csv-message"></p>
+    </div>
+    <div class="scroll-x">
+      <table class="list">
+        <thead><tr><th>番号</th><th>種別</th><th>平日</th><th>休日</th><th>泊</th></tr></thead>
+        <tbody id="master"></tbody>
+      </table>
+    </div>
+    <p class="muted" id="master-count"></p>
+  </main>
+  <script type="module" src="js/admin.js"></script>
+</body>
+</html>

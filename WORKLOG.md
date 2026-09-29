@@ -112,3 +112,40 @@
 - `supabase functions deploy`(5つの関数)
 - 実機確認: 公開祝日カレンダーをサービスアカウントで読めるか、GAS 版で作った予定を新版が消せるか
 - (前回からの残り)Supabase プロジェクト作成、マイグレーション実行、自分を管理者として許可リストに入れる
+
+---
+
+## 2026-09-29 フェーズ4: フロント(ログイン・勤務入力・設定・管理画面)
+
+### やったこと
+- `web/` に静的HTMLの画面を作成した(ビルド不要。supabase-js は jsDelivr の CDN から読み込む)
+  - `login.html`: Google ログイン。ログイン後は、接続テスト前なら設定画面へ、テスト済みなら勤務入力へ移る
+  - `index.html`: 勤務入力。GAS 版の画面と動きをそのまま移した(月切替、当月より前には戻れない、今日の行へスクロール、番号のボタン一覧・手入力・クリア、自動メモと手修正(青字)、非番、未登録の変更があるときの確認、リセット)。泊の日はメモ欄の下に泊地を表示する
+  - `settings.html`: サービスアカウントのメールアドレス(コピーボタン付き)、カレンダー設定ページへのリンク、手順の要約、勤務用・休日用ID、保存して接続テスト
+  - `admin.html`: 利用状況(許可人数・ログイン済み・接続テスト済み・30日以内に登録した人)、ログインしたがまだ許可されていない人の許可、利用者の追加・削除、マスタCSVの取り込み(UTF-8 / Shift_JIS)
+  - 全画面の上のナビに「使い方」。許可リストに無い人には「利用が許可されていません」と表示する
+- ホーム画面に追加するための manifest とアイコン
+- `.github/workflows/pages.yml`(web/ を GitHub Pages に公開)と `test.yml`(Edge Functions のテスト)
+- `help.html` は仮置き(フェーズ5で作る)
+- 確認: Playwright(スマホ幅 390px)で、Supabase の応答を偽物に差し替えて全画面を操作した。非番の自動判定、祝日の「休」表示、泊地の表示、登録の送信内容、接続テスト失敗時のメッセージ、ログイン済みのときの画面移動を確認した。CSV の読み込みも単体で確認した
+
+### 変更したファイル
+- `web/*.html`、`web/js/*.js`、`web/css/*.css`、`web/manifest.webmanifest`、`web/icons/*`
+- `.github/workflows/pages.yml`、`.github/workflows/test.yml`
+- `WORKLOG.md`
+
+### 決めたこと(理由)
+- `web/js/config.js` には、公開してよい Supabase の URL と anon(publishable)キーだけを置く。今は仮の値で、実際の値は本人が書いてコミットする(GitHub Pages ではビルドしないため。データは RLS で守る)
+- 設定の保存は、既存の行があれば update、無ければ insert にする(upsert だと、更新権限を付けていない user_id 列まで更新しようとして拒否されるため)
+- 登録・削除のときは画面の値でなく、Edge Function 側でもう一度予定を組み立てる(画面の表示は確認用)
+- 見た目はシンプルにした。HTML と CSS だけなので後から自由に変えられる
+
+### 次にやること
+- フェーズ5: ヘルプページ(`web/help.html`)。Google の公式ヘルプで画面の名前を確認してから書く
+
+### 手動でやる作業の残り
+- `web/js/config.js` に Supabase の URL と anon(publishable)キーを書いてコミットする
+- GitHub のリポジトリの Settings → Pages → Source を「GitHub Actions」にする(設定するまで Pages のワークフローは失敗する)
+- Supabase の Authentication → URL Configuration に、GitHub Pages の URL(`https://<ユーザー名>.github.io/shiftflow/login.html`)を Redirect URLs として追加する
+- Google Cloud で OAuth クライアント(ウェブアプリ)を作り、Supabase の Google プロバイダに設定する
+- (前回からの残り)Supabase プロジェクト作成、マイグレーション実行、自分を管理者として登録、サービスアカウント作成と鍵をシークレットに登録、Edge Functions のデプロイ
