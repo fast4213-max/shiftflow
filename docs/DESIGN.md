@@ -1,253 +1,176 @@
-# shiftflow Supabase 版 設計案
+# shiftflow Supabase 版 設計書(第2版)
 
-状態: **承認済み**(2026-09-29 作成・承認。承認時の変更点は末尾の「承認時の決定事項」)
+状態: **設計確定・未実装**(2026-09-29 第2版。コードはまだこの設計に合わせていない)
 
-GAS + スプレッドシートの個人用アプリ(`gas/`)を、複数ユーザーで使える Supabase 版に作り直す。
-挙動は `gas/Code.gs` / `gas/index.html` を元仕様とし、落とさずに移す。
+GAS + スプレッドシートの個人用アプリ(`gas/`)を、身内の数人〜数十人で使える Supabase 版に作り直す。
+第1版(Google ログイン方式)は設定の手間が大きかったため、ログインを「社員番号+PIN」に変えて全体を簡単にした。
+第1版の内容は git の履歴(このファイルの過去の版)で見られる。
 
 ---
 
-## 0. 現行仕様の要点(gas/ から読み取ったもの)
+## 0. 現行仕様の要点(gas/ から移すもの。第1版から変更なし)
 
 | 項目 | 現行の挙動 |
 |---|---|
-| マスタ | 「勤務コード」シート: 番号 / 種別(泊・日勤・休日) / 平日出勤 / 平日退勤 / 休日出勤 / 休日退勤 / 泊。時刻は `(9:01)` や `09:01:00` を `9:01` に正規化 |
-| 記録 | 「勤務記録」シート: 日付 / 勤務 / (日種別: 未使用) / メモ。メモは手修正した日だけ。登録時にその月の行を入れ替え |
-| 平/休 | 土日・祝日(Google「日本の祝日」カレンダー)・12/30〜1/3 は休、他は平。表示のみ |
-| 予定 | すべて終日。泊=番号/出勤時間、日勤=番号/出勤〜退勤、非番=「〜」/退勤時間(前日の泊の退勤列を、その日の平休で選ぶ)、休日=番号/メモなし(休日用カレンダー)、手入力=入力文字/メモなし |
-| 非番 | 前日が泊なら自動で非番。番号は無視され、メモだけ手修正できる。月末が泊なら翌月1日の非番も作る。1日の非番は前月末の記録から判定 |
-| 時刻の選び方 | その日の平休の列。空なら平日の列にフォールバック |
-| 手修正メモ | 自動値と同じなら保存しない。番号を選び直すと自動値に戻る |
-| 登録 | 保存 → その月(+翌月1日の非番)のアプリ作成予定だけ削除 → 作り直し。タグ `shiftflow` = `day` / `offduty` |
-| リセット | 月を選んで、アプリ作成予定だけ削除(記録は残る)。翌月1日は `offduty` だけ対象 |
-| 再試行 | カレンダー操作は最大5回、指数バックオフ。1件ごとに100ms待つ |
-| 画面 | 月切替(当月より前に戻れない)、1日1行、今日の行へスクロール、番号はボタングリッド(勤務/休み)+手入力+クリア、未登録の変更があれば月移動時に確認、リセットは月選択→確認→削除 |
+| マスタ | 番号 / 種別(泊・日勤・休日) / 平日出勤 / 平日退勤 / 休日出勤 / 休日退勤 / 泊(泊地)。時刻は `(9:01)` や `09:01:00` を `9:01` に正規化 |
+| 平/休 | 土日・祝日・12/30〜1/3 は休、他は平。表示のみ |
+| 予定 | すべて終日。泊=番号/出勤時間(2行目に泊地)、日勤=番号/出勤〜退勤、非番=「〜」/退勤時間、休日=番号/メモなし(休日用カレンダー)、手入力=入力文字/メモなし |
+| 非番 | 前日が泊なら自動で非番。月末が泊なら翌月1日の非番も作る |
+| 手修正メモ | 手で書き換えた日はその内容をメモの1行目にする(泊地は2行目に残る)。番号を選び直すと自動値に戻る |
+| 登録 | 保存 → その月(+翌月1日の非番)のアプリ作成予定だけ削除 → 作り直し。印は `extendedProperties.private.shiftflow` = `day` / `offduty` |
+| リセット | 月を選んで、アプリ作成予定だけ削除(記録は残る) |
+| 画面 | 月切替(当月より前に戻れない)、1日1行、今日の行へスクロール、番号のボタン一覧+手入力+クリア |
+
+→ 実装済みのもの(`supabase/functions/_shared/plan.js` とそのテスト、カレンダー操作)はそのまま使う。
 
 ---
 
-## 1. 全体構成
+## 1. 決まったこと(第2版)
 
-```
-[スマホのブラウザ / ホーム画面]
-   │  静的HTML (GitHub Pages)  web/*.html + supabase-js(CDN)
-   │
-   ├─ Supabase Auth (Google ログイン: email/profile のみ)
-   ├─ Supabase DB (Postgres + RLS)   ← マスタ・設定・記録を直接読み書き
-   └─ Supabase Edge Functions (Deno) ← カレンダー操作だけはここ経由
-            │ サービスアカウントの鍵 (Supabase シークレット)
-            ▼
-       Google Calendar API
-```
-
-- ブラウザは Google カレンダーに一切触らない(OAuth スコープもカレンダー権限を取らない)
-- カレンダーに書くのはサービスアカウント(以下 SA)だけ。ユーザーは自分のカレンダーを SA に「予定の変更権限」で共有する
-- 課金は作らないが、`members.plan` 列を置いて後から足せるようにする
-
----
-
-## 2. テーブル(すべて RLS 有効)
-
-### 2-1. `members`(利用者の許可リスト)※追加提案
-
-| 列 | 型 | 説明 |
-|---|---|---|
-| email | text PK | 利用を許可する Google アカウントのメール(小文字) |
-| is_admin | boolean | 管理者(マスタ編集など) |
-| plan | text default 'free' | 将来の課金用。今は使わない |
-| note | text | 管理用メモ(誰か分かる程度。リポジトリには入らない) |
-| created_at | timestamptz | |
-
-- **理由**: Google ログインは誰でもできるので、許可リストが無いと、URL を知った第三者も使えてしまう(SA 経由でカレンダーに書ける)。身内数人〜数十人なので、管理者がダッシュボードでメールを足す運用で十分
-- 判定用の関数 `is_member()` / `is_admin()`(`security definer`、`auth.jwt()->>'email'` と照合)を作り、他テーブルの RLS から使う
-- RLS: 本人の行だけ読める(自分が許可されているかの確認用)。書き込みはダッシュボードのみ(ポリシーなし)
-
-### 2-2. `shift_master`(勤務コードマスタ)
-
-| 列 | 型 | 元の列 |
-|---|---|---|
-| code | text PK | 番号 |
-| kind | text check in ('泊','日勤','休日') | 種別 |
-| weekday_start / weekday_end | text | 平日出勤 / 平日退勤(`H:MM`、空は '') |
-| holiday_start / holiday_end | text | 休日出勤 / 休日退勤 |
-| stay | text | 泊 |
-| sort_order | int | ボタン一覧の並び順(CSV の行順) |
-
-- RLS: `select` はメンバー全員。`insert/update/delete` は `is_admin()` のみ
-- **CSV インポート**: 管理画面(`web/admin.html`)で CSV を選ぶ → プレビュー → 「入れ替え」。
-  ブラウザで CSV を読み、SQL 関数 `replace_shift_master(rows)`(管理者だけ実行可)が時刻を `9:01` 形式に正規化して丸ごと入れ替える。
-  現行と同じ CSV(見出し: 番号,種別,平日出勤,平日退勤,休日出勤,休日退勤,泊)がそのまま使える
-- `supabase/seed.sql` には**架空の**サンプルマスタだけを入れる(実データは入れない)
-
-### 2-3. `user_settings`
-
-| 列 | 型 | 説明 |
-|---|---|---|
-| user_id | uuid PK = auth.uid() | |
-| work_calendar_id | text | 勤務用カレンダーID |
-| holiday_calendar_id | text | 休日用カレンダーID |
-| verified_at | timestamptz null | 接続テスト成功日時(= 検証済みフラグ) |
-| busy_until | timestamptz null | 登録・削除の二重実行防止(GAS の LockService の代わり) |
-| updated_at | timestamptz | |
-
-- RLS: 本人のみ select/insert/update
-- `verified_at` と `busy_until` は**ユーザーが直接更新できない**(列権限で authenticated から外し、Edge Function の service role だけが書く)
-- トリガー: カレンダーIDが変わったら `verified_at` を null に戻す
-- カレンダーIDは**他のユーザーと重複登録できない**(Edge Function の検証時に service role で確認)。理由は 6章「セキュリティ」
-
-### 2-4. `shift_records`(勤務記録)
-
-| 列 | 型 | 説明 |
-|---|---|---|
-| user_id | uuid | auth.uid() |
-| date | date | 日付 |
-| code | text default '' | 勤務(番号 or 手入力の文字。非番の日は '') |
-| memo | text default '' | 手修正したときだけ |
-| updated_at | timestamptz | |
-
-- PK (user_id, date)
-- RLS: 本人のみ select/insert/update/delete
-- 月の入れ替え保存は SQL 関数 `save_month_records(year, month, entries jsonb)`(`security invoker` なので RLS がそのまま効く)で、削除+挿入を1トランザクションで行う
-
-### 2-5. `holidays`(祝日キャッシュ)
-
-| 列 | 型 |
+| 項目 | 決定 |
 |---|---|
-| date | date PK |
-| name | text |
-
-`holiday_years(year int PK, fetched_at timestamptz)` で「その年を取得済みか」を持つ。
-RLS: メンバーは select のみ。書き込みは Edge Function(service role)だけ。
-
----
-
-## 3. 祝日の取得方法の比較
-
-| 案 | 内容 | 良い点 | 悪い点 |
-|---|---|---|---|
-| A. Google の公開祝日カレンダーを API キーで読む | `ja.japanese.official#holiday@group.v.calendar.google.com` を API キーで events.list | 現行と同じデータ源。臨時の祝日も自動で反映 | API キーを別に作って管理する必要がある。公開範囲は前後1年程度 |
-| A'. 同じカレンダーを **SA で読む** | 上と同じだが、既にある SA の認証で読む | **鍵が増えない**。現行と同じデータ源 | 同上(前後1年程度)。Google 側の都合でカレンダーIDが変わる可能性はゼロではない |
-| B. 祝日テーブルを手で持つ | 内閣府の `syukujitsu.csv` を年1回取り込む | 外部依存なし・確実 | 毎年の手作業(忘れると平休判定がずれる)。CSV が Shift_JIS |
-| C. 計算ライブラリ | 春分・秋分の計算や振替休日を実装 | 通信不要 | 法改正や特例(2020/2021年の移動など)でライブラリ更新が必要 |
-| D. 第三者の祝日API | holidays-jp など | 手軽 | 第三者のサービスが止まるリスク |
-
-**提案: A' + テーブルにキャッシュ(失敗時は B で手動補完できる)**
-
-- Edge Function の共通処理 `getHolidays(from, to)` が、`holiday_years` に無い年だけ SA で祝日カレンダーを読み、`holidays` に保存する(年1回程度しか Google を呼ばない)
-- 画面の平休表示は `holidays` テーブルを直接読む。その年が未取得なら `sync-holidays` 関数を呼んでから読む
-- Google から取れない場合に備え、`holidays` に内閣府 CSV を手で取り込む手順も README に書く(案Bを予備に)
-- 年末年始(12/30〜1/3)は祝日テーブルとは別にコードで休扱い(現行と同じ)
+| ログイン | **社員番号(7桁)+ PIN(6桁の数字)**。登録が無ければ弾く。Google ログインは使わない |
+| 新規登録 | 社員番号・名字・名前・PIN・**共通パスワード**を入れて登録。**登録したらすぐ使える**(管理画面で削除できる) |
+| 共通パスワード | **新規登録のときだけ**入力(身内だと確かめるため)。毎回のログインには使わない。管理画面から変更できる |
+| 設定 | ログイン後の設定は **区所** と **カレンダーID(勤務用・休日用)** だけ |
+| 管理 | 最初の画面の「管理」タブから **管理用パスワード** で入る。ダッシュボード形式 |
+| マスタ | 区所ごと。管理画面で区所を選んで CSV を取り込む(取り込み前に全列の表で確認) |
+| デプロイ | **GitHub Actions で自動**(main に push すると DB・Edge Functions・画面が反映される)。ターミナル不要 |
+| 停止対策 | **cron-job.org から Supabase を直接**6時間ごとに呼ぶ(GitHub を経由しない) |
+| 課金 | 今は作らない。`profiles.plan` 列だけ用意しておく(6章) |
 
 ---
 
-## 4. Edge Functions(`supabase/functions/`)
-
-共通(`_shared/`):
-- `auth.ts`: `Authorization` の JWT から user_id / email を取得(本文の値は使わない)。`members` に無ければ 403
-- `google.ts`: SA の JSON 鍵(シークレット `GOOGLE_SERVICE_ACCOUNT_JSON`)で JWT を署名(WebCrypto RS256)→ アクセストークン取得。スコープは `https://www.googleapis.com/auth/calendar.events` のみ。429/403(rateLimit)/5xx は最大5回の指数バックオフで再試行(現行と同じ)
-- `plan.ts`: 現行 `buildPlan` を移植(平休判定・非番・メモ・翌月1日)。Deno のユニットテストを付ける
-- `holidays.ts`: 3章の取得・キャッシュ
-- `lock.ts`: `user_settings.busy_until` を使った二重実行防止(60秒)
-
-| 関数 | 入力 | 処理 |
-|---|---|---|
-| `app-config` | なし | SA のメールアドレス(シークレットの JSON から取り出す)を返す。**ログイン済みメンバーだけ**。設定画面とヘルプで表示 |
-| `verify-calendar` | なし | `user_settings` に登録済みの勤務用・休日用IDそれぞれに、テスト予定を作成→即削除。どちらかが失敗したら、どちらのカレンダーかと「共有設定(予定の変更権限)を確認してください」を返す。他ユーザーと重複するIDも拒否。両方成功で `verified_at = now()` |
-| `register-month` | `{year, month, entries}` | 未検証なら拒否 → ロック → マスタ・前月末・翌月1日の記録・祝日を読む → `buildPlan` → `save_month_records` で保存 → アプリ作成予定だけ削除 → 作り直し → 件数を返す |
-| `delete-month` | `{year, month}` | 未検証なら拒否 → ロック → その月の、アプリ作成予定だけを削除(翌月1日は `offduty` だけ)。記録は消さない |
-| `sync-holidays` | `{year}` | その年が未取得なら取得してキャッシュ(メンバーなら誰でも呼べる。冪等) |
-
-### アプリが作った予定の識別
-
-- 終日予定を `start.date` / `end.date`(翌日、排他)で作る
-- `extendedProperties.private = { shiftflow: "day" | "offduty" }` を付ける
-  - GAS の `setTag("shiftflow", kind)` と同じキー・値にしてあるので、**GAS 版で登録済みの予定も新版から削除・作り直しできる見込み**(CalendarApp のタグは private extended property として保存されるため。実機で要確認)
-- 削除は `events.list`(`privateExtendedProperty=shiftflow=day` と `=offduty` で絞り込み、`timeMin/timeMax` は `+09:00` で指定)→ 1件ずつ `events.delete`
-- カレンダーIDは**常に `user_settings` から読む**。リクエスト本文にカレンダーIDを入れても無視する
-
-### 実行時間
-
-1か月で最大 約31件作成 + 約31件削除 = 60〜70回の API 呼び出し。同時実行数を少し(例: 4)に抑えて並列にし、10〜20秒程度を見込む(Edge Function の上限内)。
-
----
-
-## 5. 画面(`web/`、ビルド不要)
+## 2. 画面
 
 ```
-web/
-  index.html        勤務入力(メイン)
-  login.html        ログイン
-  settings.html     設定
-  help.html         使い方(未ログインでも読める)
-  help/             ヘルプ用の画像(個人情報を写さない)
-  css/app.css
-  js/config.js      Supabase の URL と anon(publishable)キー ※公開前提の値
-  js/supabase.js    クライアント初期化・ログイン状態の確認・画面の振り分け
-  js/shift.js       平休判定・自動メモ(表示用。本体は Edge Function 側)
-  js/index.js / settings.js / help.js
-  manifest.webmanifest, icons/  ホーム画面追加用
+index.html(最初の画面)
+ ├ [利用者] タブ: 社員番号 + PIN → ログイン
+ │     └ 「新規登録」→ register.html
+ │           社員番号 / 名字 / 名前 / PIN(2回)/ 共通パスワード → 登録 → 自動でログイン
+ └ [管理] タブ: 管理用パスワード → admin.html
+
+settings.html  区所を選ぶ / 勤務用・休日用カレンダーID / 保存すると自動で接続テスト
+input.html     勤務入力(第1版の画面をそのまま使う)→ 登録 / リセット
+admin.html     ダッシュボード(タブで切り替え)
+help.html      使い方(未ログインでも読める)
 ```
 
-- supabase-js は CDN(`cdn.jsdelivr.net/npm/@supabase/supabase-js@2`)から読む
-- 画面の流れ: `login.html` → ログイン後、`user_settings` が無い/未検証なら `settings.html`、検証済みなら `index.html`。メンバーでなければ「利用が許可されていません」を表示してログアウト
-- 全画面のヘッダーに「使い方」リンク。勤務入力画面には「設定」リンクも
-- **勤務入力**: 現行 `index.html` の UI・挙動をそのまま移植(月切替・当月より前に戻れない・1日1行・今日にスクロール・ボタングリッド+手入力+クリア・自動メモ/手修正(青字)・非番表示・未登録の変更の確認・リセット→月選択→確認→削除)。データの読み込みは DB を直接、登録・削除は Edge Function
-- **設定**: SA のメールアドレス(コピーボタン)、Google カレンダーの設定ページへのリンク、勤務用・休日用ID入力、保存、「接続テスト」、結果表示、ヘルプへのリンク。スマホではリンク先がアプリに奪われることがある旨と手順の要約も併記
-- スマホ最優先(現行と同じ最大幅 560px 程度のレイアウト)
-- **GitHub Pages**: `web/` を配信するため `.github/workflows/pages.yml`(Actions で web/ をデプロイ)を置く。ブランチ直下/`docs` 以外のフォルダはブランチ配信で選べないため
+ログイン後の流れ: 初回は `settings.html` → 区所とカレンダーIDを保存(接続テストが通る)→ `input.html`。2回目以降は `input.html` に直行。
 
-### ヘルプ(`web/help.html`)
+### 管理画面(ダッシュボード)
 
-依頼の 1〜8 の構成で作成。短い手順を表に出し、詳細は `<details>` で折りたたむ。
-SA のメールアドレスはログイン済みのときだけ `app-config` から取得して表示し、未ログイン時は「ログイン後に表示されます」とする。
-Google 側の画面名は執筆時に公式ヘルプで確認し、確認日を末尾に載せる。
+| タブ | 内容 |
+|---|---|
+| 概要 | 数字のカード(登録人数・接続テスト済み・30日以内に登録した人・区所数)、区所ごとの人数、最近の登録 |
+| 利用者 | 一覧(社員番号・氏名・区所・接続テスト・最終ログイン・最終登録)。**削除**、**PINの再設定**(PIN を忘れた人向けに仮のPINを発行) |
+| マスタ表 | 区所を選ぶと、そのマスタを全列(番号・種別・平日出勤・平日退勤・休日出勤・休日退勤・泊)の表で表示。CSV で書き出し |
+| マスタ登録 | 区所の追加・名前変更・削除。区所を選んで CSV を選ぶ → 取り込む内容を表で確認(問題の行は赤で取り込み不可)→ 入れ替え |
+| 設定 | 共通パスワードの変更、登録用アドレス(サービスアカウント)の表示 |
 
----
-
-## 6. セキュリティ
-
-- **シークレット**: SA の JSON 鍵は `supabase secrets set` でだけ設定。`.env` / `supabase/.env` / `*.json` の鍵ファイルは `.gitignore`。`.env.example` には項目名だけ
-- **コミットしてよい値**: Supabase の URL と anon(publishable)キーは公開前提の値(RLS で守る)なので `web/js/config.js` に置く。service_role キーはフロントにもリポジトリにも置かない
-- **カレンダーIDのなりすまし対策**: 全員が同じ SA を使うため、他人が SA に共有したカレンダーのIDを知っていれば書き込めてしまう。対策として
-  1. `members` の許可リスト(身内以外は使えない)
-  2. 同じカレンダーIDを複数ユーザーで登録できない(先に登録・検証した人のもの)
-  3. ヘルプでは新しく作ったカレンダー(推測できないID)を使うことを推奨し、メインのカレンダー(ID=メールアドレス)を使う場合は本人のログインメールと一致するときだけ許可する
-- Edge Function はすべて JWT 必須。本文のカレンダーIDは無視
-- ユーザーは `verified_at` / `busy_until` を自分で書き換えられない(列権限)
+見た目は、カード型の数字とタブ切り替えのダッシュボードにする(PC でもスマホでも見られる)。
 
 ---
 
-## 7. 手順(フェーズ)
+## 3. しくみ
 
-| # | 内容 | 主な成果物 |
+### 3-1. ログイン(Supabase Auth のメール+パスワードを内部で使う)
+
+- 利用者から見えるのは社員番号と PIN だけ。内部では Supabase Auth のユーザーとして
+  - メール: `<社員番号>@users.shiftflow.invalid`(実在しない専用のアドレス。メールは送らない)
+  - パスワード: PIN から作る値
+  で登録・ログインする。これで Supabase の RLS(`auth.uid()`)や、ログイン試行回数の制限をそのまま使える
+- PIN は **6桁**(4桁だと1万通りしかなく、総当たりに弱いため)
+- Supabase Auth の「新規ユーザーの登録を許可」は**オフ**にし、ユーザーは Edge Function `sign-up` だけが作る(共通パスワードを確かめてから作るため)
+- 管理者も Supabase Auth のユーザー(`admin@admin.shiftflow.invalid` + 管理用パスワード)。`profiles.role = 'admin'` で区別する
+- 管理用パスワードは長め(12文字以上を推奨)。ログイン試行の制限は Supabase Auth のものを使う
+
+### 3-2. 新規登録(Edge Function `sign-up`)
+
+1. 共通パスワードを確かめる(DB にはハッシュだけ保存。間違いが続いたら一定時間受け付けない)
+2. 社員番号が7桁の数字か、まだ登録されていないかを確かめる
+3. Supabase Auth のユーザーを作り、`profiles` に社員番号・名字・名前を入れる
+4. 画面はそのまま社員番号+PIN でログインする
+
+### 3-3. カレンダー登録(第1版から変更なし)
+
+- 利用者は勤務用・休日用のカレンダーを、サービスアカウントのメールアドレスと「予定を変更できる権限」で共有する(**この1回の共有はどうしても必要**。アプリが利用者のカレンダーに書く方法として、これが一番設定が少ないため)
+- Edge Function はリクエストに書かれたカレンダーIDを使わず、`user_settings` に登録済みのIDだけを使う
+- 同じカレンダーIDは1人しか使えない。メールアドレス形式のID(メインのカレンダー)は使わせない(社員番号ログインではメールアドレスが分からず、本人のものか確かめられないため)。**このアプリ用に新しく作ったカレンダーを使う**ようヘルプで案内する
+- 祝日は Google の公開祝日カレンダーをサービスアカウントで読んで DB にキャッシュ
+
+### 3-4. データベースの停止対策
+
+- 無料プランは1週間ほど使われないと一時停止する
+- `keepalive()` という関数(DB を1回読んで時刻を返すだけ。個人のデータは返さない)を用意し、未ログインでも呼べるようにする
+- cron-job.org から6時間ごとに `POST https://<ref>.supabase.co/rest/v1/rpc/keepalive` を呼ぶ(ヘッダーに公開用キー)。トークンや GitHub は使わない
+
+### 3-5. デプロイ(GitHub Actions)
+
+| ワークフロー | いつ | すること |
 |---|---|---|
-| 1 | 現状把握・設計案(今回) | `docs/DESIGN.md`, `WORKLOG.md`, `.gitignore`, `.env.example` |
-| 2 | SQL(テーブル+RLS+関数)、seed(架空データ)、CSV インポート手順 | `supabase/migrations/*.sql`, `supabase/seed.sql`, `supabase/config.toml` |
-| 3 | Edge Functions + `plan.ts` のテスト | `supabase/functions/**` |
-| 4 | フロント(ログイン・勤務入力・設定)、Pages のワークフロー | `web/**`, `.github/workflows/pages.yml` |
-| 5 | ヘルプページ(公式ヘルプで名称確認、スマホ幅で表示確認) | `web/help.html`, `web/help/` |
-| 6 | README(初心者向けセットアップ・デプロイ手順) | `README.md` |
-| 7 | 動作確認後、`gas/` 削除(**削除前に確認**)と README 全面書き換え | 別コミット |
+| `deploy-supabase.yml` | `supabase/` を変えて main に push したとき(手動でも可) | `supabase link` → `supabase db push`(SQL の反映)→ `supabase functions deploy` |
+| `pages.yml` | `web/` を変えて main に push したとき | `web/` を GitHub Pages に公開 |
+| `test.yml` | コードを変えたとき | 予定の組み立て・カレンダー操作のテスト |
 
-各フェーズの最後に「手動でやる作業」を一覧にし、WORKLOG.md にも書く。
+GitHub の Secrets に入れるもの(最初に本人が1回だけ): `SUPABASE_ACCESS_TOKEN`、`SUPABASE_PROJECT_REF`、`SUPABASE_DB_PASSWORD`。
+サービスアカウントの鍵は Supabase のダッシュボードの Edge Functions → Secrets に本人が入れる(GitHub には置かない)。
 
 ---
 
-## 承認時の決定事項(2026-09-29)
+## 4. テーブル(すべて RLS 有効)
 
-- **管理画面を作る**(`web/admin.html`、管理者だけ): 利用状況(許可人数・ログイン済み・接続テスト済み・30日以内に登録した人、利用者ごとの最終ログイン/最終登録)、許可リストの追加・削除(ログインしたが未許可の人をワンタップで許可)、マスタCSVの取り込み。
-  利用状況は SQL 関数 `admin_stats()`(管理者だけ)で集計する
-- **泊地をメモに載せる**: 予定のタイトルは行路番号(番号)、メモの1行目に時間、2行目にマスタの「泊」列(泊地)。泊地が空なら時間だけ。
-  メモを手修正した場合は1行目(時間)だけが置き換わり、泊地は2行目に残る。非番・日勤・休日・手入力には泊地は付けない
-- **今の勤務記録からの移行はしない**。マスタだけ CSV で入れる
-- その他(許可リスト、カレンダーIDの重複禁止、祝日の取得方法など)は設計案どおり
-- 画面はシンプルに作る。HTML/CSS は静的ファイルなので、後から自由に変えられる
+| テーブル | 主な列 | 読み書き |
+|---|---|---|
+| `profiles` | user_id, employee_no(7桁・一意), family_name, given_name, role(user/admin), plan(free), created_at | 本人は自分の行を読める。管理者は全員分を読める。作成・削除は Edge Function |
+| `offices` | id, name, sort_order | 全員が読む。書くのは管理者 |
+| `shift_master` | office_id, code, kind, weekday_start, weekday_end, holiday_start, holiday_end, stay, sort_order | 全員が読む。書くのは管理者(区所ごとに丸ごと入れ替え) |
+| `user_settings` | user_id, office_id, work_calendar_id, holiday_calendar_id, verified_at, busy_until, last_registered_at | 本人だけ。本人が書けるのは区所とカレンダーIDだけ |
+| `shift_records` | user_id, date, code, memo, updated_at | 本人だけ |
+| `holidays` / `holiday_years` | 祝日のキャッシュ | 全員が読む。書くのは Edge Function |
+| `app_secrets` | 共通パスワードのハッシュ、失敗回数 | 誰も直接読めない(関数経由だけ) |
+
+- 第1版の `members`(メールの許可リスト)と `admin_secret` / `admin_unlocks`(管理画面のパスワード)は不要になる(`profiles` と管理用ユーザーに置き換え)
+- DB はまだどこにも作っていないので、マイグレーションは初期の1ファイルを作り直す
+- 関数の実行権限は、いったん全部外して必要なものだけ付ける(Supabase は新しい関数に一般ユーザーの実行権限を自動で付けるため)
 
 ---
 
-## 追加の決定事項(2026-09-29 その2)
+## 5. Edge Functions
 
-- **区所(offices)**: 区所ごとに勤務コードマスタを持つ。`shift_master` の主キーは (office_id, code)。利用者は設定画面で `user_settings.office_id` を選び、勤務入力と登録はその区所のマスタだけを使う。区所を消すとその区所のマスタも消え、選んでいた利用者は未選択に戻る
-- **マスタの取り込み**: 管理画面で区所を選んで CSV を選ぶ → 取り込む内容を全列の表で表示(時刻はそろえた形、問題のある行は赤で取り込み不可)→ 入れ替え。いまのマスタも区所ごとに全列の表で確認でき、CSV で書き出せる
-- **管理画面のパスワード**: 静的サイトなので URL やパスワードを画面側に置いても守れない。そこで判定を DB に置く。`is_admin()` は「管理者フラグ」かつ「そのログインセッションでパスワード解除済み(1時間)」のときだけ真。パスワードは bcrypt のハッシュだけを `admin_secret` に保存(誰も読めない)し、SQL Editor の `set_admin_passcode()` でだけ設定する。5回間違えると15分ロック
-- Supabase は新しい関数に authenticated の実行権限を自動で付けるので、関数の実行権限はいったん全部外して必要なものだけ付け直す
-- DB はまだどこにも作っていないので、マイグレーションは追加せず初期の1ファイル(`20260929000000_init.sql`)にまとめ直した
+| 関数 | 誰が | すること |
+|---|---|---|
+| `sign-up` | 未ログイン | 共通パスワードを確かめて利用者を作る |
+| `admin-users` | 管理者 | 利用者の削除、PIN の再設定 |
+| `app-config` | ログイン済み | サービスアカウントのメールアドレスを返す |
+| `verify-calendar` | ログイン済み | 接続テスト(テスト予定を書いて消す) |
+| `register-month` | ログイン済み | 月の入力を保存してカレンダーに登録 |
+| `delete-month` | ログイン済み | 月のアプリの予定だけ削除 |
+| `sync-holidays` | ログイン済み | 祝日のキャッシュ |
+
+---
+
+## 6. 課金を足すとき(今は作らない)
+
+- `profiles.plan`(今は常に `free`)で、使える機能を分けられるようにしておく
+- 身内だけなら、アプリの外(現金・送金アプリなど)で受け取り、管理画面で `plan` を切り替えるのが一番簡単
+- アプリの中で払えるようにする場合は Stripe などの決済サービスを使う(Google は不要)。そのときは
+  - 決済サービスのアカウント(本人確認・振込先口座)
+  - 支払い完了を受け取る Edge Function(`plan` を書き換える)
+  - 特定商取引法に基づく表記のページ
+  - Supabase の有料プランへの切り替えの検討(無料プランは一時停止があるため)
+  が必要になる
+
+---
+
+## 7. 最初に本人がやること(実装後)
+
+1. Supabase のプロジェクトを作る(Tokyo)。Authentication で「新規ユーザーの登録を許可」をオフ、「メールの確認」をオフ
+2. Supabase のアクセストークンを発行し、GitHub の Secrets に `SUPABASE_ACCESS_TOKEN` / `SUPABASE_PROJECT_REF` / `SUPABASE_DB_PASSWORD` を入れる → 以降は push で自動反映
+3. Google Cloud でプロジェクト作成 → Calendar API を有効化 → サービスアカウントと鍵(JSON)を作り、Supabase の Edge Functions → Secrets に入れる
+4. `web/js/config.js` に Supabase の URL と公開用キーを書く(公開してよい値)。GitHub Pages の Source を「GitHub Actions」にする
+5. 管理用ユーザーと共通パスワードを設定する(手順は実装時に README に書く)
+6. cron-job.org に keepalive の呼び出しを登録する
+7. 管理画面で区所を作り、区所ごとにマスタの CSV を取り込む
+
+第1版から減ったもの: Google の OAuth クライアント(Google Auth Platform)、リダイレクト URL の登録、ターミナルでの CLI 操作、メールアドレスの許可リスト。
