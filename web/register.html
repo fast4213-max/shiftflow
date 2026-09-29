@@ -16,7 +16,7 @@
     <p class="muted">登録すると、そのまま使えます。</p>
     <form id="form" class="card" autocomplete="off">
       <label for="employee-no">社員番号(7桁)</label>
-      <input id="employee-no" inputmode="numeric" maxlength="7" placeholder="1234567" required>
+      <input id="employee-no" data-digits inputmode="numeric" maxlength="7" placeholder="1234567" required>
       <div class="two">
         <div>
           <label for="family-name">名字</label>
@@ -28,9 +28,9 @@
         </div>
       </div>
       <label for="pin">PIN(ログインに使う6桁の数字)</label>
-      <input id="pin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" required>
+      <input id="pin" data-digits type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" required>
       <label for="pin2">PIN(もう一度)</label>
-      <input id="pin2" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" required>
+      <input id="pin2" data-digits type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" required>
       <p class="muted">PINは忘れないようにしてください。忘れたときは、管理者に再設定を頼みます。</p>
       <label for="shared">共通パスワード</label>
       <input id="shared" type="password" autocomplete="off" required>

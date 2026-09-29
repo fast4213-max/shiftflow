@@ -196,3 +196,21 @@ export function formatDateTime(value) {
 export function toHalfWidth(value) {
   return String(value || "").replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).trim();
 }
+
+// data-digits の付いた入力欄(社員番号・PIN)は、半角の数字だけが入るようにする。
+// 全角の数字は半角に直し、それ以外の文字は入力できない。長さは maxlength まで。
+function bindDigitsOnly(input) {
+  const clean = () => {
+    const max = Number(input.getAttribute("maxlength")) || 0;
+    let value = toHalfWidth(input.value).replace(/\D/g, "");
+    if (max) value = value.slice(0, max);
+    if (value !== input.value) input.value = value;
+  };
+  input.addEventListener("input", clean);
+  input.addEventListener("compositionend", clean);
+  input.setAttribute("inputmode", "numeric");
+  input.setAttribute("autocapitalize", "off");
+  input.setAttribute("autocorrect", "off");
+  clean();
+}
+document.querySelectorAll("input[data-digits]").forEach(bindDigitsOnly);

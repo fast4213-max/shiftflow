@@ -54,11 +54,11 @@
     <details class="card">
       <summary>PINを変える</summary>
       <label for="pin-current">いまのPIN</label>
-      <input id="pin-current" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password">
+      <input id="pin-current" data-digits type="password" inputmode="numeric" maxlength="6" autocomplete="current-password">
       <label for="pin-new">新しいPIN(6桁の数字)</label>
-      <input id="pin-new" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">
+      <input id="pin-new" data-digits type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">
       <label for="pin-new2">新しいPIN(もう一度)</label>
-      <input id="pin-new2" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">
+      <input id="pin-new2" data-digits type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">
       <button id="pin-save" class="block" type="button">PINを変更</button>
       <p id="pin-result" class="message"></p>
     </details>
