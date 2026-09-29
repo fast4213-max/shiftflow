@@ -184,3 +184,39 @@
 ### 手動でやる作業の残り
 - 実際の Google カレンダーの画面で、ヘルプの名前(特に権限の名前・「カレンダー ID」)が合っているか見て、違えば教えてほしい
 - (前回からの残り)Supabase プロジェクト作成、マイグレーション実行、自分を管理者として登録、Google Cloud の設定、シークレット登録、Edge Functions のデプロイ、config.js の記入、GitHub Pages の有効化、リダイレクトURLの登録
+
+---
+
+## 2026-09-29 フェーズ6: README
+
+### やったこと
+- README を Supabase 版のセットアップ手順(管理者向け・初心者向け)に書き換えた: Supabase プロジェクト作成 → DB(SQL)と管理者登録 → Google Cloud のサービスアカウントと鍵 → OAuth クライアント(Google Auth Platform)と Supabase の Google プロバイダ → Edge Functions のシークレットとデプロイ → config.js と GitHub Pages → マスタ取り込みと利用者の招待 → 動作確認。更新方法、テスト、祝日の手動登録、トラブル対処、セキュリティも書いた
+- 利用者向けの使い方は README に書かず、`web/help.html` へリンクした
+- Supabase の公式ドキュメントで、Edge Functions に渡される鍵の変数名が新方式(`SUPABASE_SECRET_KEYS` / `SUPABASE_PUBLISHABLE_KEYS`)に移りつつあることを確認したので、`_shared/auth.ts` を旧方式・新方式のどちらでも動くようにした
+- `gas/` はまだ残している(README の冒頭に旧版と注記)
+
+### 変更したファイル
+- `README.md`
+- `supabase/functions/_shared/auth.ts`
+- `WORKLOG.md`
+
+### 決めたこと(理由)
+- Edge Functions のデプロイは `npx supabase@latest` で行う(CLI を別にインストールしなくて済むため)
+- シークレットの登録は CLI とダッシュボードの両方を書いた(Windows の PowerShell ではコマンドの書き方が違うため)
+- OAuth の公開ステータスは「テスト中+テストユーザー」「公開」のどちらでもよいと書いた(利用者の絞り込みはアプリの許可リストで行うため)
+
+### 次にやること
+- 実環境で動作確認(下の手動作業)。問題があれば直す
+- 確認が終わったら `gas/` の削除(削除前に確認をもらう)と、README の旧版の注記を消す
+
+### 手動でやる作業の残り
+- README の「セットアップ」1〜8 を順に実施する
+  1. Supabase プロジェクト作成(Tokyo)
+  2. SQL Editor でマイグレーション実行、自分を管理者として登録
+  3. Google Cloud: プロジェクト作成、Calendar API 有効化、サービスアカウントと鍵(JSON)作成
+  4. Google Cloud: OAuth クライアント作成、Supabase の Google プロバイダに設定
+  5. シークレット `GOOGLE_SERVICE_ACCOUNT_JSON` の登録と `functions deploy`
+  6. `web/js/config.js` の記入とプッシュ、GitHub Pages の Source を「GitHub Actions」に、Supabase の URL Configuration
+  7. 管理画面でマスタ CSV を取り込み、利用者を追加
+  8. 動作確認(登録・メモの泊地・リセット・祝日の「休」・GAS 版で登録済みの予定が消せるか)
+- ヘルプの画面の名前が実際の Google カレンダーと合っているか確認
