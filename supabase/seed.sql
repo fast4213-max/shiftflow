@@ -18,6 +18,5 @@ select o.id, v.code, v.kind, v.ws, v.we, v.hs, v.he, v.stay, v.ord
  where o.name = 'サンプル区'
 on conflict (office_id, code) do nothing;
 
--- ローカルで試すときは、自分の Google アカウントを管理者として許可リストに入れ、管理画面のパスワードを設定する(例)
--- insert into public.members (email, is_admin) values ('you@example.com', true);
--- select public.set_admin_passcode('local-passcode');
+-- ローカルで試すときの利用者・管理者は、画面の「新規登録」と、Edge Function の admin-login で作る
+-- (SQL で直接 auth.users には入れない)
