@@ -1,4 +1,7 @@
 // 全画面で使う共通処理: Supabase の初期化、ログイン状態の確認、上のナビ、Edge Function の呼び出し
+//
+// ログインは Edge Function(login / admin-login)が返すセッションを、ここで受け取って保存する。
+// 利用者は社員番号+PIN、管理者は管理用パスワード。
 
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
@@ -6,7 +9,7 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
 export const configured = !SUPABASE_URL.includes("YOUR-PROJECT-REF");
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "pkce" },
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
 });
 
 export const $ = (id) => document.getElementById(id);
@@ -25,15 +28,14 @@ export function renderTopbar(current, { loggedIn = false, isAdmin = false } = {}
   const bar = document.createElement("nav");
   bar.className = "topbar";
   const links = [];
-  if (loggedIn) {
-    links.push(["index.html", "勤務入力"], ["settings.html", "設定"]);
-    if (isAdmin) links.push(["admin.html", "管理"]);
-  }
+  if (!loggedIn) links.push(["index.html", "ログイン"]);
+  else if (isAdmin) links.push(["admin.html", "管理"]);
+  else links.push(["input.html", "勤務入力"], ["settings.html", "設定"]);
   links.push(["help.html", "使い方"]);
 
   const brand = document.createElement("a");
   brand.className = "brand";
-  brand.href = loggedIn ? "index.html" : "login.html";
+  brand.href = !loggedIn ? "index.html" : isAdmin ? "admin.html" : "input.html";
   brand.textContent = "shiftflow";
   bar.appendChild(brand);
 
@@ -51,84 +53,16 @@ export function renderTopbar(current, { loggedIn = false, isAdmin = false } = {}
     out.textContent = "ログアウト";
     out.addEventListener("click", async (ev) => {
       ev.preventDefault();
-      await supabase.auth.signOut();
-      go("login.html");
+      await logout();
     });
     bar.appendChild(out);
   }
   document.body.prepend(bar);
 }
 
-export async function currentSession() {
-  if (!configured) return null;
-  const { data } = await supabase.auth.getSession();
-  return data.session;
-}
-
-// 自分が許可リストに入っているか(本人の行だけ読める)
-export async function loadMembership(session) {
-  const email = (session.user.email || "").toLowerCase();
-  const { data, error } = await supabase.from("members").select("email, is_admin").eq("email", email).maybeSingle();
-  if (error) throw error;
-  return data;
-}
-
-export async function loadSettings(session) {
-  const { data, error } = await supabase
-    .from("user_settings")
-    .select("work_calendar_id, holiday_calendar_id, verified_at, office_id")
-    .eq("user_id", session.user.id)
-    .maybeSingle();
-  if (error) throw error;
-  return data;
-}
-
-function showNotAllowed(email) {
-  document.body.innerHTML = "";
-  renderTopbar("", { loggedIn: false });
-  const main = document.createElement("main");
-  main.className = "page";
-  main.innerHTML = `
-    <h1>利用が許可されていません</h1>
-    <div class="card">
-      <p><span class="mono"></span> は、まだこのアプリの利用者として登録されていません。</p>
-      <p>管理者に、このメールアドレスで利用できるようにしてもらってください。登録されたら、もう一度ログインしてください。</p>
-      <button id="logout-not-allowed">別のアカウントでログイン</button>
-    </div>`;
-  main.querySelector(".mono").textContent = email;
-  document.body.appendChild(main);
-  $("logout-not-allowed").addEventListener("click", async () => {
-    await supabase.auth.signOut();
-    go("login.html");
-  });
-}
-
-// ログイン必須のページの入口。
-//   needVerified: 区所を選んでいない・接続テスト済みでなければ設定画面へ
-//   needAdmin   : 管理者でなければ勤務入力へ
-// 戻り値: { session, member, settings }(移動するときは null)
-export async function requireLogin(current, { needVerified = false, needAdmin = false } = {}) {
-  const session = await currentSession();
-  if (!session) {
-    go("login.html");
-    return null;
-  }
-  const member = await loadMembership(session);
-  if (!member) {
-    showNotAllowed(session.user.email || "");
-    return null;
-  }
-  if (needAdmin && !member.is_admin) {
-    go("index.html");
-    return null;
-  }
-  const settings = await loadSettings(session);
-  if (needVerified && !(settings && settings.verified_at && settings.office_id)) {
-    go("settings.html");
-    return null;
-  }
-  renderTopbar(current, { loggedIn: true, isAdmin: member.is_admin });
-  return { session, member, settings };
+export async function logout() {
+  await supabase.auth.signOut();
+  go("index.html");
 }
 
 // Edge Function を呼ぶ。失敗したら、画面に出せるメッセージ付きの Error を投げる
@@ -148,6 +82,90 @@ export async function callFunction(name, body = {}) {
   const err = new Error(message);
   err.code = code;
   throw err;
+}
+
+// Edge Function が返したセッションを保存してログイン状態にする
+export async function startSession(session) {
+  const { error } = await supabase.auth.setSession({
+    access_token: session.access_token,
+    refresh_token: session.refresh_token,
+  });
+  if (error) throw error;
+}
+
+export async function currentSession() {
+  if (!configured) return null;
+  const { data } = await supabase.auth.getSession();
+  return data.session;
+}
+
+// 自分のプロフィール(社員番号・名前・権限)。無ければ null
+export async function loadProfile(session) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("employee_no, family_name, given_name, role")
+    .eq("user_id", session.user.id)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function loadSettings(session) {
+  const { data, error } = await supabase
+    .from("user_settings")
+    .select("work_calendar_id, holiday_calendar_id, verified_at, office_id")
+    .eq("user_id", session.user.id)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export function isReady(settings) {
+  return !!(settings && settings.verified_at && settings.office_id);
+}
+
+// ログイン後に最初に行くページ
+export async function homePageFor(session, profile) {
+  if (profile.role === "admin") return "admin.html";
+  return isReady(await loadSettings(session)) ? "input.html" : "settings.html";
+}
+
+// ログイン必須のページの入口。
+//   needVerified: 区所を選んでいない・接続テスト済みでなければ設定画面へ
+//   needAdmin   : 管理者のページ(管理者以外は勤務入力へ)。利用者のページは管理者を管理画面へ返す
+// 戻り値: { session, profile, settings }(移動するときは null)
+export async function requireLogin(current, { needVerified = false, needAdmin = false } = {}) {
+  const session = await currentSession();
+  if (!session) {
+    go("index.html");
+    return null;
+  }
+  const profile = await loadProfile(session);
+  if (!profile) {
+    // ユーザーが消された(管理者が削除した)など
+    await supabase.auth.signOut();
+    go("index.html");
+    return null;
+  }
+  const isAdmin = profile.role === "admin";
+  if (needAdmin && !isAdmin) {
+    go("input.html");
+    return null;
+  }
+  if (!needAdmin && isAdmin && current !== "help.html") {
+    go("admin.html");
+    return null;
+  }
+  let settings = null;
+  if (!isAdmin) {
+    settings = await loadSettings(session);
+    if (needVerified && !isReady(settings)) {
+      go("settings.html");
+      return null;
+    }
+  }
+  renderTopbar(current, { loggedIn: true, isAdmin });
+  return { session, profile, settings };
 }
 
 export async function copyText(text, button) {
@@ -172,4 +190,9 @@ export function formatDateTime(value) {
   if (!value) return "—";
   const d = new Date(value);
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+// 全角の数字を半角にする(スマホの日本語キーボード対策)
+export function toHalfWidth(value) {
+  return String(value || "").replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).trim();
 }

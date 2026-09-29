@@ -13,50 +13,54 @@
 <body>
   <main class="page">
     <h1>設定</h1>
-    <p id="first-time" class="muted hidden">はじめに、登録先のGoogleカレンダーを設定します。この設定は最初の1回だけです。</p>
+    <p id="who" class="muted"></p>
+    <p id="first-time" class="note hidden">はじめに、区所とカレンダーを設定します。この設定は最初の1回だけです。</p>
 
     <div class="card">
-      <strong>区所を選ぶ</strong>
+      <strong>1. 区所を選ぶ</strong>
       <p class="muted">勤務の番号の一覧(マスタ)は区所ごとに違います。自分の区所を選んでください。</p>
       <select id="office"><option value="">読み込み中…</option></select>
-      <p id="office-result" class="muted"></p>
     </div>
 
     <div class="card">
-      <strong>1. カレンダーを共有する</strong>
-      <p class="muted">勤務用・休日用のカレンダーを、それぞれ下のアドレスと<b>予定を変更できる権限</b>で共有します。</p>
+      <strong>2. カレンダーを共有する</strong>
+      <p class="muted">勤務用・休日用の<b>新しいカレンダー</b>を作り、それぞれ下のアドレスと<b>予定を変更できる権限</b>で共有します(自分のメインのカレンダーは使えません)。</p>
       <div class="row">
         <input id="sa-email" class="mono" readonly value="読み込み中…">
-        <button id="copy-sa">コピー</button>
+        <button id="copy-sa" type="button">コピー</button>
       </div>
       <p class="muted">
-        共有とカレンダーIDの確認は、PC 用の Googleカレンダーの画面で行います。
+        カレンダーの作成・共有・カレンダーIDの確認は、PC 用の Googleカレンダーの画面で行います。
         <a href="https://calendar.google.com/calendar/u/0/r/settings" target="_blank" rel="noopener">Googleカレンダーの設定を開く</a><br>
-        スマホではリンクがカレンダーアプリで開いてしまうことがあります。
-        そのときはブラウザで calendar.google.com を開き「PC版サイト」に切り替えてください。
-        詳しくは <a href="help.html#share">使い方の「カレンダーを共有する」</a>。
+        スマホではリンクがカレンダーアプリで開いてしまうことがあります。そのときはブラウザで calendar.google.com を開き「PC版サイト」に切り替えてください。
+        詳しい手順は <a href="help.html#share">使い方の「カレンダーを共有する」</a>。
       </p>
-      <p class="muted">手順: カレンダーの「︙」→「設定と共有」→「共有する相手」の「ユーザーやグループを追加」→ 上のアドレスを入力 → 権限を「予定の詳細を変更、表示可能」(画面によっては「予定の変更権限」など、予定を変更できるもの)→「送信」。</p>
     </div>
 
     <div class="card">
-      <strong>2. カレンダーIDを入力する</strong>
-      <p class="muted">同じ「設定と共有」の画面の下の方、「カレンダーの統合」にある「カレンダー ID」をコピーして貼り付けます。</p>
+      <strong>3. カレンダーIDを入力して接続テスト</strong>
+      <p class="muted">「設定と共有」の画面の下の方、「カレンダーの統合」にある「カレンダー ID」を貼り付けます。</p>
       <label for="work-id">勤務用カレンダーID</label>
       <input id="work-id" class="mono" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="xxxx@group.calendar.google.com">
       <label for="holiday-id">休日用カレンダーID</label>
       <input id="holiday-id" class="mono" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="xxxx@group.calendar.google.com">
+      <button id="save" class="primary block" type="button">保存して接続テスト</button>
+      <p id="result" class="message"></p>
+      <p id="go-input" class="hidden"><a href="input.html">勤務入力へ進む →</a></p>
+      <p class="muted">うまくいかないときは <a href="help.html#test">使い方の「接続テスト」</a> の対処を見てください。</p>
     </div>
 
-    <div class="card">
-      <strong>3. 接続テスト</strong>
-      <p class="muted">入力したIDを保存し、両方のカレンダーにテストの予定を書いてすぐ消します。</p>
-      <button id="verify" class="primary">保存して接続テスト</button>
-      <p id="result"></p>
-      <p id="go-input" class="hidden"><a href="index.html">勤務入力へ進む →</a></p>
-    </div>
-
-    <p class="muted">うまくいかないときは <a href="help.html#test">使い方の「接続テスト」</a> の対処表を見てください。</p>
+    <details class="card">
+      <summary>PINを変える</summary>
+      <label for="pin-current">いまのPIN</label>
+      <input id="pin-current" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password">
+      <label for="pin-new">新しいPIN(6桁の数字)</label>
+      <input id="pin-new" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">
+      <label for="pin-new2">新しいPIN(もう一度)</label>
+      <input id="pin-new2" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">
+      <button id="pin-save" class="block" type="button">PINを変更</button>
+      <p id="pin-result" class="message"></p>
+    </details>
   </main>
   <script type="module" src="js/settings.js"></script>
 </body>

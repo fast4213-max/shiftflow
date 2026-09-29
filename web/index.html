@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>勤務登録 - shiftflow</title>
+  <title>ログイン - shiftflow</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
@@ -11,51 +11,39 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="勤務登録">
   <link rel="stylesheet" href="css/app.css">
-  <link rel="stylesheet" href="css/shift.css">
 </head>
 <body>
-  <div class="month-header">
-    <button id="prev" aria-label="前の月">◀</button>
-    <h1 id="title"></h1>
-    <button id="next" aria-label="次の月">▶</button>
-  </div>
-  <main class="shift">
-    <table>
-      <thead>
-        <tr><th>日付</th><th>曜日</th><th>平/休</th><th>番号</th><th>メモ</th></tr>
-      </thead>
-      <tbody id="list"></tbody>
-    </table>
+  <main class="page narrow">
+    <div class="brand-block">
+      <img src="icons/icon.svg" alt="" width="64" height="64">
+      <h1>勤務登録</h1>
+      <p class="muted">勤務を入力して、Googleカレンダーに登録します。</p>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button id="tab-user" role="tab" aria-selected="true" class="tab active">利用者</button>
+      <button id="tab-admin" role="tab" aria-selected="false" class="tab">管理</button>
+    </div>
+
+    <!-- 利用者 -->
+    <form id="user-form" class="card" autocomplete="on">
+      <label for="employee-no">社員番号(7桁)</label>
+      <input id="employee-no" name="username" inputmode="numeric" maxlength="7" autocomplete="username" placeholder="1234567" required>
+      <label for="pin">PIN(6桁の数字)</label>
+      <input id="pin" name="password" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password" placeholder="••••••" required>
+      <button id="user-login" class="primary block" type="submit" disabled>ログイン</button>
+      <p id="user-message" class="message"></p>
+      <p class="muted center">はじめての方は <a href="register.html">新規登録</a> ・ <a href="help.html">使い方</a></p>
+    </form>
+
+    <!-- 管理 -->
+    <form id="admin-form" class="card hidden" autocomplete="on">
+      <label for="admin-password">管理用パスワード</label>
+      <input id="admin-password" name="password" type="password" autocomplete="current-password" required>
+      <button id="admin-login" class="primary block" type="submit" disabled>管理画面に入る</button>
+      <p id="admin-message" class="message"></p>
+    </form>
   </main>
-  <footer class="shift-footer">
-    <button id="register" class="primary" disabled>登録</button>
-    <span id="status">読み込み中…</span>
-    <button id="reset" disabled>リセット</button>
-  </footer>
-
-  <dialog id="picker">
-    <h2 id="picker-title"></h2>
-    <h3>勤務</h3>
-    <div class="grid" id="picker-duty"></div>
-    <h3>休み</h3>
-    <div class="grid" id="picker-off"></div>
-    <div class="actions">
-      <button id="picker-manual">手入力</button>
-      <button id="picker-clear">クリア</button>
-      <button id="picker-cancel">やめる</button>
-    </div>
-  </dialog>
-
-  <dialog id="reset-dialog">
-    <h2>カレンダーのリセット</h2>
-    <p>選んだ月の、このアプリで登録した予定を削除します。手で入れた予定と、画面の入力内容は消えません。</p>
-    <input type="month" id="reset-month">
-    <div class="actions">
-      <button id="reset-cancel">やめる</button>
-      <button id="reset-run">削除</button>
-    </div>
-  </dialog>
-
   <script type="module" src="js/index.js"></script>
 </body>
 </html>

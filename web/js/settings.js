@@ -1,25 +1,24 @@
-import { $, callFunction, copyText, requireLogin, supabase } from "./app.js";
+// 設定: 区所とカレンダーIDだけ。保存すると、そのまま接続テストをする。
+import { $, callFunction, copyText, isReady, requireLogin, supabase, toHalfWidth } from "./app.js";
 
 let session = null;
 let settings = null; // user_settings の行(無ければ null)
 
-function showResult(text, kind) {
-  $("result").textContent = text;
-  $("result").className = kind || "";
+function message(id, text, kind) {
+  $(id).textContent = text || "";
+  $(id).className = "message" + (kind ? " " + kind : "");
 }
 
 function updateGoInput() {
-  const ready = settings && settings.verified_at && settings.office_id;
-  $("go-input").classList.toggle("hidden", !ready);
+  $("go-input").classList.toggle("hidden", !isReady(settings));
 }
 
-// 利用者が書けるのはカレンダーIDと区所の列だけ(検証済みフラグは Edge Function が書く)
+// 利用者が書けるのは区所とカレンダーIDの列だけ(検証済みフラグは Edge Function が書く)
 async function saveSettings(values) {
+  const columns = "work_calendar_id, holiday_calendar_id, verified_at, office_id";
   const { data, error } = settings
-    ? await supabase.from("user_settings").update(values).eq("user_id", session.user.id)
-      .select("work_calendar_id, holiday_calendar_id, verified_at, office_id").single()
-    : await supabase.from("user_settings").insert({ user_id: session.user.id, ...values })
-      .select("work_calendar_id, holiday_calendar_id, verified_at, office_id").single();
+    ? await supabase.from("user_settings").update(values).eq("user_id", session.user.id).select(columns).single()
+    : await supabase.from("user_settings").insert({ user_id: session.user.id, ...values }).select(columns).single();
   if (error) throw error;
   settings = data;
 }
@@ -47,30 +46,17 @@ async function main() {
   if (!ctx) return;
   session = ctx.session;
   settings = ctx.settings;
+  $("who").textContent = `${ctx.profile.family_name} ${ctx.profile.given_name}(社員番号 ${ctx.profile.employee_no})`;
 
   if (settings) {
     $("work-id").value = settings.work_calendar_id || "";
     $("holiday-id").value = settings.holiday_calendar_id || "";
   }
-  if (!settings || !settings.verified_at || !settings.office_id) $("first-time").classList.remove("hidden");
-  if (settings && settings.verified_at) showResult("接続テスト済みです。", "ok");
+  if (!isReady(settings)) $("first-time").classList.remove("hidden");
+  if (isReady(settings)) message("result", "接続テスト済みです。", "ok");
   updateGoInput();
 
-  loadOffices().catch((err) => ($("office-result").textContent = err.message));
-  $("office").addEventListener("change", async () => {
-    const value = $("office").value;
-    $("office-result").textContent = "保存しています…";
-    $("office-result").className = "muted";
-    try {
-      await saveSettings({ office_id: value ? Number(value) : null });
-      $("office-result").textContent = value ? "保存しました。" : "";
-      $("office-result").className = "ok";
-      updateGoInput();
-    } catch (err) {
-      $("office-result").textContent = err.message || String(err);
-      $("office-result").className = "error";
-    }
-  });
+  loadOffices().catch((err) => message("result", err.message || String(err), "error"));
 
   callFunction("app-config")
     .then((config) => ($("sa-email").value = config.serviceAccountEmail))
@@ -80,35 +66,55 @@ async function main() {
   // IDを書き換えたら、テスト済みの表示を消す
   ["work-id", "holiday-id"].forEach((id) =>
     $(id).addEventListener("input", () => {
-      showResult("");
+      message("result", "");
       $("go-input").classList.add("hidden");
     })
   );
 
-  $("verify").addEventListener("click", async () => {
+  $("save").addEventListener("click", async () => {
+    const office = $("office").value;
     const values = {
+      office_id: office ? Number(office) : null,
       work_calendar_id: $("work-id").value.trim(),
       holiday_calendar_id: $("holiday-id").value.trim(),
     };
-    $("verify").disabled = true;
+    $("save").disabled = true;
     $("go-input").classList.add("hidden");
     try {
+      if (!values.office_id) throw new Error("1. で区所を選んでください。");
       if (!values.work_calendar_id || !values.holiday_calendar_id) {
         throw new Error("勤務用と休日用の両方のカレンダーIDを入力してください。");
       }
-      showResult("保存しています…");
+      message("result", "保存しています…");
       await saveSettings(values);
-      showResult("接続テスト中です(10秒ほどかかることがあります)…");
+      message("result", "接続テスト中です(10秒ほどかかることがあります)…");
       await callFunction("verify-calendar");
       settings.verified_at = new Date().toISOString();
-      showResult(settings.office_id ? "接続できました。勤務入力に進めます。" : "接続できました。上で区所を選ぶと勤務入力に進めます。", "ok");
+      message("result", "接続できました。勤務入力に進めます。", "ok");
       updateGoInput();
     } catch (err) {
-      showResult(err.message || String(err), "error");
+      message("result", err.message || String(err), "error");
     } finally {
-      $("verify").disabled = false;
+      $("save").disabled = false;
+    }
+  });
+
+  $("pin-save").addEventListener("click", async () => {
+    const current = toHalfWidth($("pin-current").value);
+    const next = toHalfWidth($("pin-new").value);
+    if (!/^\d{6}$/.test(next)) return message("pin-result", "新しいPINは6桁の数字で入力してください。", "error");
+    if (next !== toHalfWidth($("pin-new2").value)) return message("pin-result", "新しいPINが2回で一致しません。", "error");
+    $("pin-save").disabled = true;
+    try {
+      await callFunction("change-pin", { current_pin: current, new_pin: next });
+      ["pin-current", "pin-new", "pin-new2"].forEach((id) => ($(id).value = ""));
+      message("pin-result", "PINを変更しました。次のログインから新しいPINを使ってください。", "ok");
+    } catch (err) {
+      message("pin-result", err.message || String(err), "error");
+    } finally {
+      $("pin-save").disabled = false;
     }
   });
 }
 
-main().catch((err) => showResult(err.message || String(err), "error"));
+main().catch((err) => message("result", err.message || String(err), "error"));

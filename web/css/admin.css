@@ -1,0 +1,51 @@
+/* 管理画面(ダッシュボード) */
+body.admin { background: #eef1f6; }
+body.admin .topbar { background: #1f2a44; border-bottom: none; color: #cfd6e6; }
+body.admin .topbar a { color: #cfd6e6; }
+body.admin .topbar a.current, body.admin .topbar .brand { color: #fff; }
+
+.dash-tabs {
+  display: flex; gap: 0; overflow-x: auto; background: #1f2a44; padding: 0 8px;
+  position: sticky; top: 0; z-index: 3; -webkit-overflow-scrolling: touch;
+}
+.dtab {
+  flex: none; border: none; border-radius: 0; background: transparent; color: #aab4cb;
+  padding: 12px 10px; font-size: 0.9rem; border-bottom: 3px solid transparent;
+}
+.dtab.active { color: #fff; border-bottom-color: #6ea8fe; font-weight: bold; }
+
+.dash { max-width: 1000px; margin: 0 auto; padding: 16px 12px 64px; }
+.panel { background: #fff; border-radius: 12px; padding: 16px; margin: 14px 0; box-shadow: 0 1px 3px rgba(20, 30, 60, 0.08); }
+.panel h2 { font-size: 1.05rem; margin: 0 0 10px; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.panel-head h2 { margin: 0; }
+.panel-head input[type="search"] { width: 240px; max-width: 100%; }
+.panel-head select { width: auto; min-width: 10em; }
+
+/* 数字のカード */
+.kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 12px 0; }
+@media (min-width: 720px) { .kpis { grid-template-columns: repeat(4, 1fr); } }
+.kpi {
+  background: #fff; border-radius: 12px; padding: 14px 16px;
+  box-shadow: 0 1px 3px rgba(20, 30, 60, 0.08); border-top: 4px solid var(--accent);
+}
+.kpi-label { color: var(--muted); font-size: 0.82rem; }
+.kpi-num { font-size: 2.2rem; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.kpi-sub { color: var(--muted); font-size: 0.8rem; min-height: 1.2em; }
+
+/* 区所ごとの人数(1色の横棒。数字は棒の右に直接表示) */
+.bar-row { display: grid; grid-template-columns: minmax(6em, 10em) 1fr 4em; gap: 10px; align-items: center; margin: 8px 0; }
+.bar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { background: #eef1f6; border-radius: 0 4px 4px 0; height: 16px; }
+.bar-fill { background: var(--accent); height: 100%; border-radius: 0 4px 4px 0; min-width: 2px; }
+.bar-count { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* 注意 */
+.alert { border-radius: 10px; padding: 10px 14px; margin: 10px 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.alert.warn { background: #fff4e5; border: 1px solid #f5c98a; }
+.alert.info { background: #e8f0fe; border: 1px solid #b7cdf5; }
+.alert button { margin-left: auto; }
+
+.pin-big { font-size: 2.4rem; font-weight: 700; letter-spacing: 0.25em; text-align: center; margin: 12px 0; font-variant-numeric: tabular-nums; }
+#pin-dialog { width: min(360px, 92vw); }
+table.list button { margin-right: 4px; }

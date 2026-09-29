@@ -1,16 +1,16 @@
 // 使い方ページ。未ログインでも読める。
 // ログイン済みの利用者にだけ、登録用アドレス(サービスアカウントのメール)を表示する。
-import { $, callFunction, copyText, currentSession, loadMembership, renderTopbar } from "./app.js";
+import { $, callFunction, copyText, currentSession, loadProfile, renderTopbar } from "./app.js";
 
 async function main() {
   let session = null;
-  let member = null;
+  let profile = null;
   try {
     session = await currentSession();
-    if (session) member = await loadMembership(session);
+    if (session) profile = await loadProfile(session);
   } catch (_) { /* 読めなくても使い方は表示する */ }
-  renderTopbar("help.html", { loggedIn: !!member, isAdmin: !!(member && member.is_admin) });
-  if (!member) return;
+  renderTopbar("help.html", { loggedIn: !!profile, isAdmin: !!(profile && profile.role === "admin") });
+  if (!profile) return;
 
   try {
     const config = await callFunction("app-config");

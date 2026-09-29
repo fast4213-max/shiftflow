@@ -1,5 +1,6 @@
-// 管理画面。管理者フラグ + パスワード解除(DB 側で判定)が必要。
-import { $, formatDateTime, requireLogin, supabase } from "./app.js";
+// 管理画面(ダッシュボード)。管理者だけ。管理用パスワードでログインしたセッションで動く。
+import { $, callFunction, copyText, formatDateTime, requireLogin, supabase } from "./app.js";
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
 import { checkMasterRows, masterRowsFromCsv, masterToCsv, readTextFile } from "./csv.js";
 
 const MASTER_COLUMNS = [
@@ -12,14 +13,13 @@ const MASTER_COLUMNS = [
   ["stay", "泊"],
 ];
 
-let myEmail = "";
-let offices = [];
+let stats = null;
 let currentMaster = [];
 let pendingRows = null;
 
 function message(text, kind) {
-  $("message").textContent = text;
-  $("message").className = kind || "";
+  $("message").textContent = text || "";
+  $("message").className = "message" + (kind ? " " + kind : "");
 }
 
 function cell(tr, content, className) {
@@ -39,205 +39,220 @@ function button(label, onClick, className) {
   return b;
 }
 
-function friendly(error) {
-  const text = (error && error.message) || String(error);
-  if (text.includes("管理者だけ") || text.includes("row-level security")) {
-    return "パスワードの解除が切れました。ページを開き直して、もう一度パスワードを入れてください。";
+function fullName(u) {
+  return `${u.family_name} ${u.given_name}`;
+}
+
+// ---------- タブ ----------
+
+function showTab(name) {
+  document.querySelectorAll(".dtab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
+  document.querySelectorAll(".pane").forEach((p) => p.classList.toggle("hidden", p.id !== "pane-" + name));
+  message("");
+  history.replaceState(null, "", "#" + name);
+}
+document.querySelectorAll(".dtab").forEach((t) => t.addEventListener("click", () => showTab(t.dataset.tab)));
+
+// ---------- 概要 ----------
+
+function alertBox(kind, text, actionLabel, tab) {
+  const div = document.createElement("div");
+  div.className = "alert " + kind;
+  const span = document.createElement("span");
+  span.textContent = text;
+  div.appendChild(span);
+  if (actionLabel) div.appendChild(button(actionLabel, () => showTab(tab)));
+  return div;
+}
+
+function renderOverview() {
+  $("kpi-users").textContent = stats.users;
+  $("kpi-verified").textContent = stats.verified;
+  $("kpi-verified-sub").textContent = stats.users ? `全体の ${Math.round((stats.verified / stats.users) * 100)}%` : "";
+  $("kpi-active").textContent = stats.active_30d;
+  $("kpi-new").textContent = stats.signups_7d;
+
+  const alerts = $("alerts");
+  alerts.innerHTML = "";
+  if (!stats.signup_password_set) {
+    alerts.appendChild(alertBox("warn", "新規登録の共通パスワードが未設定です。設定するまで、新しい人は登録できません。", "設定へ", "settings"));
   }
-  return text;
-}
-
-// ---------- パスワード ----------
-
-async function isUnlocked() {
-  const { data, error } = await supabase.rpc("is_admin");
-  if (error) throw error;
-  return data === true;
-}
-
-function showLocked(text, kind) {
-  $("admin-body").classList.add("hidden");
-  $("lock").classList.add("hidden");
-  $("lock-screen").classList.remove("hidden");
-  $("unlock-message").textContent = text || "";
-  $("unlock-message").className = kind || "";
-  $("passcode").focus();
-}
-
-function showUnlocked() {
-  $("lock-screen").classList.add("hidden");
-  $("admin-body").classList.remove("hidden");
-  $("lock").classList.remove("hidden");
-  refresh();
-}
-
-$("unlock-form").addEventListener("submit", async (ev) => {
-  ev.preventDefault();
-  const { data, error } = await supabase.rpc("unlock_admin", { passcode: $("passcode").value });
-  $("passcode").value = "";
-  if (error) return showLocked(error.message, "error");
-  const messages = {
-    wrong: "パスワードが違います。",
-    locked: "続けて間違えたため、15分間ロックしています。",
-    not_set: "パスワードがまだ設定されていません。README の手順で、SQL Editor から設定してください。",
-    not_admin: "管理者ではありません。",
-  };
-  if (data === "ok") showUnlocked();
-  else showLocked(messages[data] || data, "error");
-});
-
-$("lock").addEventListener("click", async () => {
-  await supabase.rpc("lock_admin");
-  showLocked("ロックしました。");
-});
-
-// ---------- 利用状況・利用者・区所 ----------
-
-async function addMember(email, note) {
-  email = email.trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+$/.test(email)) throw new Error("メールアドレスの形が正しくありません。");
-  const { error } = await supabase.from("members").insert({ email, note: note.trim() });
-  if (error) throw new Error(error.code === "23505" ? "すでに登録されています。" : friendly(error));
-}
-
-function renderUsers(data) {
-  const users = $("users");
-  users.innerHTML = "";
-  data.users.forEach((u) => {
-    const tr = document.createElement("tr");
-    const who = document.createElement("div");
-    const mail = document.createElement("div");
-    mail.className = "mono";
-    mail.textContent = u.email + (u.is_admin ? "(管理者)" : "");
-    who.appendChild(mail);
-    if (u.note) {
-      const note = document.createElement("div");
-      note.className = "muted";
-      note.textContent = u.note;
-      who.appendChild(note);
+  if (stats.offices.length === 0) {
+    alerts.appendChild(alertBox("warn", "区所がまだありません。区所を追加して、マスタを取り込んでください。", "マスタ登録へ", "import"));
+  } else {
+    const empty = stats.offices.filter((o) => o.master_count === 0);
+    if (empty.length) {
+      alerts.appendChild(alertBox("warn", "マスタが空の区所があります: " + empty.map((o) => o.name).join("、"), "マスタ登録へ", "import"));
     }
-    cell(tr, who);
+  }
+  if (stats.no_office > 0) {
+    alerts.appendChild(alertBox("info", `区所をまだ選んでいない人が ${stats.no_office}人 います(設定画面で選んでもらいます)。`));
+  }
+
+  const bars = $("office-bars");
+  bars.innerHTML = "";
+  if (stats.offices.length === 0) {
+    bars.textContent = "区所がありません。";
+  } else {
+    const max = Math.max(1, ...stats.offices.map((o) => o.user_count));
+    stats.offices.forEach((o) => {
+      const row = document.createElement("div");
+      row.className = "bar-row";
+      const name = document.createElement("div");
+      name.className = "bar-name";
+      name.textContent = o.name;
+      const track = document.createElement("div");
+      track.className = "bar-track";
+      const fill = document.createElement("div");
+      fill.className = "bar-fill";
+      fill.style.width = (o.user_count / max) * 100 + "%";
+      track.appendChild(fill);
+      const count = document.createElement("div");
+      count.className = "bar-count";
+      count.textContent = o.user_count + "人";
+      row.append(name, track, count);
+      bars.appendChild(row);
+    });
+  }
+
+  const recent = $("recent");
+  recent.innerHTML = "";
+  stats.users_list.slice(0, 5).forEach((u) => {
+    const tr = document.createElement("tr");
+    cell(tr, u.employee_no, "mono");
+    cell(tr, fullName(u));
     cell(tr, u.office || "—");
-    cell(tr, u.last_sign_in_at ? formatDateTime(u.last_sign_in_at) : "未ログイン");
+    cell(tr, formatDateTime(u.created_at));
+    recent.appendChild(tr);
+  });
+  if (stats.users_list.length === 0) {
+    const tr = document.createElement("tr");
+    cell(tr, "まだ登録した人がいません。").colSpan = 4;
+    recent.appendChild(tr);
+  }
+}
+
+// ---------- 利用者 ----------
+
+async function resetPin(u) {
+  if (!confirm(`${fullName(u)}(${u.employee_no})に仮のPINを発行します。いまのPINは使えなくなります。よろしいですか？`)) return;
+  try {
+    const result = await callFunction("admin-users", { action: "reset-pin", user_id: u.user_id });
+    $("pin-who").textContent = `${fullName(u)}(社員番号 ${u.employee_no})`;
+    $("pin-value").textContent = result.pin;
+    $("pin-dialog").showModal();
+  } catch (err) {
+    message(err.message, "error");
+  }
+}
+
+async function deleteUser(u) {
+  if (!confirm(`${fullName(u)}(${u.employee_no})を削除します。\nこの人の設定と勤務の記録も消え、ログインできなくなります(カレンダーに登録済みの予定は残ります)。よろしいですか？`)) return;
+  try {
+    await callFunction("admin-users", { action: "delete", user_id: u.user_id });
+    message(`${fullName(u)} を削除しました。`, "ok");
+    refresh();
+  } catch (err) {
+    message(err.message, "error");
+  }
+}
+
+function renderUsers() {
+  const query = $("user-search").value.trim().toLowerCase().replace(/\s+/g, "");
+  const list = stats.users_list.filter((u) =>
+    !query || (u.employee_no + fullName(u)).toLowerCase().replace(/\s+/g, "").includes(query)
+  );
+  $("users-count").textContent = `${list.length}人`;
+  const tbody = $("users");
+  tbody.innerHTML = "";
+  list.forEach((u) => {
+    const tr = document.createElement("tr");
+    cell(tr, u.employee_no, "mono");
+    cell(tr, fullName(u));
+    cell(tr, u.office || "—");
     cell(tr, u.verified ? "済" : "—");
+    cell(tr, u.last_sign_in_at ? formatDateTime(u.last_sign_in_at) : "未ログイン");
     cell(tr, formatDateTime(u.last_registered_at));
     cell(tr, u.record_days + "日");
     const actions = document.createElement("div");
-    if (u.email !== myEmail) {
-      actions.appendChild(button("削除", async () => {
-        if (!confirm(u.email + " の利用許可を取り消しますか？(その人の記録は残りますが、使えなくなります)")) return;
-        const { error } = await supabase.from("members").delete().eq("email", u.email);
-        if (error) return message(friendly(error), "error");
-        refresh();
-      }));
-    }
+    actions.append(button("PIN再設定", () => resetPin(u)), button("削除", () => deleteUser(u)));
     cell(tr, actions);
-    users.appendChild(tr);
+    tbody.appendChild(tr);
   });
-
-  const pending = $("pending");
-  pending.innerHTML = "";
-  $("pending-box").classList.toggle("hidden", data.pending.length === 0);
-  data.pending.forEach((p) => {
+  if (list.length === 0) {
     const tr = document.createElement("tr");
-    cell(tr, p.email, "mono");
-    cell(tr, formatDateTime(p.last_sign_in_at));
-    cell(tr, button("許可", async () => {
-      try {
-        await addMember(p.email, "");
-        refresh();
-      } catch (err) {
-        message(err.message, "error");
-      }
-    }, "primary"));
-    pending.appendChild(tr);
+    cell(tr, "該当する人がいません。").colSpan = 8;
+    tbody.appendChild(tr);
+  }
+}
+$("user-search").addEventListener("input", () => stats && renderUsers());
+$("pin-close").addEventListener("click", () => {
+  $("pin-dialog").close();
+  $("pin-value").textContent = "";
+});
+
+// ---------- 区所 ----------
+
+function fillOfficeSelects() {
+  ["view-office", "import-office"].forEach((id) => {
+    const select = $(id);
+    const keep = select.value;
+    select.innerHTML = "";
+    stats.offices.forEach((o) => {
+      const opt = document.createElement("option");
+      opt.value = o.id;
+      opt.textContent = `${o.name}(${o.master_count}件)`;
+      select.appendChild(opt);
+    });
+    if (stats.offices.some((o) => String(o.id) === keep)) select.value = keep;
   });
+  $("csv-file").disabled = stats.offices.length === 0;
+  $("csv-download").disabled = stats.offices.length === 0;
 }
 
-function renderOffices(list) {
-  offices = list;
+function renderOffices() {
   const tbody = $("offices");
   tbody.innerHTML = "";
-  list.forEach((o) => {
+  stats.offices.forEach((o) => {
     const tr = document.createElement("tr");
     cell(tr, o.name);
     cell(tr, o.master_count + "件");
     cell(tr, o.user_count + "人");
     const actions = document.createElement("div");
-    actions.className = "row";
-    actions.appendChild(button("名前変更", async () => {
-      const name = prompt("新しい名前", o.name);
-      if (!name || !name.trim() || name.trim() === o.name) return;
-      const { error } = await supabase.from("offices").update({ name: name.trim() }).eq("id", o.id);
-      if (error) return message(error.code === "23505" ? "同じ名前の区所があります。" : friendly(error), "error");
-      refresh();
-    }));
-    actions.appendChild(button("削除", async () => {
-      const warn = o.name + " を削除しますか？\nこの区所のマスタ(" + o.master_count + "件)も消え、" +
-        "選んでいる利用者(" + o.user_count + "人)は区所を選び直すまで登録できなくなります。";
-      if (!confirm(warn)) return;
-      const { error } = await supabase.from("offices").delete().eq("id", o.id);
-      if (error) return message(friendly(error), "error");
-      refresh();
-    }));
+    actions.append(
+      button("名前変更", async () => {
+        const name = prompt("新しい名前", o.name);
+        if (!name || !name.trim() || name.trim() === o.name) return;
+        const { error } = await supabase.from("offices").update({ name: name.trim() }).eq("id", o.id);
+        if (error) return message(error.code === "23505" ? "同じ名前の区所があります。" : error.message, "error");
+        refresh();
+      }),
+      button("削除", async () => {
+        const warn = `${o.name} を削除しますか？\nこの区所のマスタ(${o.master_count}件)も消え、選んでいる利用者(${o.user_count}人)は区所を選び直すまで登録できなくなります。`;
+        if (!confirm(warn)) return;
+        const { error } = await supabase.from("offices").delete().eq("id", o.id);
+        if (error) return message(error.message, "error");
+        refresh();
+      }),
+    );
     cell(tr, actions);
     tbody.appendChild(tr);
   });
-
-  // マスタの区所の選択肢(選んでいたものは保つ)
-  const select = $("master-office");
-  const keep = select.value;
-  select.innerHTML = "";
-  list.forEach((o) => {
-    const opt = document.createElement("option");
-    opt.value = o.id;
-    opt.textContent = o.name + "(" + o.master_count + "件)";
-    select.appendChild(opt);
-  });
-  if (list.some((o) => String(o.id) === keep)) select.value = keep;
-  $("csv-file").disabled = list.length === 0;
-  if (list.length === 0) {
-    $("csv-message").textContent = "先に「区所」で区所を追加してください。";
-    $("csv-message").className = "muted";
+  if (stats.offices.length === 0) {
+    const tr = document.createElement("tr");
+    cell(tr, "区所がまだありません。下で追加してください。").colSpan = 4;
+    tbody.appendChild(tr);
   }
 }
-
-async function refresh() {
-  try {
-    const { data, error } = await supabase.rpc("admin_stats");
-    if (error) throw error;
-    $("stat-members").textContent = data.members;
-    $("stat-signed-in").textContent = data.signed_in;
-    $("stat-verified").textContent = data.verified;
-    $("stat-active").textContent = data.active_30d;
-    renderUsers(data);
-    renderOffices(data.offices);
-    await loadMaster();
-  } catch (err) {
-    message(friendly(err), "error");
-  }
-}
-
-$("add-member").addEventListener("click", async () => {
-  try {
-    await addMember($("new-email").value, $("new-note").value);
-    $("new-email").value = "";
-    $("new-note").value = "";
-    message("追加しました。本人に、アプリのURLを開いてGoogleでログインするよう伝えてください。", "ok");
-    refresh();
-  } catch (err) {
-    message(err.message, "error");
-  }
-});
 
 $("add-office").addEventListener("click", async () => {
   const name = $("new-office").value.trim();
   if (!name) return;
-  const { error } = await supabase.from("offices").insert({ name, sort_order: offices.length + 1 });
-  if (error) return message(error.code === "23505" ? "同じ名前の区所があります。" : friendly(error), "error");
+  const { error } = await supabase.from("offices").insert({ name, sort_order: stats.offices.length + 1 });
+  if (error) return message(error.code === "23505" ? "同じ名前の区所があります。" : error.message, "error");
   $("new-office").value = "";
-  message("区所を追加しました。続けて下の「勤務コードマスタ」でこの区所の CSV を取り込んでください。", "ok");
-  refresh();
+  message("区所を追加しました。下の「CSV を取り込む」でこの区所のマスタを入れてください。", "ok");
+  await refresh();
 });
 
 // ---------- マスタの表 ----------
@@ -265,29 +280,37 @@ function renderMasterTable(tbody, rows, withErrors) {
   });
 }
 
-function selectedOffice() {
-  return offices.find((o) => String(o.id) === $("master-office").value);
-}
-
 async function loadMaster() {
-  const office = selectedOffice();
+  const office = stats.offices.find((o) => String(o.id) === $("view-office").value);
   if (!office) {
     currentMaster = [];
     renderMasterTable($("master"), [], false);
-    $("master-title").textContent = "いまのマスタ";
     $("master-count").textContent = "";
     return;
   }
   const { data, error } = await supabase.from("shift_master").select("*").eq("office_id", office.id).order("sort_order");
   if (error) throw error;
   currentMaster = data;
-  $("master-title").textContent = "いまのマスタ: " + office.name;
   renderMasterTable($("master"), data, false);
   const counts = {};
   data.forEach((r) => (counts[r.kind] = (counts[r.kind] || 0) + 1));
-  $("master-count").textContent = data.length + "件" +
-    (data.length ? "(" + Object.entries(counts).map(([k, n]) => k + " " + n).join("、") + ")" : "");
+  $("master-count").textContent = `${office.name}: ${data.length}件` +
+    (data.length ? "(" + Object.entries(counts).map(([k, n]) => `${k} ${n}`).join("、") + ")" : "");
 }
+$("view-office").addEventListener("change", () => loadMaster().catch((err) => message(err.message, "error")));
+
+$("csv-download").addEventListener("click", () => {
+  const office = stats.offices.find((o) => String(o.id) === $("view-office").value);
+  if (!office) return;
+  const blob = new Blob([masterToCsv(currentMaster)], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `shift_master_${office.name}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+// ---------- マスタ登録(CSV) ----------
 
 function clearPreview() {
   pendingRows = null;
@@ -295,10 +318,13 @@ function clearPreview() {
   $("csv-preview").classList.add("hidden");
 }
 
-$("master-office").addEventListener("change", () => {
+function selectedImportOffice() {
+  return stats.offices.find((o) => String(o.id) === $("import-office").value);
+}
+
+$("import-office").addEventListener("change", () => {
   clearPreview();
   $("csv-message").textContent = "";
-  loadMaster().catch((err) => message(friendly(err), "error"));
 });
 
 $("csv-file").addEventListener("change", async () => {
@@ -307,61 +333,98 @@ $("csv-file").addEventListener("change", async () => {
   $("csv-preview").classList.add("hidden");
   pendingRows = null;
   if (!file) return;
-  const office = selectedOffice();
+  const office = selectedImportOffice();
   try {
     const rows = checkMasterRows(masterRowsFromCsv(await readTextFile(file)));
     const bad = rows.filter((r) => r.errors.length).length;
     pendingRows = rows;
     renderMasterTable($("csv-rows"), rows, true);
-    $("csv-summary").textContent = office.name + " に " + rows.length + "件を取り込みます" +
-      (bad ? "(問題のある行: " + bad + "件)" : "");
+    $("csv-summary").textContent = `${office.name} に ${rows.length}件を取り込みます` + (bad ? `(問題のある行: ${bad}件)` : "");
     $("csv-apply").disabled = bad > 0;
     $("csv-preview").classList.remove("hidden");
   } catch (err) {
     $("csv-message").textContent = err.message;
-    $("csv-message").className = "error";
+    $("csv-message").className = "message error";
   }
 });
 
 $("csv-cancel").addEventListener("click", clearPreview);
 
 $("csv-apply").addEventListener("click", async () => {
-  const office = selectedOffice();
+  const office = selectedImportOffice();
   if (!pendingRows || !office) return;
-  if (!confirm(office.name + " のマスタを、この " + pendingRows.length + "件で入れ替えます。よろしいですか？")) return;
+  if (!confirm(`${office.name} のマスタを、この ${pendingRows.length}件で入れ替えます。よろしいですか？`)) return;
   $("csv-apply").disabled = true;
   const rows = pendingRows.map(({ errors: _errors, ...r }) => r);
   const { data, error } = await supabase.rpc("replace_shift_master", { p_office_id: office.id, rows });
   $("csv-apply").disabled = false;
   if (error) {
-    $("csv-message").textContent = friendly(error);
-    $("csv-message").className = "error";
+    $("csv-message").textContent = error.message;
+    $("csv-message").className = "message error";
     return;
   }
   clearPreview();
-  $("csv-message").textContent = office.name + " のマスタを " + data + "件で入れ替えました。下の表で確認してください。";
-  $("csv-message").className = "ok";
+  $("csv-message").textContent = `${office.name} のマスタを ${data}件で入れ替えました。「マスタ表」で確認できます。`;
+  $("csv-message").className = "message ok";
   refresh();
 });
 
-$("csv-download").addEventListener("click", () => {
-  const office = selectedOffice();
-  if (!office) return;
-  const blob = new Blob([masterToCsv(currentMaster)], { type: "text/csv" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "shift_master_" + office.name + ".csv";
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+// ---------- 設定 ----------
+
+function signupMessage(text, kind) {
+  $("signup-message").textContent = text || "";
+  $("signup-message").className = "message" + (kind ? " " + kind : "");
+}
+
+$("signup-save").addEventListener("click", async () => {
+  const password = $("signup-pw").value;
+  if (password.length < 8) return signupMessage("8文字以上にしてください。", "error");
+  $("signup-save").disabled = true;
+  const { error } = await supabase.rpc("set_signup_password", { new_password: password });
+  $("signup-save").disabled = false;
+  if (error) return signupMessage(error.message, "error");
+  $("signup-pw").value = "";
+  signupMessage("共通パスワードを設定しました。利用者に伝えてください。", "ok");
+  refresh();
 });
 
-// ---------- 入口 ----------
+function renderSettings() {
+  $("signup-status").textContent = stats.signup_password_set
+    ? "設定済みです(セキュリティのため、いまのパスワードは表示できません。変えるときは新しいものを入れてください)。"
+    : "まだ設定されていません。設定するまで新規登録は受け付けません。";
+  $("keepalive-url").value = `${SUPABASE_URL}/rest/v1/rpc/keepalive`;
+  $("keepalive-key").value = SUPABASE_ANON_KEY;
+  $("copy-url").onclick = () => copyText($("keepalive-url").value, $("copy-url"));
+  $("copy-key").onclick = () => copyText($("keepalive-key").value, $("copy-key"));
+  $("copy-sa").onclick = () => copyText($("sa-email").value, $("copy-sa"));
+}
+
+// ---------- 読み込み ----------
+
+async function refresh() {
+  try {
+    const { data, error } = await supabase.rpc("admin_stats");
+    if (error) throw error;
+    stats = data;
+    renderOverview();
+    renderUsers();
+    renderOffices();
+    fillOfficeSelects();
+    renderSettings();
+    await loadMaster();
+  } catch (err) {
+    message(err.message || String(err), "error");
+  }
+}
 
 requireLogin("admin.html", { needAdmin: true })
   .then(async (ctx) => {
     if (!ctx) return;
-    myEmail = ctx.member.email;
-    if (await isUnlocked()) showUnlocked();
-    else showLocked();
+    callFunction("app-config")
+      .then((config) => ($("sa-email").value = config.serviceAccountEmail))
+      .catch((err) => ($("sa-email").value = "取得できませんでした: " + err.message));
+    await refresh();
+    const tab = location.hash.replace("#", "");
+    if (document.getElementById("pane-" + tab)) showTab(tab);
   })
-  .catch((err) => message(friendly(err), "error"));
+  .catch((err) => message(err.message || String(err), "error"));

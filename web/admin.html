@@ -8,66 +8,80 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/admin.css">
 </head>
-<body>
-  <main class="page wide">
-    <div class="row" style="justify-content: space-between">
-      <h1>管理</h1>
-      <button id="lock" class="hidden">ロックする</button>
-    </div>
-    <p id="message"></p>
+<body class="admin">
+  <div class="dash-tabs" role="tablist">
+    <button class="dtab active" data-tab="overview" role="tab">概要</button>
+    <button class="dtab" data-tab="users" role="tab">利用者</button>
+    <button class="dtab" data-tab="master" role="tab">マスタ表</button>
+    <button class="dtab" data-tab="import" role="tab">マスタ登録</button>
+    <button class="dtab" data-tab="settings" role="tab">設定</button>
+  </div>
 
-    <!-- パスワード -->
-    <div id="lock-screen" class="card hidden">
-      <strong>管理画面のパスワード</strong>
-      <p class="muted">管理者のアカウントでも、パスワードを入れるまで管理の操作はできません。解除は1時間、この端末のこのログインだけ有効です。</p>
-      <form id="unlock-form" class="row">
-        <input id="passcode" type="password" autocomplete="current-password" placeholder="パスワード">
-        <button class="primary" type="submit">解除</button>
-      </form>
-      <p id="unlock-message"></p>
-    </div>
+  <main class="dash">
+    <p id="message" class="message"></p>
 
-    <div id="admin-body" class="hidden">
-      <h2>利用状況</h2>
-      <div class="stats">
-        <div class="stat"><div class="num" id="stat-members">—</div><div class="label">許可している人</div></div>
-        <div class="stat"><div class="num" id="stat-signed-in">—</div><div class="label">ログインしたことがある人</div></div>
-        <div class="stat"><div class="num" id="stat-verified">—</div><div class="label">接続テスト済みの人</div></div>
-        <div class="stat"><div class="num" id="stat-active">—</div><div class="label">30日以内に登録した人</div></div>
+    <!-- 概要 -->
+    <section id="pane-overview" class="pane">
+      <div id="alerts"></div>
+      <div class="kpis">
+        <div class="kpi"><div class="kpi-label">登録している人</div><div class="kpi-num" id="kpi-users">—</div><div class="kpi-sub">人</div></div>
+        <div class="kpi"><div class="kpi-label">接続テスト済み</div><div class="kpi-num" id="kpi-verified">—</div><div class="kpi-sub" id="kpi-verified-sub"></div></div>
+        <div class="kpi"><div class="kpi-label">30日以内に登録した人</div><div class="kpi-num" id="kpi-active">—</div><div class="kpi-sub">勤務を登録した人</div></div>
+        <div class="kpi"><div class="kpi-label">直近7日の新規登録</div><div class="kpi-num" id="kpi-new">—</div><div class="kpi-sub">人</div></div>
       </div>
-
-      <div id="pending-box" class="card hidden">
-        <strong>ログインしたが未許可の人</strong>
-        <p class="muted">知っている人なら「許可」を押してください。</p>
-        <div class="scroll-x"><table class="list"><tbody id="pending"></tbody></table></div>
+      <div class="panel">
+        <h2>区所ごとの人数</h2>
+        <div id="office-bars"></div>
       </div>
+      <div class="panel">
+        <h2>最近の登録</h2>
+        <div class="scroll-x"><table class="list"><thead><tr><th>社員番号</th><th>氏名</th><th>区所</th><th>登録日</th></tr></thead><tbody id="recent"></tbody></table></div>
+      </div>
+    </section>
 
-      <h2>利用者</h2>
-      <div class="card">
-        <label for="new-email">メールアドレスを追加</label>
-        <input id="new-email" type="email" autocomplete="off" autocapitalize="off" placeholder="example@gmail.com">
-        <label for="new-note">メモ(誰か分かるように。任意)</label>
-        <div class="row">
-          <input id="new-note" autocomplete="off">
-          <button id="add-member" class="primary">追加</button>
+    <!-- 利用者 -->
+    <section id="pane-users" class="pane hidden">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>利用者 <span id="users-count" class="muted"></span></h2>
+          <input id="user-search" type="search" placeholder="社員番号・名前で探す" autocomplete="off">
+        </div>
+        <div class="scroll-x">
+          <table class="list">
+            <thead><tr><th>社員番号</th><th>氏名</th><th>区所</th><th>接続</th><th>最終ログイン</th><th>最終登録</th><th>記録</th><th></th></tr></thead>
+            <tbody id="users"></tbody>
+          </table>
         </div>
       </div>
-      <div class="scroll-x">
-        <table class="list">
-          <thead><tr><th>メール / メモ</th><th>区所</th><th>最終ログイン</th><th>接続</th><th>最終登録</th><th>記録</th><th></th></tr></thead>
-          <tbody id="users"></tbody>
-        </table>
-      </div>
+    </section>
 
-      <h2>区所</h2>
-      <div class="scroll-x">
-        <table class="list">
-          <thead><tr><th>区所</th><th>マスタ</th><th>利用者</th><th></th></tr></thead>
-          <tbody id="offices"></tbody>
-        </table>
+    <!-- マスタ表 -->
+    <section id="pane-master" class="pane hidden">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>マスタ表</h2>
+          <div class="row">
+            <select id="view-office"></select>
+            <button id="csv-download">CSVで保存</button>
+          </div>
+        </div>
+        <div class="scroll-x"><table class="list master"><thead></thead><tbody id="master"></tbody></table></div>
+        <p class="muted" id="master-count"></p>
       </div>
-      <div class="card">
+    </section>
+
+    <!-- マスタ登録 -->
+    <section id="pane-import" class="pane hidden">
+      <div class="panel">
+        <h2>区所</h2>
+        <div class="scroll-x">
+          <table class="list">
+            <thead><tr><th>区所</th><th>マスタ</th><th>利用者</th><th></th></tr></thead>
+            <tbody id="offices"></tbody>
+          </table>
+        </div>
         <label for="new-office">区所を追加</label>
         <div class="row">
           <input id="new-office" autocomplete="off" placeholder="区所の名前">
@@ -75,35 +89,68 @@
         </div>
       </div>
 
-      <h2>勤務コードマスタ</h2>
-      <div class="card">
-        <label for="master-office">区所</label>
-        <select id="master-office"></select>
-
-        <label for="csv-file">CSV を取り込む(この区所のマスタを丸ごと入れ替えます)</label>
+      <div class="panel">
+        <h2>CSV を取り込む</h2>
+        <label for="import-office">区所</label>
+        <select id="import-office"></select>
+        <label for="csv-file">CSV ファイル(この区所のマスタを丸ごと入れ替えます)</label>
         <input type="file" id="csv-file" accept=".csv,text/csv">
         <p class="muted">1行目は <code>番号,種別,平日出勤,平日退勤,休日出勤,休日退勤,泊</code>(「泊」列は無くてもよい)。種別は 泊 / 日勤 / 休日。</p>
-        <p id="csv-message"></p>
-      </div>
-
-      <div id="csv-preview" class="card hidden">
-        <strong id="csv-summary"></strong>
-        <p class="muted">取り込む内容です。時刻はそろえた形で表示しています。赤い行は直してから取り込んでください。</p>
-        <div class="scroll-x"><table class="list master"><thead></thead><tbody id="csv-rows"></tbody></table></div>
-        <div class="row" style="margin-top: 12px">
-          <button id="csv-apply" class="primary">この内容で入れ替える</button>
-          <button id="csv-cancel">やめる</button>
+        <p id="csv-message" class="message"></p>
+        <div id="csv-preview" class="hidden">
+          <strong id="csv-summary"></strong>
+          <p class="muted">取り込む内容です。時刻はそろえた形で表示しています。赤い行は直してから取り込んでください。</p>
+          <div class="scroll-x"><table class="list master"><thead></thead><tbody id="csv-rows"></tbody></table></div>
+          <div class="row" style="margin-top: 12px">
+            <button id="csv-apply" class="primary">この内容で入れ替える</button>
+            <button id="csv-cancel">やめる</button>
+          </div>
         </div>
       </div>
+    </section>
 
-      <div class="row" style="justify-content: space-between; margin-top: 16px">
-        <strong id="master-title">いまのマスタ</strong>
-        <button id="csv-download">CSVで保存</button>
+    <!-- 設定 -->
+    <section id="pane-settings" class="pane hidden">
+      <div class="panel">
+        <h2>新規登録の共通パスワード</h2>
+        <p id="signup-status" class="muted"></p>
+        <label for="signup-pw">新しい共通パスワード(8文字以上)</label>
+        <div class="row">
+          <input id="signup-pw" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <button id="signup-save" class="primary">設定する</button>
+        </div>
+        <p class="muted">利用者が新規登録するときに入力するパスワードです。変えても、すでに登録した人には影響しません。</p>
+        <p id="signup-message" class="message"></p>
       </div>
-      <div class="scroll-x"><table class="list master"><thead></thead><tbody id="master"></tbody></table></div>
-      <p class="muted" id="master-count"></p>
-    </div>
+      <div class="panel">
+        <h2>カレンダーの登録用アドレス</h2>
+        <p class="muted">利用者がカレンダーを共有する相手です(サービスアカウント)。</p>
+        <div class="row"><input id="sa-email" class="mono" readonly><button id="copy-sa">コピー</button></div>
+      </div>
+      <div class="panel">
+        <h2>データベースの停止対策(cron-job.org)</h2>
+        <p class="muted">無料プランは1週間ほど使われないと止まります。cron-job.org で、次の内容を6時間ごとに実行するよう登録します。</p>
+        <label>URL(メソッド: POST)</label>
+        <div class="row"><input id="keepalive-url" class="mono" readonly><button id="copy-url">コピー</button></div>
+        <label>ヘッダー <code>apikey</code> の値(公開してよいキー)</label>
+        <div class="row"><input id="keepalive-key" class="mono" readonly><button id="copy-key">コピー</button></div>
+        <p class="muted">もう1つのヘッダー: <code>Content-Type: application/json</code>、本文: <code>{}</code></p>
+      </div>
+      <div class="panel">
+        <h2>管理用パスワード</h2>
+        <p class="muted">この画面に入るパスワードは、Supabase のダッシュボード「Edge Functions」→「Secrets」の <code>ADMIN_PASSWORD</code> です(12文字以上)。変えるときはそこを書き換えてください。</p>
+      </div>
+    </section>
   </main>
+
+  <dialog id="pin-dialog">
+    <h2>仮のPINを発行しました</h2>
+    <p id="pin-who"></p>
+    <p class="pin-big" id="pin-value"></p>
+    <p class="muted">この画面を閉じると二度と表示されません。本人に伝えて、ログイン後に設定画面の「PINを変える」で好きなPINに変えてもらってください。</p>
+    <div class="actions"><button id="pin-close" class="primary">閉じる</button></div>
+  </dialog>
+
   <script type="module" src="js/admin.js"></script>
 </body>
 </html>

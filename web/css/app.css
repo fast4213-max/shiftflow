@@ -84,3 +84,25 @@ table.master td, table.master th { white-space: nowrap; }
 table.master tr.bad td { background: #fdecea; }
 table.master td.err { color: var(--danger); white-space: normal; min-width: 10em; }
 table.master td.num { color: var(--muted); }
+
+/* ログイン・登録 */
+.page.narrow { max-width: 440px; }
+.brand-block { text-align: center; margin: 12px 0 16px; }
+.brand-block h1 { margin: 6px 0 0; }
+.tabs { display: flex; gap: 0; margin: 8px 0 0; }
+.tab {
+  flex: 1; border-radius: 8px 8px 0 0; border: 1px solid var(--line); border-bottom: none;
+  background: #eceff3; color: var(--muted); padding: 10px 0;
+}
+.tab.active { background: #fff; color: var(--text); font-weight: bold; }
+.tabs + .card { margin-top: 0; border-radius: 0 0 8px 8px; }
+button.block { width: 100%; margin-top: 14px; padding: 12px 0; font-size: 1.05rem; }
+.message { margin: 10px 0 0; }
+.message:empty { display: none; }
+.message.error { color: var(--danger); }
+.message.ok { color: var(--ok); }
+.center { text-align: center; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.note { background: #e6f4ea; border: 1px solid #b7dfc2; border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+details.card > summary { cursor: pointer; font-weight: bold; }

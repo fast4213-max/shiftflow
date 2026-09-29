@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>新規登録 - shiftflow</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#1a73e8">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <main class="page narrow">
+    <h1>新規登録</h1>
+    <p class="muted">登録すると、そのまま使えます。</p>
+    <form id="form" class="card" autocomplete="off">
+      <label for="employee-no">社員番号(7桁)</label>
+      <input id="employee-no" inputmode="numeric" maxlength="7" placeholder="1234567" required>
+      <div class="two">
+        <div>
+          <label for="family-name">名字</label>
+          <input id="family-name" maxlength="30" required>
+        </div>
+        <div>
+          <label for="given-name">名前</label>
+          <input id="given-name" maxlength="30" required>
+        </div>
+      </div>
+      <label for="pin">PIN(ログインに使う6桁の数字)</label>
+      <input id="pin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" required>
+      <label for="pin2">PIN(もう一度)</label>
+      <input id="pin2" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" required>
+      <p class="muted">PINは忘れないようにしてください。忘れたときは、管理者に再設定を頼みます。</p>
+      <label for="shared">共通パスワード</label>
+      <input id="shared" type="password" autocomplete="off" required>
+      <p class="muted">管理者から教えてもらったパスワードです(登録のときだけ使います)。</p>
+      <button id="submit" class="primary block" type="submit" disabled>登録する</button>
+      <p id="message" class="message"></p>
+    </form>
+    <p class="muted center"><a href="index.html">ログインに戻る</a> ・ <a href="help.html">使い方</a></p>
+  </main>
+  <script type="module" src="js/register.js"></script>
+</body>
+</html>
