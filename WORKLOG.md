@@ -435,3 +435,44 @@
 
 ### 手動でやる作業の残り
 - なし(まとめて README に書く)
+
+---
+
+## 2026-09-29 実装フェーズD: 使い方ページ・README・自動デプロイ
+
+### やったこと
+- `.github/workflows/deploy-supabase.yml` を追加: `supabase/` を変えて main に push すると、`supabase db push`(SQL の反映)と `supabase functions deploy` を自動で実行する。手動実行もできる。GitHub の Secrets(3つ)が未登録のあいだは、警告を出して何もせずに終わる
+- 使い方ページを新しいログインに合わせて更新した: 「2. 登録とログイン」を追加(PIN を忘れたとき・変えたいとき、ロックの説明)、メインのカレンダーは使えないことと理由、ログインできないときの対処、データの扱い(管理者に見えるもの・見えないもの)
+- README を第2版のセットアップ手順に書き直した(ブラウザだけで完結。Supabase のプロジェクト作成 → GitHub の Secrets → Google Cloud のサービスアカウント → Supabase のシークレット → 画面の公開 → 自動デプロイ → 管理画面での初期設定 → cron-job.org → 動作確認)
+- 設計書に「実装で決めたこと」を追記し、状態を「実装済み」に更新した
+- Supabase の公式ドキュメントで、README に書いた画面の名前(「Allow new users to sign up」「Confirm Email」、Settings → API Keys、Edge Function Secrets)と、シークレットは登録後すぐ使えること(再デプロイ不要)を確認した
+
+### 変更したファイル
+- `.github/workflows/deploy-supabase.yml`(新規)、`.github/workflows/test.yml`
+- `web/help.html`、`README.md`、`docs/DESIGN.md`、`WORKLOG.md`
+
+### 決めたこと(理由)
+- マイグレーションは、反映済みのファイルを書き換えず、新しいファイルを足す運用にした(`db push` は未反映のファイルだけ実行するため)
+- 本番には seed(架空データ)を入れない(`db push` は seed を実行しない)
+
+### 実環境で確認が必要なこと(ローカルでは確かめられない)
+- 実在しない内部用メール(`@users.shiftflow.invalid`)で、ユーザー作成とパスワードログインが通ること
+- 「Allow new users to sign up」をオフにしても、Edge Function からのユーザー作成が通ること(公式ドキュメントでは確認できなかった。通らなければオンに戻す。オンでも、プロフィールの無いユーザーは何も使えない)
+- Actions の `supabase db push` / `supabase functions deploy` が通ること
+- 公開の祝日カレンダーをサービスアカウントで読めること、GAS 版で作った予定を新版が消せること
+- 使い方ページに書いた Google カレンダーの画面の名前が、実際の画面と合っていること
+
+### 次にやること
+- 本人が実環境で動作確認(README のセットアップ 1〜9)。問題があれば直す
+- 確認後、`gas/` の削除(削除前に確認をもらう)
+
+### 手動でやる作業の残り(README のセットアップ 1〜9)
+1. Supabase のプロジェクトを作り、新規登録を無効・Confirm email をオフにする
+2. Supabase のアクセストークンを作り、GitHub の Secrets に3つ登録する
+3. Google Cloud でサービスアカウントと鍵(JSON)を作る
+4. Supabase のシークレットに `GOOGLE_SERVICE_ACCOUNT_JSON` と `ADMIN_PASSWORD` を登録する
+5. `web/js/config.js` を書き換えてコミットし、GitHub Pages を有効にする
+6. Actions の「Deploy Supabase」を手動で1回実行する
+7. 管理画面で共通パスワードを設定し、区所とマスタ(CSV)を登録する
+8. cron-job.org に keepalive を登録する
+9. 動作確認

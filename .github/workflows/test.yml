@@ -1,4 +1,4 @@
-# Edge Functions のテスト(予定の組み立て・カレンダー操作)
+# Edge Functions のテスト(予定の組み立て・カレンダー操作・ログインと新規登録)
 name: Test
 
 on:
