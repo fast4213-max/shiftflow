@@ -1,0 +1,35 @@
+# Supabase CLI の設定(ローカル開発とデプロイ用)
+# project_id はローカルでの識別名。本番のプロジェクトは `supabase link` で指定する。
+project_id = "shiftflow"
+
+[api]
+schemas = ["public"]
+
+[db]
+major_version = 17
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[auth]
+site_url = "http://localhost:8000"
+additional_redirect_urls = ["http://localhost:8000/index.html"]
+
+[auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+skip_nonce_check = false
+
+# Edge Functions は関数の中で JWT を検証する(新しい署名鍵方式でも動くように、ゲートウェイの検証は切る)
+[functions.app-config]
+verify_jwt = false
+[functions.verify-calendar]
+verify_jwt = false
+[functions.register-month]
+verify_jwt = false
+[functions.delete-month]
+verify_jwt = false
+[functions.sync-holidays]
+verify_jwt = false
