@@ -22,14 +22,15 @@ serve(async (req) => {
   if (error) throw error;
   const work = settings?.work_calendar_id || "";
   const holiday = settings?.holiday_calendar_id || "";
-  if (!work || !holiday) {
-    throw new AppError(400, "勤務用と休日用のカレンダーIDを入力して保存してください。", "not_configured");
+  // 休日用は空でもよい(休日用のカレンダーを使わない人。その場合、種別が「休日」の予定は登録しない)
+  if (!work) {
+    throw new AppError(400, "勤務用のカレンダーIDを入力して保存してください。", "not_configured");
   }
 
   // メインのカレンダー(ID=メールアドレス)は使えない。社員番号のログインでは本人のものか確かめられないため、
   // このアプリ用に新しく作ったカレンダーを使ってもらう
   for (const [id, name] of [[work, "勤務用"], [holiday, "休日用"]]) {
-    if (isPrimaryCalendarId(id)) {
+    if (id && isPrimaryCalendarId(id)) {
       throw new AppError(
         400,
         `${name}カレンダーIDがメールアドレスの形です。メインのカレンダーは使えません。このアプリ用に新しく作ったカレンダーのIDを入れてください。`,
@@ -39,7 +40,7 @@ serve(async (req) => {
   }
 
   // ほかの利用者が検証済みで使っているカレンダーは使えない
-  const ids = [...new Set([work, holiday])];
+  const ids = [...new Set([work, holiday].filter(Boolean))];
   let taken = false;
   for (const column of ["work_calendar_id", "holiday_calendar_id"]) {
     const { data: others, error: othersError } = await ctx.admin
@@ -58,7 +59,9 @@ serve(async (req) => {
 
   // 日本時間の今日に終日のテスト予定を書いて、すぐ消す
   const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  for (const [id, name] of new Map([[work, "勤務用カレンダー"], [holiday, "休日用カレンダー"]])) {
+  const testTargets = new Map([[work, "勤務用カレンダー"]]);
+  if (holiday && !testTargets.has(holiday)) testTargets.set(holiday, "休日用カレンダー");
+  for (const [id, name] of testTargets) {
     const label = work === holiday ? "カレンダー" : name;
     try {
       const ev = await insertAllDayEvent(id, {

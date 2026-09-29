@@ -51,12 +51,13 @@ serve(async (req) => {
     if (saved.error) throw saved.error;
 
     await deleteAppEvents(calendars, year, month);
-    const count = await createEvents(calendars, plan.events);
+    const { created, skipped } = await createEvents(calendars, plan.events);
 
     await ctx.admin.from("user_settings")
       .update({ last_registered_at: new Date().toISOString() })
       .eq("user_id", ctx.userId);
 
-    return { count };
+    // skipped: 休日用のカレンダーを設定していない人の「休日」の予定(登録していない)
+    return { count: created, skipped };
   });
 });

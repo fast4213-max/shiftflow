@@ -24,7 +24,7 @@
 
     <div class="card">
       <strong>2. カレンダーを共有する</strong>
-      <p class="muted">勤務用・休日用の<b>新しいカレンダー</b>を作り、それぞれ下のアドレスと<b>予定を変更できる権限</b>で共有します(自分のメインのカレンダーは使えません)。</p>
+      <p class="muted"><b>勤務用</b>の新しいカレンダー(休日の予定も分けたい人は<b>休日用</b>も)を作り、それぞれ下のアドレスと<b>予定を変更できる権限</b>で共有します(自分のメインのカレンダーは使えません)。</p>
       <div class="row">
         <input id="sa-email" class="mono" readonly value="読み込み中…">
         <button id="copy-sa" type="button">コピー</button>
@@ -42,8 +42,9 @@
       <p class="muted">「設定と共有」の画面の下の方、「カレンダーの統合」にある「カレンダー ID」を貼り付けます。</p>
       <label for="work-id">勤務用カレンダーID</label>
       <input id="work-id" class="mono" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="xxxx@group.calendar.google.com">
-      <label for="holiday-id">休日用カレンダーID</label>
-      <input id="holiday-id" class="mono" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="xxxx@group.calendar.google.com">
+      <label for="holiday-id">休日用カレンダーID(なくてもよい)</label>
+      <input id="holiday-id" class="mono" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="使わなければ空のまま">
+      <p class="muted">休日用を空にすると、「休日」の番号(公休・年休など)はカレンダーに登録されません(勤務・非番だけ登録します)。</p>
       <button id="save" class="primary block" type="button">保存して接続テスト</button>
       <p id="result" class="message"></p>
       <p id="go-input" class="hidden"><a href="input.html">勤務入力へ進む →</a></p>

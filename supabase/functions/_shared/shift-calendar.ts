@@ -6,6 +6,7 @@ import type { Context } from "./auth.ts";
 import { AppError } from "./http.ts";
 import { APP_TAG, calendarAccessError, deleteEvent, insertAllDayEvent, listEvents, runPool } from "./google.ts";
 
+// holiday は空でもよい(休日用のカレンダーを使わない人。種別が「休日」の予定は登録しない)
 export type Calendars = { work: string; holiday: string; officeId?: number | null };
 
 const CONCURRENCY = 4;
@@ -17,7 +18,7 @@ export async function loadVerifiedCalendars(ctx: Context): Promise<Calendars> {
     .eq("user_id", ctx.userId)
     .maybeSingle();
   if (error) throw error;
-  if (!data || !data.work_calendar_id || !data.holiday_calendar_id) {
+  if (!data || !data.work_calendar_id) {
     throw new AppError(400, "設定画面でカレンダーIDを登録してください。", "not_configured");
   }
   if (!data.verified_at) {
@@ -53,7 +54,7 @@ export async function deleteAppEvents(calendars: Calendars, year: number, month:
   const nextFirst = addDays(dateKey(year, month, daysInMonth(year, month)), 1);
 
   const targets: { calendarId: string; eventId: string }[] = [];
-  for (const calendarId of new Set([calendars.work, calendars.holiday])) {
+  for (const calendarId of new Set([calendars.work, calendars.holiday].filter(Boolean))) {
     let items;
     try {
       // カレンダーのタイムゾーンに左右されないよう前後1日広めに取り、終日予定の日付で絞る
@@ -93,8 +94,13 @@ export type PlannedEvent = {
   description: string;
 };
 
-export async function createEvents(calendars: Calendars, events: PlannedEvent[]): Promise<number> {
-  await runPool(events, CONCURRENCY, async (e) => {
+// 予定を作る。休日用のカレンダーが無い人の「休日」の予定は作らない(skipped に数える)
+export async function createEvents(
+  calendars: Calendars,
+  events: PlannedEvent[],
+): Promise<{ created: number; skipped: number }> {
+  const targets = events.filter((e) => e.calendar !== "holiday" || calendars.holiday);
+  await runPool(targets, CONCURRENCY, async (e) => {
     const calendarId = e.calendar === "holiday" ? calendars.holiday : calendars.work;
     try {
       await insertAllDayEvent(calendarId, {
@@ -108,5 +114,5 @@ export async function createEvents(calendars: Calendars, events: PlannedEvent[])
       throw calendarAccessError(err, label(calendars, calendarId));
     }
   });
-  return events.length;
+  return { created: targets.length, skipped: events.length - targets.length };
 }

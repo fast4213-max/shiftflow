@@ -70,11 +70,12 @@ Deno.test("deleteAppEvents: アプリの予定だけ、月内+翌月1日の非�
 
 Deno.test("createEvents: 終日予定(終了日は翌日)に印を付けて作る", async () => {
   const calls = mockFetch((c) => (c.method === "POST" ? Response.json({ id: "new" }) : undefined));
-  await createEvents({ work: "w", holiday: "h" }, [
+  const result = await createEvents({ work: "w", holiday: "h" }, [
     { date: "2026-10-31", calendar: "work", kind: "day", title: "101", description: "9:00\n泊地A" },
     { date: "2026-11-01", calendar: "work", kind: "offduty", title: "〜", description: "9:30" },
     { date: "2026-10-10", calendar: "holiday", kind: "day", title: "公休", description: "" },
   ]);
+  assertEquals(result, { created: 3, skipped: 0 });
   const posts = calls.filter((c) => c.method === "POST");
   assertEquals(posts.length, 3);
   const first = posts.find((c) => c.body.summary === "101")!;
@@ -110,4 +111,31 @@ Deno.test("レート制限は待って再試行する", async () => {
   });
   await createEvents({ work: "w", holiday: "h" }, [{ date: "2026-10-01", calendar: "work", kind: "day", title: "x", description: "" }]);
   assertEquals(calls.filter((c) => c.method === "POST").length, 2);
+});
+
+Deno.test("休日用のカレンダーが空なら、「休日」の予定は作らない(勤務・非番は作る)", async () => {
+  const calls = mockFetch((c) => (c.method === "POST" ? Response.json({ id: "new" }) : undefined));
+  const result = await createEvents({ work: "w", holiday: "" }, [
+    { date: "2026-10-05", calendar: "work", kind: "day", title: "101", description: "9:00" },
+    { date: "2026-10-06", calendar: "work", kind: "offduty", title: "〜", description: "9:30" },
+    { date: "2026-10-07", calendar: "holiday", kind: "day", title: "公休", description: "" },
+    { date: "2026-10-08", calendar: "holiday", kind: "day", title: "年休", description: "" },
+  ]);
+  assertEquals(result, { created: 2, skipped: 2 });
+  const posts = calls.filter((c) => c.method === "POST");
+  assertEquals(posts.map((c) => c.body.summary).sort(), ["101", "〜"]);
+  posts.forEach((c) => assert(c.url.pathname.includes("/calendars/w/")));
+});
+
+Deno.test("休日用のカレンダーが空でも、削除は勤務用だけを見る(空のIDで呼ばない)", async () => {
+  const calls = mockFetch((c) =>
+    c.method === "GET"
+      ? Response.json({ items: [{ id: "a", start: { date: "2026-10-05" }, extendedProperties: tag("day") }] })
+      : undefined
+  );
+  const count = await deleteAppEvents({ work: "w", holiday: "" }, 2026, 10);
+  assertEquals(count, 1);
+  const gets = calls.filter((c) => c.method === "GET");
+  assertEquals(gets.length, 1);
+  assert(gets[0].url.pathname.includes("/calendars/w/"));
 });

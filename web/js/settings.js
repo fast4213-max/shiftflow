@@ -82,9 +82,7 @@ async function main() {
     $("go-input").classList.add("hidden");
     try {
       if (!values.office_id) throw new Error("1. で区所を選んでください。");
-      if (!values.work_calendar_id || !values.holiday_calendar_id) {
-        throw new Error("勤務用と休日用の両方のカレンダーIDを入力してください。");
-      }
+      if (!values.work_calendar_id) throw new Error("勤務用のカレンダーIDを入力してください。");
       message("result", "保存しています…");
       await saveSettings(values);
       message("result", "接続テスト中です(10秒ほどかかることがあります)…");

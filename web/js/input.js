@@ -269,7 +269,8 @@ $("register").addEventListener("click", async () => {
       entries: state.entries,
     });
     state.dirty = false;
-    setStatus(result.count + "件の予定を登録しました。");
+    setStatus(result.count + "件の予定を登録しました。" +
+      (result.skipped ? "(休日用のカレンダーを設定していないため、休日の予定" + result.skipped + "件は登録していません)" : ""));
   } catch (err) {
     setStatus(err.message, true);
   } finally {
