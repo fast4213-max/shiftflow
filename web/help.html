@@ -2,11 +2,270 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>使い方 - shiftflow</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#1a73e8">
   <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/help.css">
 </head>
 <body>
-  <main class="page"><h1>使い方</h1><p>準備中です。</p></main>
+  <main class="page help">
+    <h1>使い方</h1>
+
+    <div class="note">
+      <strong>カレンダーの共有設定は最初の1回だけです。</strong>
+      設定が終われば、あとは勤務を入力して「登録」を押すだけで使えます。
+    </div>
+
+    <nav class="toc">
+      <a href="#intro">1. はじめに</a>
+      <a href="#prepare">2. カレンダーの準備</a>
+      <a href="#share">3. カレンダーを共有する</a>
+      <a href="#id">4. カレンダーIDを入力する</a>
+      <a href="#test">5. 接続テスト</a>
+      <a href="#use">6. 勤務の入力・登録・リセット</a>
+      <a href="#home">7. ホーム画面に追加する</a>
+      <a href="#faq">8. よくある質問</a>
+    </nav>
+
+    <!-- 1 -->
+    <section id="intro">
+      <h2>1. はじめに</h2>
+      <p>勤務の番号を入力すると、あなたの Googleカレンダーに終日の予定として登録するアプリです。</p>
+      <ul>
+        <li>勤務は「勤務用」、休みは「休日用」の2つのカレンダーに分けて登録します</li>
+        <li>泊の翌日は自動で「非番」になります</li>
+        <li>土日・祝日・年末年始(12/30〜1/3)は自動で「休」になり、時間は休日の列を使います</li>
+      </ul>
+      <details>
+        <summary>登録される予定の種類</summary>
+        <div class="scroll-x">
+          <table class="list">
+            <thead><tr><th>種類</th><th>カレンダー</th><th>タイトル</th><th>メモ</th></tr></thead>
+            <tbody>
+              <tr><td>泊</td><td>勤務用</td><td>番号</td><td>出勤時間(例: 9:01)<br>2行目に泊地</td></tr>
+              <tr><td>日勤</td><td>勤務用</td><td>番号</td><td>出勤〜退勤(例: 10:15〜19:02)</td></tr>
+              <tr><td>非番(泊の翌日)</td><td>勤務用</td><td>〜</td><td>退勤時間</td></tr>
+              <tr><td>休日(公休・年休など)</td><td>休日用</td><td>番号</td><td>なし(手で書けば入る)</td></tr>
+              <tr><td>手入力(一覧にないもの)</td><td>勤務用</td><td>入力した文字</td><td>なし(手で書けば入る)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted">予定はすべて終日です。メモを手で書き換えた日は、書き換えた内容がメモの1行目になります。</p>
+      </details>
+    </section>
+
+    <!-- 2 -->
+    <section id="prepare">
+      <h2>2. カレンダーの準備</h2>
+      <p>登録先として「勤務用」と「休日用」の2つのカレンダーを用意します。<strong>このアプリ用に新しく作るのがおすすめ</strong>です(手で入れている予定と分けられます)。</p>
+      <details>
+        <summary>新しいカレンダーの作り方</summary>
+        <ol>
+          <li>PC のブラウザで <a href="https://calendar.google.com" target="_blank" rel="noopener">calendar.google.com</a> を開く(スマホだけの人は <a href="#share-phone">3-B</a> の方法で PC 版の画面にする)</li>
+          <li>左の「他のカレンダー」の横にある「＋」(他のカレンダーを追加)→「新しいカレンダーを作成」</li>
+          <li>名前(例: 勤務)を入れて「カレンダーを作成」</li>
+          <li>休日用(例: 休日)も同じように作る</li>
+        </ol>
+        <p class="muted">Google のヘルプでは、新しいカレンダーはブラウザからのみ作成できるとされています。作ったカレンダーはスマホのカレンダーアプリにも表示されます。</p>
+      </details>
+      <details>
+        <summary>いま使っているカレンダーを使いたいとき</summary>
+        <p>すでにある自分のカレンダーでもかまいません。ただし、自分のメインのカレンダー(カレンダーIDが自分のメールアドレスのもの)は、ログインしているアカウントと同じアドレスのときだけ使えます。</p>
+        <p>このアプリは自分が登録した予定だけを消したり作り直したりするので、手で入れた予定は消えません。</p>
+      </details>
+    </section>
+
+    <!-- 3 -->
+    <section id="share">
+      <h2>3. カレンダーを共有する</h2>
+      <p>勤務用・休日用の<strong>2つのカレンダーそれぞれ</strong>を、このアプリの登録用アドレスと共有します。</p>
+      <div class="card">
+        <div class="muted">このアプリの登録用アドレス(共有する相手)</div>
+        <div id="sa-box" class="hidden">
+          <div class="row"><input id="sa-email" class="mono" readonly><button id="copy-sa">コピー</button></div>
+        </div>
+        <p id="sa-login" class="muted">ログインすると、ここにアドレスが表示されます(<a href="settings.html">設定画面</a>にも表示されます)。</p>
+      </div>
+
+      <p><strong>共有は PC 用の Googleカレンダーの画面で行います。</strong>次のどちらかで開いてください。</p>
+      <details open>
+        <summary id="share-pc">A. PC がある人(おすすめ)</summary>
+        <p>PC のブラウザで <a href="https://calendar.google.com" target="_blank" rel="noopener">https://calendar.google.com</a> を開き、下の「共有の手順」へ。</p>
+      </details>
+      <details>
+        <summary id="share-phone">B. スマホだけの人</summary>
+        <ol>
+          <li>スマホのブラウザで <code>https://calendar.google.com</code> を開く</li>
+          <li>ブラウザを「PC 版の表示」に切り替える
+            <ul>
+              <li><strong>Android の Chrome</strong>: 右上の「︙」→「PC 版サイト」にチェック</li>
+              <li><strong>iPhone の Safari</strong>: 検索フィールド(アドレスバー)の左にあるページメニューのボタン(「ぁあ」や「aA」の形)→「デスクトップ用ウェブサイトを表示」</li>
+            </ul>
+          </li>
+          <li>PC 表示は文字が小さいので、ピンチで拡大して操作する</li>
+        </ol>
+        <p class="muted">Googleカレンダーのアプリが自動で開いてしまう場合は、リンクを長押しして「ブラウザで開く」などを選ぶか、アプリをいったん閉じてブラウザのアドレスバーに <code>calendar.google.com</code> を直接入力してください。</p>
+        <p class="muted">Google のヘルプには、スマホのカレンダーアプリの「設定」から共有する方法も載っています。アプリで共有できた場合も、カレンダーIDの確認は PC 版の画面で行ってください。</p>
+      </details>
+
+      <h3>共有の手順(PC 版の画面で)</h3>
+      <ol class="steps">
+        <li>左の「マイカレンダー」で対象のカレンダーにカーソルを合わせ(スマホではカレンダー名の右のあたりをタップ)、「︙」→「<strong>設定と共有</strong>」</li>
+        <li>「<strong>共有する相手</strong>」(画面によっては「特定のユーザーまたはグループと共有する」)の「<strong>ユーザーやグループを追加</strong>」を押し、上の登録用アドレスを入力</li>
+        <li>権限を、<strong>予定を変更できるもの</strong>にして「<strong>送信</strong>」
+          <ul>
+            <li>Google のヘルプでの表記は「予定の詳細を変更、表示可能」です。画面によっては「予定の変更権限」などと表示されることがあります</li>
+            <li>「予定の表示…」「予定の詳細の表示」では書き込めません</li>
+            <li>「予定の変更および共有の管理」までは必要ありません</li>
+          </ul>
+        </li>
+        <li>同じ画面を下にスクロールし、「<strong>カレンダーの統合</strong>」にある「<strong>カレンダー ID</strong>」をコピー(次の4へ)</li>
+        <li>もう1つのカレンダーでも 1〜4 を行う</li>
+      </ol>
+      <p><a href="https://calendar.google.com/calendar/u/0/r/settings" target="_blank" rel="noopener">Googleカレンダーの設定ページを開く</a></p>
+      <p class="muted">スマホではこのリンクがカレンダーアプリで開いてしまうことがあります。そのときは上の B の方法で開いてください。</p>
+    </section>
+
+    <!-- 4 -->
+    <section id="id">
+      <h2>4. カレンダーIDを入力する</h2>
+      <ol>
+        <li>3 の手順4でコピーした「カレンダー ID」を、このアプリの<a href="settings.html">設定画面</a>の「勤務用カレンダーID」に貼り付ける</li>
+        <li>休日用のカレンダーのIDも同じように「休日用カレンダーID」に貼り付ける</li>
+      </ol>
+      <details>
+        <summary>カレンダーIDの見た目</summary>
+        <p>新しく作ったカレンダーのIDは、英数字の後ろに <code>@group.calendar.google.com</code> が付いた長い文字列です。メインのカレンダーのIDは自分のメールアドレスです。</p>
+        <p>カレンダーの名前(「勤務」など)や、共有用のURLではありません。前後に空白が入らないように貼り付けてください。</p>
+      </details>
+    </section>
+
+    <!-- 5 -->
+    <section id="test">
+      <h2>5. 接続テスト</h2>
+      <p>設定画面で「<strong>保存して接続テスト</strong>」を押すと、2つのカレンダーにテストの予定を書いてすぐ消します。「接続できました」と出れば準備完了です。</p>
+      <details open>
+        <summary>失敗したときは</summary>
+        <div class="trouble">
+          <h3>「○○カレンダーに書き込めません」</h3>
+          <ul>
+            <li>権限が「予定を変更できるもの」になっているか(「予定の表示」「予定の詳細の表示」では書けません)</li>
+            <li>共有した相手のアドレスが、このアプリの登録用アドレスと完全に同じか(コピーして貼り付けるのが確実)</li>
+            <li>カレンダーIDの貼り間違い(別のカレンダーのID、前後の空白、途中で切れている)</li>
+            <li>勤務用と休日用の両方で共有したか</li>
+          </ul>
+          <h3>「ほかの利用者が登録しています」</h3>
+          <p>自分のカレンダーのIDか確認してください。同じカレンダーは1人しか使えません。</p>
+          <h3>「IDがメールアドレスの形です」</h3>
+          <p>自分以外のメインのカレンダーは使えません。新しく作ったカレンダーのIDを使ってください。</p>
+          <h3>「両方のカレンダーIDを入力してください」</h3>
+          <p>勤務用・休日用の両方を入力してください(同じカレンダーを両方に入れることもできます)。</p>
+          <h3>「利用が許可されていません」</h3>
+          <p>管理者に、ログインしたメールアドレスで使えるようにしてもらってください。</p>
+        </div>
+        <p class="muted">共有した直後は反映まで少し時間がかかることがあります。数分おいてもう一度試してください。</p>
+      </details>
+    </section>
+
+    <!-- 6 -->
+    <section id="use">
+      <h2>6. 勤務の入力・登録・リセット</h2>
+      <ol>
+        <li>日付の行の「番号」を押して、一覧から番号を選ぶ</li>
+        <li>その月を入れ終わったら、下の「<strong>登録</strong>」を押す</li>
+      </ol>
+      <p>同じ月は何度登録し直してもかまいません。このアプリが作った予定だけを消して作り直します。</p>
+      <details>
+        <summary>画面の詳しい説明</summary>
+        <ul>
+          <li>上の ◀ ▶ で月を切り替える(今月より前には戻れない)</li>
+          <li>1日1行。開いたときは今日の行(青)が見える位置にスクロールする</li>
+          <li><strong>平/休</strong>: 土日祝と年末年始(12/30〜1/3)は自動で「休」、それ以外は「平」(表示のみ)</li>
+          <li><strong>番号</strong>: 押すと番号の一覧が出るので選ぶ。一覧にないもの(<code>変7d</code> など)は「手入力」を押すと入力欄が出る。「クリア」で空にする</li>
+          <li>泊の番号を入れると、翌日は自動で「非番」になる(番号は選べない。メモは変えられる)</li>
+          <li><strong>メモ</strong>: 番号を選ぶと、カレンダーのメモに入る時間が自動で入る(泊なら出勤時間、日勤なら出勤〜退勤、非番なら退勤時間)。泊の日はメモ欄の下に泊地が表示され、カレンダーのメモの2行目に入る</li>
+          <li>メモは手で書き換えられる(書き換えた値は青字。番号を選び直すと自動の値に戻る)</li>
+          <li>月末が泊なら、翌月1日の非番も一緒に登録される</li>
+          <li>登録していない変更があるまま月を移ろうとすると確認が出る</li>
+        </ul>
+      </details>
+      <details>
+        <summary>リセット(カレンダーから消す)</summary>
+        <p>「リセット」を押して月を選び「削除」すると、その月にこのアプリで登録した予定をカレンダーから削除します。</p>
+        <ul>
+          <li>手で入れた予定と、画面の入力内容は消えません。もう一度「登録」すれば元に戻ります</li>
+          <li>月末が泊なら、翌月1日の非番も一緒に消えます</li>
+        </ul>
+      </details>
+    </section>
+
+    <!-- 7 -->
+    <section id="home">
+      <h2>7. ホーム画面に追加する</h2>
+      <p>アプリのように1タップで開けるようになります。</p>
+      <details>
+        <summary>iPhone(Safari)</summary>
+        <ol>
+          <li>Safari でこのアプリを開く</li>
+          <li>ページメニューのボタン →「共有」(タブの配置によっては共有ボタンを直接押す)</li>
+          <li>下にスクロールして「ホーム画面に追加」→「追加」</li>
+        </ol>
+        <p class="muted">「ホーム画面に追加」が見つからないときは、一覧の一番下の「アクションを編集」から追加できます。</p>
+      </details>
+      <details>
+        <summary>Android(Chrome)</summary>
+        <ol>
+          <li>Chrome でこのアプリを開く</li>
+          <li>右上の「︙」→「ホーム画面に追加」</li>
+          <li>「インストール」または「ショートカットを作成」を選ぶ</li>
+        </ol>
+        <p class="muted">Chrome の版によって、メニューの名前が「インストールとショートカットの作成」などになっていることがあります。</p>
+      </details>
+    </section>
+
+    <!-- 8 -->
+    <section id="faq">
+      <h2>8. よくある質問</h2>
+      <details>
+        <summary>使うのをやめたい / 共有を止めたい</summary>
+        <p>Googleカレンダーの「設定と共有」→「共有する相手」で、登録用アドレスの横の削除(×)を押して共有を解除するだけで、このアプリはあなたのカレンダーに書き込めなくなります。すでに登録した予定は残るので、不要なら先に「リセット」で消してください。</p>
+      </details>
+      <details>
+        <summary>データはどこに保存されますか？</summary>
+        <p>入力した勤務の番号とメモ、カレンダーIDは、このアプリのデータベース(Supabase)に保存されます。本人しか読み書きできない設定になっています。予定そのものはあなたの Googleカレンダーにあります。</p>
+        <p>このアプリはカレンダーを共有したカレンダーにだけ書き込めます。ほかのカレンダーや、Google アカウントのほかの情報は見えません(ログインでは名前とメールアドレスだけを使います)。</p>
+      </details>
+      <details>
+        <summary>手で入れた予定が消えませんか？</summary>
+        <p>消えません。このアプリは、自分が作った予定に目印を付けていて、登録し直し・リセットのときは目印のある予定だけを消します。</p>
+      </details>
+      <details>
+        <summary>番号の一覧に自分の番号がない</summary>
+        <p>「手入力」で入れられます。一覧(マスタ)に足したいときは管理者に頼んでください。</p>
+      </details>
+      <details>
+        <summary>カレンダーを変えたい</summary>
+        <p>新しいカレンダーを共有してから、設定画面でIDを入れ直して「保存して接続テスト」を押してください。前のカレンダーに登録した予定は、先に「リセット」で消しておくと残りません。</p>
+      </details>
+      <details>
+        <summary>スマホのカレンダーに反映されない</summary>
+        <p>スマホのカレンダーアプリで、勤務用・休日用のカレンダーが表示(同期)になっているか確認してください。反映まで少し時間がかかることがあります。</p>
+      </details>
+    </section>
+
+    <p class="muted updated">
+      Google・Apple の画面の名前は、2026年9月29日に各社の公式ヘルプで確認しました。画面は変わることがあるので、名前が違うときは近い名前の項目を探してください。<br>
+      参考: <a href="https://support.google.com/calendar/answer/37082?hl=ja" target="_blank" rel="noopener">カレンダーを共有する</a> /
+      <a href="https://support.google.com/calendar/answer/37095?hl=ja" target="_blank" rel="noopener">新しいカレンダーを作成する</a> /
+      <a href="https://support.google.com/chrome/answer/13514529?hl=ja&amp;co=GENIE.Platform%3DAndroid" target="_blank" rel="noopener">Chrome のデスクトップ モード</a> /
+      <a href="https://support.apple.com/ja-jp/guide/iphone/iphb3100d149/ios" target="_blank" rel="noopener">Safari の表示の変更</a> /
+      <a href="https://support.apple.com/ja-jp/guide/iphone/iph42ab2f3a7/ios" target="_blank" rel="noopener">ホーム画面にウェブサイトを追加</a>
+    </p>
+  </main>
+  <script type="module" src="js/help.js"></script>
 </body>
 </html>

@@ -1,0 +1,16 @@
+.help h2 { border-top: 1px solid var(--line); padding-top: 20px; margin-top: 28px; scroll-margin-top: 8px; }
+.help h3 { font-size: 1rem; margin: 18px 0 6px; }
+.help section { scroll-margin-top: 8px; }
+.help ol, .help ul { padding-left: 1.4em; }
+.help li { margin: 4px 0; }
+.help .note { background: #e6f4ea; border: 1px solid #b7dfc2; border-radius: 8px; padding: 12px; margin: 8px 0 16px; }
+.help .toc { display: grid; grid-template-columns: 1fr; gap: 2px; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+.help .toc a { text-decoration: none; padding: 4px 0; }
+.help details { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; margin: 8px 0; }
+.help details[open] { padding-bottom: 10px; }
+.help summary { cursor: pointer; font-weight: bold; padding: 10px 0; }
+.help .steps > li { margin: 8px 0; }
+.help table.list td { font-size: 0.85rem; }
+.help .updated { margin-top: 32px; border-top: 1px solid var(--line); padding-top: 12px; }
+.help .trouble h3 { font-size: 0.95rem; margin: 14px 0 4px; color: var(--danger); }
+.help .trouble p, .help .trouble ul { margin: 4px 0; }
