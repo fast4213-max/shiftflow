@@ -1,6 +1,6 @@
 -- shiftflow 初期スキーマ(設計書 第2版)
 --
--- ログインは「社員番号(7桁)+ PIN(6桁)」。内部では Supabase Auth のユーザー
+-- ログインは「社員番号(7桁)+ PIN(4桁)」。内部では Supabase Auth のユーザー
 -- (メール = <社員番号>@users.shiftflow.invalid)として扱い、利用者にメールは見せない。
 -- ユーザーは Edge Function(sign-up / admin-login)だけが作る。
 --

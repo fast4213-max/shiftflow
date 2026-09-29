@@ -100,7 +100,7 @@ async function main() {
   $("pin-save").addEventListener("click", async () => {
     const current = toHalfWidth($("pin-current").value);
     const next = toHalfWidth($("pin-new").value);
-    if (!/^\d{6}$/.test(next)) return message("pin-result", "新しいPINは6桁の数字で入力してください。", "error");
+    if (!/^\d{4}$/.test(next)) return message("pin-result", "新しいPINは4桁の数字で入力してください。", "error");
     if (next !== toHalfWidth($("pin-new2").value)) return message("pin-result", "新しいPINが2回で一致しません。", "error");
     $("pin-save").disabled = true;
     try {

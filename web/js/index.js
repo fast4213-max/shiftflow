@@ -29,7 +29,7 @@ function watch(form, button, ready) {
   $(form).addEventListener("input", update);
   update();
 }
-watch("user-form", "user-login", () => /^\d{7}$/.test(toHalfWidth($("employee-no").value)) && /^\d{6}$/.test(toHalfWidth($("pin").value)));
+watch("user-form", "user-login", () => /^\d{7}$/.test(toHalfWidth($("employee-no").value)) && /^\d{4}$/.test(toHalfWidth($("pin").value)));
 watch("admin-form", "admin-login", () => $("admin-password").value.length > 0);
 
 async function loginWith(fn, body, messageId, buttonId) {

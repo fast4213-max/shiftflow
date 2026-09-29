@@ -112,7 +112,7 @@ const reg = {
   employee_no: "1234567",
   family_name: "山田",
   given_name: "太郎",
-  pin: "482913",
+  pin: "4829",
   shared_password: "kyotsu-pass-1",
 };
 
@@ -121,10 +121,10 @@ async function code(fn: () => Promise<unknown>): Promise<string> {
   return err.code;
 }
 
-Deno.test("PIN/社員番号の補助: 全角の数字を半角にする・仮のPINは6桁", () => {
+Deno.test("PIN/社員番号の補助: 全角の数字を半角にする・仮のPINは4桁", () => {
   assertEquals(toHalfWidth(" １２３４５６７ "), "1234567");
   assertEquals(emailFor("1234567"), "1234567@users.shiftflow.invalid");
-  assert(/^\d{6}$/.test(randomPin()));
+  assert(/^\d{4}$/.test(randomPin()));
 });
 
 Deno.test("新規登録 → その社員番号+PINでログインできる", async () => {
@@ -133,10 +133,10 @@ Deno.test("新規登録 → その社員番号+PINでログインできる", asy
   assertEquals(f.profiles.length, 1);
   assertEquals(f.profiles[0].employee_no, "1234567");
   assertEquals(f.profiles[0].family_name, "山田");
-  const session = await loginWithPin(f.deps, { employee_no: "1234567", pin: "482913" });
+  const session = await loginWithPin(f.deps, { employee_no: "1234567", pin: "4829" });
   assertEquals(session.access_token, "at-id-1");
   // 全角でもログインできる
-  await loginWithPin(f.deps, { employee_no: "１２３４５６７", pin: "４８２９１３" });
+  await loginWithPin(f.deps, { employee_no: "１２３４５６７", pin: "４８２９" });
 });
 
 Deno.test("新規登録: 入力チェック", async () => {
@@ -145,8 +145,8 @@ Deno.test("新規登録: 入力チェック", async () => {
   assertEquals(await code(() => signUp(f.deps, { ...reg, employee_no: "abcdefg" }, "ip")), "bad_employee_no");
   assertEquals(await code(() => signUp(f.deps, { ...reg, family_name: "  " }, "ip")), "bad_name");
   assertEquals(await code(() => signUp(f.deps, { ...reg, given_name: "あ".repeat(31) }, "ip")), "bad_name");
-  assertEquals(await code(() => signUp(f.deps, { ...reg, pin: "1234" }, "ip")), "bad_pin");
-  assertEquals(await code(() => signUp(f.deps, { ...reg, pin: "12345a" }, "ip")), "bad_pin");
+  assertEquals(await code(() => signUp(f.deps, { ...reg, pin: "123" }, "ip")), "bad_pin");
+  assertEquals(await code(() => signUp(f.deps, { ...reg, pin: "123a" }, "ip")), "bad_pin");
   assertEquals(await code(() => signUp(f.deps, { ...reg, shared_password: "" }, "ip")), "bad_shared_password");
   assertEquals(f.users.length, 0);
 });
@@ -176,10 +176,10 @@ Deno.test("新規登録: 共通パスワードを5回間違えるとそのIPは�
 Deno.test("新規登録: 同じ社員番号は二重に登録できない", async () => {
   const f = fakes();
   await signUp(f.deps, reg, "ip");
-  assertEquals(await code(() => signUp(f.deps, { ...reg, pin: "111111" }, "ip")), "already_registered");
+  assertEquals(await code(() => signUp(f.deps, { ...reg, pin: "1111" }, "ip")), "already_registered");
   // 元のPINのまま(乗っ取られない)
-  await loginWithPin(f.deps, { employee_no: "1234567", pin: "482913" });
-  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "111111" })), "bad_credentials");
+  await loginWithPin(f.deps, { employee_no: "1234567", pin: "4829" });
+  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "1111" })), "bad_credentials");
 });
 
 Deno.test("新規登録: プロフィールの作成に失敗したらユーザーも消す", async () => {
@@ -190,45 +190,45 @@ Deno.test("新規登録: プロフィールの作成に失敗したらユーザ�
 
 Deno.test("新規登録: 前回の途中で止まってユーザーだけ残っていたら、それを使って登録できる", async () => {
   const f = fakes();
-  f.users.push({ id: "left-over", email: emailFor("1234567"), password: passwordFor("000000") });
+  f.users.push({ id: "left-over", email: emailFor("1234567"), password: passwordFor("0000") });
   await signUp(f.deps, reg, "ip");
   assertEquals(f.profiles[0].user_id, "left-over");
-  await loginWithPin(f.deps, { employee_no: "1234567", pin: "482913" });
-  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "000000" })), "bad_credentials");
+  await loginWithPin(f.deps, { employee_no: "1234567", pin: "4829" });
+  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "0000" })), "bad_credentials");
 });
 
 Deno.test("ログイン: 登録が無い・PINが違うと弾く。形式の間違いは失敗に数えない", async () => {
   const f = fakes();
   await signUp(f.deps, reg, "ip");
-  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "7654321", pin: "482913" })), "bad_credentials");
-  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "000000" })), "bad_credentials");
+  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "7654321", pin: "4829" })), "bad_credentials");
+  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "0000" })), "bad_credentials");
   for (let i = 0; i < 10; i++) {
     assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "12" })), "bad_pin");
   }
   // まだロックされていない
-  await loginWithPin(f.deps, { employee_no: "1234567", pin: "482913" });
+  await loginWithPin(f.deps, { employee_no: "1234567", pin: "4829" });
 });
 
 Deno.test("ログイン: 5回間違えるとその社員番号は15分ロック。正しいPINでもロック中は入れない", async () => {
   const f = fakes();
   await signUp(f.deps, reg, "ip");
   for (let i = 0; i < 4; i++) {
-    assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "000000" })), "bad_credentials");
+    assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "0000" })), "bad_credentials");
   }
-  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "000000" })), "locked");
-  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "482913" })), "locked");
+  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "0000" })), "locked");
+  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "4829" })), "locked");
   // 別の社員番号には影響しない
   await signUp(f.deps, { ...reg, employee_no: "2345678" }, "ip2");
-  await loginWithPin(f.deps, { employee_no: "2345678", pin: "482913" });
+  await loginWithPin(f.deps, { employee_no: "2345678", pin: "4829" });
 });
 
 Deno.test("ログイン: 成功すると失敗回数が0に戻る", async () => {
   const f = fakes();
   await signUp(f.deps, reg, "ip");
-  for (let i = 0; i < 4; i++) await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "000000" }));
-  await loginWithPin(f.deps, { employee_no: "1234567", pin: "482913" });
+  for (let i = 0; i < 4; i++) await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "0000" }));
+  await loginWithPin(f.deps, { employee_no: "1234567", pin: "4829" });
   for (let i = 0; i < 4; i++) {
-    assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "000000" })), "bad_credentials");
+    assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "0000" })), "bad_credentials");
   }
 });
 

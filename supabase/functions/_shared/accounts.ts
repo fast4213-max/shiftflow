@@ -11,7 +11,7 @@ export function emailFor(employeeNo: string): string {
   return `${employeeNo}@${EMAIL_DOMAIN}`;
 }
 
-// PIN(6桁)から Supabase Auth のパスワードを作る(パスワードの最小文字数を満たすため接頭辞を付ける)
+// PIN(4桁)から Supabase Auth のパスワードを作る(パスワードの最小文字数を満たすため接頭辞を付ける)
 export function passwordFor(pin: string): string {
   return `sf-${pin}`;
 }
@@ -21,7 +21,7 @@ export function isEmployeeNo(v: unknown): v is string {
 }
 
 export function isPin(v: unknown): v is string {
-  return typeof v === "string" && /^\d{6}$/.test(v);
+  return typeof v === "string" && /^\d{4}$/.test(v);
 }
 
 // 全角の数字が入っても受け付ける(スマホの日本語キーボード対策)
@@ -37,7 +37,7 @@ export function validateEmployeeNo(v: unknown): string {
 
 export function validatePin(v: unknown, label = "PIN"): string {
   const pin = toHalfWidth(v);
-  if (!isPin(pin)) throw new AppError(400, `${label}は6桁の数字で入力してください。`, "bad_pin");
+  if (!isPin(pin)) throw new AppError(400, `${label}は4桁の数字で入力してください。`, "bad_pin");
   return pin;
 }
 
@@ -52,7 +52,7 @@ export function validateName(v: unknown, label: string): string {
 export function randomPin(): string {
   const n = new Uint32Array(1);
   crypto.getRandomValues(n);
-  return String(n[0] % 1_000_000).padStart(6, "0");
+  return String(n[0] % 10_000).padStart(4, "0");
 }
 
 export function randomPassword(): string {

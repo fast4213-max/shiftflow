@@ -12,7 +12,7 @@ function problem() {
   if (!/^\d{7}$/.test(toHalfWidth($("employee-no").value))) return "社員番号は7桁の数字で入力してください。";
   if (!$("family-name").value.trim()) return "名字を入力してください。";
   if (!$("given-name").value.trim()) return "名前を入力してください。";
-  if (!/^\d{6}$/.test(toHalfWidth($("pin").value))) return "PINは6桁の数字で入力してください。";
+  if (!/^\d{4}$/.test(toHalfWidth($("pin").value))) return "PINは4桁の数字で入力してください。";
   if (toHalfWidth($("pin").value) !== toHalfWidth($("pin2").value)) return "PINが2回で一致しません。";
   if (!$("shared").value) return "共通パスワードを入力してください。";
   return "";
