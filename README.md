@@ -92,14 +92,23 @@ Supabase・Google・GitHub の画面の名前は変わることがあります(2
 
 ### 2. GitHub に、自動デプロイ用の3つの秘密の値を登録する
 
-1. Supabase の右上のアイコン →「Account Preferences」→「Access Tokens」→「Generate new token」で、トークンを作ってコピーする(この画面を閉じると二度と見られません)
-2. GitHub のこのリポジトリ →「Settings」→「Secrets and variables」→「Actions」→「New repository secret」で、次の3つを1つずつ登録する
+Supabase のトークンを作り、それを **GitHub の画面**(このリポジトリの Secrets)に登録します。登録すると、あなたが何もしなくても、push のたびに GitHub が Supabase へ自動で反映します。
 
-   | Name | 値 |
+**2-1. Supabase でトークンを作る**
+
+Supabase の右上のアイコン →「Account Preferences」→「Access Tokens」→「Generate new token」で、トークンを作ってコピーする(この画面を閉じると二度と見られないので、次の 2-2 が終わるまで閉じない)
+
+**2-2. GitHub に3つ登録する**
+
+1. GitHub で、このリポジトリを開く
+2. 上のタブの「Settings」→ 左メニューの「Secrets and variables」→「Actions」
+3. 「New repository secret」を押し、次の3つを **1つずつ** 登録する(Name と Secret を入れて「Add secret」)
+
+   | Name(そのまま入力) | Secret(貼り付ける値) |
    |---|---|
-   | `SUPABASE_ACCESS_TOKEN` | 1. で作ったトークン |
-   | `SUPABASE_PROJECT_ID` | `<ref>` |
-   | `SUPABASE_DB_PASSWORD` | プロジェクト作成時に決めたデータベースのパスワード |
+   | `SUPABASE_ACCESS_TOKEN` | 2-1 で作って、コピーしたトークン |
+   | `SUPABASE_PROJECT_ID` | プロジェクトID `<ref>`(`https://<ref>.supabase.co` の `<ref>` の部分) |
+   | `SUPABASE_DB_PASSWORD` | 1-2 でプロジェクトを作るときに決めたデータベースのパスワード |
 
 ### 3. Google Cloud: サービスアカウントを作る(カレンダーに書き込む役)
 
