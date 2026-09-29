@@ -72,3 +72,43 @@
 - SQL Editor でマイグレーション(`supabase/migrations/20260929000000_init.sql`)を実行、または `supabase db push`
 - SQL Editor で自分を管理者として許可リストに入れる: `insert into public.members (email, is_admin) values ('自分のGmail', true);`
 - (手順の詳細はフェーズ6の README で書く)
+
+---
+
+## 2026-09-29 フェーズ3: Edge Functions
+
+### やったこと
+- Edge Functions を作成した(`supabase/functions/`)
+  - `app-config`: サービスアカウントのメールアドレスを、ログイン済みのメンバーにだけ返す
+  - `verify-calendar`: 登録済みの勤務用・休日用カレンダーにテスト予定を書いて即削除。成功したら検証済みにする
+  - `register-month`: 月の入力を保存し、アプリの予定だけ消して作り直す
+  - `delete-month`: 月のアプリの予定だけ消す(翌月1日は非番だけ)
+  - `sync-holidays`: 祝日を Google の公開祝日カレンダーから取ってDBにキャッシュ
+- 共通処理: JWT からの利用者確認と許可リストの判定、サービスアカウントの署名(WebCrypto)、再試行(最大5回・指数バックオフ)、二重実行防止のロック
+- 予定の組み立て(`_shared/plan.js`)を GAS の `buildPlan` から移植し、泊地をメモの2行目に付けるようにした。画面用に `web/js/plan.js` へ同じ内容をコピー
+- テストを追加: 予定の組み立て13件、カレンダー操作4件(Google への通信は偽物に差し替え)。すべて成功
+  - `deno test --allow-read --allow-env supabase/functions`
+
+### 変更したファイル
+- `supabase/functions/_shared/`(`http.ts`、`auth.ts`、`google.ts`、`holidays.ts`、`shift-calendar.ts`、`plan.js`、テスト2つ)
+- `supabase/functions/{app-config,verify-calendar,register-month,delete-month,sync-holidays}/index.ts`
+- `supabase/functions/deno.json`
+- `web/js/plan.js`(`_shared/plan.js` のコピー)
+- `WORKLOG.md`
+
+### 決めたこと(理由)
+- 予定の組み立ては1つの JS ファイルをブラウザと Edge Function で共用し、2か所のコピーが同じかをテストで確認する(ビルド不要の方針のまま、ロジックの食い違いを防ぐため)
+- アプリの予定の印は GAS と同じ `extendedProperties.private.shiftflow`(GAS 版で入れた予定も消せる見込み。実機で確認する)
+- 削除対象の判定は、印の有無と終日予定の日付で行う。カレンダーのタイムゾーンに左右されないよう、前後1日広めに取得してから日付で絞る
+- メインのカレンダー(ID=メールアドレス)は本人のログインメールと一致するときだけ使える。ほかの人が検証済みのIDは使えない(サービスアカウントを全員で共有するため、他人のカレンダーに書けないように)
+- 祝日は今年以降の年を30日ごとに取り直す(翌年の祝日が後から公開されるため)。取れなかった年は登録を止めてエラーにする(平休を間違えたまま登録しないため)
+
+### 次にやること
+- フェーズ4: フロント(ログイン・勤務入力・設定・管理画面)と GitHub Pages のワークフロー
+
+### 手動でやる作業の残り
+- Google Cloud でプロジェクト作成 → Google Calendar API を有効化 → サービスアカウント作成 → 鍵(JSON)をダウンロード(鍵はリポジトリに置かない)
+- `supabase secrets set GOOGLE_SERVICE_ACCOUNT_JSON="$(cat 鍵.json)"`(またはダッシュボードの Edge Functions → Secrets)
+- `supabase functions deploy`(5つの関数)
+- 実機確認: 公開祝日カレンダーをサービスアカウントで読めるか、GAS 版で作った予定を新版が消せるか
+- (前回からの残り)Supabase プロジェクト作成、マイグレーション実行、自分を管理者として許可リストに入れる

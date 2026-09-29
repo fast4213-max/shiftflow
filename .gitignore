@@ -21,3 +21,6 @@ gas/.clasp.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Deno のロックファイル(Edge Runtime と Deno のバージョン差で読めないことがあるため置かない)
+deno.lock
