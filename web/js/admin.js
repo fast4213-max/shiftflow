@@ -1,6 +1,6 @@
 // 管理画面(ダッシュボード)。管理者だけ。管理用パスワードでログインしたセッションで動く。
 import { $, callFunction, copyText, formatDateTime, requireLogin, supabase } from "./app.js";
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
+import { SUPABASE_ANON_KEY, SUPABASE_URL, TOKEN_EXPIRES } from "./config.js";
 import { checkMasterRows, masterRowsFromCsv, masterToCsv, readTextFile } from "./csv.js";
 
 const MASTER_COLUMNS = [
@@ -55,6 +55,20 @@ document.querySelectorAll(".dtab").forEach((t) => t.addEventListener("click", ()
 
 // ---------- 概要 ----------
 
+// アクセストークンの期限までの日数(期限の日の終わりまで使える)
+function tokenDaysLeft() {
+  const end = new Date(TOKEN_EXPIRES + "T23:59:59+09:00");
+  return Math.ceil((end - new Date()) / 86400000);
+}
+
+function tokenLabel() {
+  const [y, m, d] = TOKEN_EXPIRES.split("-").map(Number);
+  const left = tokenDaysLeft();
+  const date = `${y}年${m}月${d}日`;
+  if (left < 0) return `${date}(期限が切れています。新しいトークンを作ってください)`;
+  return `${date}(あと${left}日)`;
+}
+
 function alertBox(kind, text, actionLabel, tab) {
   const div = document.createElement("div");
   div.className = "alert " + kind;
@@ -74,6 +88,9 @@ function renderOverview() {
 
   const alerts = $("alerts");
   alerts.innerHTML = "";
+  if (tokenDaysLeft() <= 30) {
+    alerts.appendChild(alertBox("warn", "Supabase のアクセストークンの期限が近づいています: " + tokenLabel(), "設定へ", "settings"));
+  }
   if (!stats.signup_password_set) {
     alerts.appendChild(alertBox("warn", "新規登録の共通パスワードが未設定です。設定するまで、新しい人は登録できません。", "設定へ", "settings"));
   }
@@ -389,6 +406,7 @@ $("signup-save").addEventListener("click", async () => {
 });
 
 function renderSettings() {
+  $("token-status").textContent = "現在のトークンの期限: " + tokenLabel();
   $("signup-status").textContent = stats.signup_password_set
     ? "設定済みです(セキュリティのため、いまのパスワードは表示できません。変えるときは新しいものを入れてください)。"
     : "まだ設定されていません。設定するまで新規登録は受け付けません。";

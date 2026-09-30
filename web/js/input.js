@@ -1,5 +1,6 @@
 // 勤務入力画面
 import { $, callFunction, requireLogin, supabase } from "./app.js";
+import { APP_VERSION } from "./config.js";
 import { addDays, dateKey, dayTypeOf, daysInMonth, describe, dutyMemo, indexMaster, offdutyMemo, pad } from "./plan.js";
 
 const MANUAL = "__manual__";
@@ -44,6 +45,7 @@ async function loadHolidays(first, nextFirst) {
 }
 
 async function load() {
+  $("version").textContent = APP_VERSION;
   $("title").textContent = state.year + "年" + state.month + "月";
   $("prev").disabled = isFirstMonth();
   $("register").disabled = true;

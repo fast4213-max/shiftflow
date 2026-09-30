@@ -137,6 +137,11 @@
         <p class="muted">もう1つのヘッダー: <code>Content-Type: application/json</code>、本文: <code>{}</code></p>
       </div>
       <div class="panel">
+        <h2>Supabase アクセストークンの期限</h2>
+        <p id="token-status" class="muted"></p>
+        <p class="muted">GitHub の自動デプロイ(Secrets の <code>SUPABASE_ACCESS_TOKEN</code>)に使っています。切れると、データベースと関数の更新だけが止まります(いま動いているアプリは止まりません)。新しく作ったら、GitHub の Secrets を上書きし、<code>web/js/config.js</code> の <code>TOKEN_EXPIRES</code> の日付を書き換えます。</p>
+      </div>
+      <div class="panel">
         <h2>管理用パスワード</h2>
         <p class="muted">この画面に入るパスワードは、Supabase のダッシュボード「Edge Functions」→「Secrets」の <code>ADMIN_PASSWORD</code> です(12文字以上)。変えるときはそこを書き換えてください。</p>
       </div>
