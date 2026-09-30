@@ -152,7 +152,7 @@ function renderOverview() {
 // ---------- 利用者 ----------
 
 async function resetPin(u) {
-  if (!confirm(`${fullName(u)}(${u.employee_no})に仮のPINを発行します。いまのPINは使えなくなります。よろしいですか？`)) return;
+  if (!confirm(`${fullName(u)}(${u.employee_no})に仮のPINを発行します。今のPINは使えなくなります。よろしいですか？`)) return;
   try {
     const result = await callFunction("admin-users", { action: "reset-pin", user_id: u.user_id });
     $("pin-who").textContent = `${fullName(u)}(社員番号 ${u.employee_no})`;
@@ -408,7 +408,7 @@ $("signup-save").addEventListener("click", async () => {
 function renderSettings() {
   $("token-status").textContent = "現在のトークンの期限: " + tokenLabel();
   $("signup-status").textContent = stats.signup_password_set
-    ? "設定済みです(セキュリティのため、いまのパスワードは表示できません。変えるときは新しいものを入れてください)。"
+    ? "設定済みです(セキュリティのため、今のパスワードは表示できません。変えるときは新しいものを入れてください)。"
     : "まだ設定されていません。設定するまで新規登録は受け付けません。";
   $("keepalive-url").value = `${SUPABASE_URL}/rest/v1/rpc/keepalive`;
   $("keepalive-key").value = SUPABASE_ANON_KEY;

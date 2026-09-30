@@ -41,28 +41,6 @@
   .qa dt { font-weight: bold; margin-top: 3mm; }
   .qa dd { margin: 0 0 1mm 0; }
   .foot { color: #5f6368; font-size: 8.5pt; margin-top: 6mm; }
-
-  /* Google カレンダーのイメージ図(実際の画面ではありません) */
-  .g { text-align: left; font-family: "Noto Sans JP", "IPAPGothic", sans-serif; font-size: 9pt; border: 1px solid #c4c7c5; border-radius: 2mm; background: #fff; overflow: hidden; margin: 0 auto; }
-  .g .bar { background: #f1f3f4; padding: 1.2mm 3mm; font-size: 8pt; color: #5f6368; border-bottom: 1px solid #dadce0; }
-  .g .body { display: flex; min-height: 50mm; }
-  .g .side { width: 46mm; padding: 3mm; background: #f8f9fa; border-right: 1px solid #eee; position: relative; }
-  .g .side h4 { margin: 2mm 0 1mm; font-size: 8.5pt; color: #444; display: flex; justify-content: space-between; align-items: center; }
-  .g .side .it { padding: 0.8mm 0; display: flex; align-items: center; gap: 1.5mm; }
-  .g .side .dot { width: 3mm; height: 3mm; border-radius: 50%; display: inline-block; }
-  .g .main { flex: 1; padding: 3mm; position: relative; }
-  .g .menu { position: absolute; background: #fff; border: 1px solid #c4c7c5; border-radius: 1.5mm; box-shadow: 0 1mm 3mm rgba(0,0,0,.2); padding: 1mm 0; font-size: 8.5pt; z-index: 2; }
-  .g .menu div { padding: 1mm 3mm; white-space: nowrap; }
-  .g .hl { outline: 0.7mm solid #e53935; outline-offset: 0.3mm; border-radius: 1mm; position: relative; }
-  .g .hl .n { position: absolute; left: -3mm; top: -3.5mm; }
-  .g .btn { display: inline-block; border: 1px solid #747775; border-radius: 5mm; padding: 1mm 3.5mm; color: #0b57d0; }
-  .g .sel { border: 1px solid #747775; border-radius: 1mm; padding: 1mm 2mm; }
-  .g .list div { padding: 1mm 2.5mm; }
-  .g .list div.on { background: #d3e3fd; }
-  .g .blue { background: #0b57d0; color: #fff; border-radius: 5mm; padding: 1mm 4mm; display: inline-block; }
-  .g h5 { font-size: 10pt; margin: 2mm 0 1mm; }
-  .g .row { padding: 1.5mm 0; border-bottom: 1px solid #eee; }
-  .g .muted { color: #5f6368; }
 </style>
 </head>
 <body>
@@ -91,7 +69,7 @@
     <div><b class="n">5</b><span>勤務入力の画面で、番号を選んで「登録」<br><small>これを毎月くり返します</small></span></div>
   </div>
   <div class="note">
-    <b>ぜんぶで、この3つを使います</b><br>
+    <b>全部で、この3つを使います</b><br>
     ・このアプリ(スマホでもPCでも)<br>
     ・PC の Googleカレンダー(手順2〜3と、カレンダーIDの確認だけ)<br>
     ・管理者から聞く共通パスワード(登録のときだけ)
@@ -146,35 +124,16 @@
   <div class="warn"><b>PC のブラウザで行います。</b>カレンダーの作成と共有は、スマホのアプリではできません。スマホしかない人は、スマホのブラウザで <span class="mono">calendar.google.com</span> を開き、「PC版サイト」(iPhone は「デスクトップ用ウェブサイトを表示」)に切り替えて、拡大しながら操作します。</div>
   <ol class="steps">
     <li>PC のブラウザで <span class="mono">https://calendar.google.com</span> を開く</li>
-    <li>左の「<b>他のカレンダー</b>」の横の「<b>＋</b>」(<span class="n">1</span>)を押す</li>
-    <li>「<b>新しいカレンダーを作成</b>」(<span class="n">2</span>)を選ぶ</li>
+    <li>右上の歯車(<span class="n">1</span>)を押し、「<b>設定</b>」(<span class="n">2</span>)を選ぶ</li>
+    <li>左のメニューの「<b>カレンダーを追加</b>」を開き、「<b>新しいカレンダーを作成</b>」(<span class="n">1</span>)を選ぶ(下の図)</li>
     <li>名前(例: <b>勤務</b>)を入れて「<b>カレンダーを作成</b>」</li>
   </ol>
   <p>休みの予定(公休・年休など)も分けて入れたい人は、同じ方法で「休日」のカレンダーも作ります。休日用はなくてもかまいません。</p>
-
-  <figure>
-    <div class="g" style="width:120mm">
-      <div class="bar">Google カレンダー(PC版)のイメージ図</div>
-      <div class="body">
-        <div class="side">
-          <h4>マイカレンダー</h4>
-          <div class="it"><span class="dot" style="background:#039be5"></span>自分の名前</div>
-          <div class="it"><span class="dot" style="background:#33b679"></span>誕生日</div>
-          <h4>他のカレンダー <span class="hl" style="padding:0 1.5mm;font-size:12pt;line-height:1.1"><span class="n">1</span>＋</span></h4>
-          <div class="it"><span class="dot" style="background:#0b8043"></span>日本の祝日</div>
-        </div>
-        <div class="main">
-          <div class="menu" style="left:1mm;top:13mm">
-            <div>カレンダーに登録</div>
-            <div class="hl" style="margin:0.5mm 1mm"><span class="n">2</span>新しいカレンダーを作成</div>
-            <div>関心のあるカレンダーを探す</div>
-            <div>URL で追加</div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <figcaption>※ 実際の画面ではなく、押す場所を示したイメージ図です。細かい見た目は違うことがあります。</figcaption>
-  </figure>
+  <p>左の「他のカレンダー」の横の「＋」からも、同じ「新しいカレンダーを作成」に進めます。</p>
+  <div class="cols">
+    <figure style="flex:none;width:122mm"><img src="img/g-menu.png"><figcaption>歯車 → 設定</figcaption></figure>
+    <figure style="flex:none;width:50mm"><img src="img/g-create.png"><figcaption>カレンダーを追加 → 新しいカレンダーを作成</figcaption></figure>
+  </div>
 </section>
 
 <!-- 3. 共有 -->
@@ -186,101 +145,44 @@
     <div style="margin-top:2mm;display:flex;gap:4mm;align-items:center"><span class="mono" style="font-size:9pt">shiftflow-…@…iam.gserviceaccount.com</span><span style="color:#5f6368;font-size:9pt">← こんな形のアドレスです</span></div>
   </div>
 
-  <h3>手順A: 「設定と共有」を開く</h3>
+  <p>休日用のカレンダーも作った人は、同じ手順(A〜B)をもう1回行います。</p>
+  <h3>手順A: 共有の画面を開く</h3>
   <ol class="steps">
-    <li>左の「マイカレンダー」で、作った「勤務」にカーソルを合わせ、右に出る「<b>︙</b>」(<span class="n">1</span>)を押す</li>
-    <li>「<b>設定と共有</b>」(<span class="n">2</span>)を選ぶ</li>
+    <li>手順2の「設定」の画面で、左のメニューの「<b>マイカレンダーの設定</b>」の中の「<b>勤務</b>」(図の <span class="n">1</span>)を押す</li>
+    <li>右の「<b>共有する相手</b>」の欄が共有の画面です(カレンダーの左の「︙」→「設定と共有」からも開けます)</li>
   </ol>
-  <figure>
-    <div class="g" style="width:120mm">
-      <div class="bar">Google カレンダー(PC版)のイメージ図</div>
-      <div class="body">
-        <div class="side">
-          <h4>マイカレンダー</h4>
-          <div class="it"><span class="dot" style="background:#039be5"></span>自分の名前</div>
-          <div class="it" style="background:#e8eaed;border-radius:1mm;padding-left:1mm;justify-content:space-between"><span><span class="dot" style="background:#8d6e63"></span> 勤務</span><span class="hl" style="padding:0 1mm"><span class="n">1</span>︙</span></div>
-          <div class="it"><span class="dot" style="background:#f09300"></span>休日</div>
-        </div>
-        <div class="main">
-          <div class="menu" style="left:1mm;top:9mm">
-            <div>このカレンダーのみを表示</div>
-            <div>カレンダーを非表示</div>
-            <div class="hl" style="margin:0.5mm 1mm"><span class="n">2</span>設定と共有</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </figure>
-
   <h3>手順B: アドレスを追加して、権限を選ぶ</h3>
   <ol class="steps">
-    <li>開いた画面で、「<b>共有する相手</b>」の「<b>＋ ユーザーやグループを追加</b>」(<span class="n">1</span>)を押す</li>
-    <li>コピーした登録用アドレスを貼り付ける(<span class="n">2</span>)</li>
-    <li>権限は、上から4番目の「<b>すべての予定の詳細の変更や表示ができます</b>」(<span class="n">3</span>)を選ぶ</li>
-    <li>「<b>送信</b>」(<span class="n">4</span>)を押す</li>
+    <li>「<b>＋ ユーザーやグループを追加</b>」(図の <span class="n">2</span>)を押す</li>
+    <li>出てきた画面の上の欄に、コピーした登録用アドレスを貼り付ける(右の図の <span class="n">1</span>)</li>
+    <li>権限の一覧から、上から4番目の「<b>すべての予定の詳細の変更や表示ができます</b>」(右の図の <span class="n">2</span>)を選ぶ</li>
+    <li>「<b>送信</b>」を押す(一覧を開いていると隠れています。選ぶと閉じて、下に出ます)</li>
+    <li>共有できると、「共有する相手」の欄に登録用アドレスが増え(図の <span class="n">3</span>)、権限が「すべての予定の詳細の変更や表示が…」になっています</li>
   </ol>
-  <figure>
-    <div class="g" style="width:150mm">
-      <div class="bar">Google カレンダー「勤務」の設定(PC版)のイメージ図</div>
-      <div class="body" style="min-height:0">
-        <div class="main" style="display:flex;gap:4mm">
-          <div style="flex:1">
-            <h5>共有する相手</h5>
-            <div class="row">自分の名前(オーナー)</div>
-            <div style="margin-top:2mm" class="hl"><span class="n">1</span><span class="btn">＋ ユーザーやグループを追加</span></div>
-          </div>
-          <div style="flex:1.3;border:1px solid #c4c7c5;border-radius:2mm;padding:2.5mm;box-shadow:0 1mm 3mm rgba(0,0,0,.15)">
-            <h5>特定のユーザーと共有</h5>
-            <div class="hl sel" style="margin:2mm 0"><span class="n">2</span><span class="mono" style="font-size:8pt">shiftflow-…@…gserviceaccount.com</span></div>
-            <div class="muted" style="font-size:8pt">権限</div>
-            <div class="list" style="border:1px solid #c4c7c5;border-radius:1mm;font-size:8pt">
-              <div>予定の表示(時間枠のみ、詳細は非表示)</div>
-              <div>予定の詳細の表示</div>
-              <div>変更(限定公開の予定を予定の有無として表示)ができ…</div>
-              <div class="on hl"><span class="n">3</span><b>すべての予定の詳細の変更や表示ができます</b></div>
-              <div>予定の変更および共有の管理</div>
-            </div>
-            <div style="text-align:right;margin-top:2mm"><span class="blue hl"><span class="n">4</span>送信</span></div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <figcaption>※ 実際の画面ではなく、押す場所を示したイメージ図です。</figcaption>
-  </figure>
+  <div class="cols">
+    <figure style="flex:1.7"><img src="img/g-share-list.png"><figcaption>共有する相手(登録用アドレスを追加したあとの状態)</figcaption></figure>
+    <figure style="flex:1"><img src="img/g-share-dialog.png"><figcaption>アドレスと権限を選ぶ画面</figcaption></figure>
+  </div>
   <div class="warn">
     <b>権限はここだけ間違えないでください。</b><br>
     ・上の2つ(「予定の表示…」「予定の詳細の表示」)では、アプリが書き込めません。<br>
     ・一番下の「予定の変更および共有の管理」は、強すぎるので選ばなくて大丈夫です。<br>
     ・画面によっては「予定の変更権限」などの名前のこともあります。そのときは、予定を変更できるもので、共有の管理が付いていないものを選びます。
   </div>
-  <p>休日用のカレンダーも作った人は、同じ手順をもう1回行います。</p>
 </section>
 
 <!-- 4. カレンダーID -->
 <section>
   <h2>4. カレンダーIDを調べる</h2>
-  <p>共有の画面(手順3の「設定と共有」)を、そのまま下にスクロールします。</p>
+  <p>手順3と同じ「勤務」の設定の画面を、下にスクロールします。</p>
   <ol class="steps">
     <li>「<b>カレンダーの統合</b>」という見出しを探す</li>
     <li>その中の「<b>カレンダー ID</b>」(<span class="n">1</span>)の文字列を、全部コピーする</li>
   </ol>
-  <figure>
-    <div class="g" style="width:140mm">
-      <div class="bar">Google カレンダー「勤務」の設定(PC版)のイメージ図</div>
-      <div class="body" style="min-height:0">
-        <div class="main">
-          <h5>カレンダーの統合</h5>
-          <div class="muted" style="font-size:8pt">カレンダー ID</div>
-          <div class="hl sel" style="margin:1mm 0 2mm;font-family:'IPAGothic',monospace;font-size:8.5pt"><span class="n">1</span>abcdefg1234567890abcdefg@group.calendar.google.com</div>
-          <div class="muted" style="font-size:8pt">カレンダーの公開 URL / 限定公開 URL … ← こちらではありません</div>
-        </div>
-      </div>
-    </div>
-    <figcaption>※ ID は例です。実際は、あなたのカレンダーごとに違います。</figcaption>
-  </figure>
+  <figure><img src="img/g-calendar-id.png" style="width:130mm"><figcaption>「カレンダーの統合」の「カレンダー ID」(画像では、IDと下のURLを伏せています)</figcaption></figure>
   <table class="t">
     <tr><th>合っているID</th><th>使えないもの</th></tr>
-    <tr><td>英数字の長い文字列のあとに <span class="mono">@group.calendar.google.com</span> が付いている</td>
+    <tr><td>英数字の長い文字列の後ろに <span class="mono">@group.calendar.google.com</span> が付いている</td>
         <td>自分のメールアドレスのID(メインのカレンダー) / カレンダーの名前 / 共有用のURL</td></tr>
   </table>
   <p>前後に空白が入らないように、コピーして貼り付けます。休日用を作った人は、そのカレンダーのIDも同じように調べます。</p>
@@ -314,7 +216,7 @@
     <tr><th>出た文</th><th>確認すること</th></tr>
     <tr><td>「○○カレンダーに書き込めません」</td><td>権限が「すべての予定の詳細の変更や表示ができます」か。共有した相手のアドレスが、登録用アドレスと同じか(コピーが確実)。IDの貼り間違いや空白がないか。勤務用と(使う人は)休日用の、両方で共有したか</td></tr>
     <tr><td>「IDがメールアドレスの形です」</td><td>メインのカレンダーのIDです。新しく作ったカレンダーのIDを入れます</td></tr>
-    <tr><td>「ほかの利用者が登録しています」</td><td>ほかの人のカレンダーのIDでないか確認します。同じカレンダーは1人しか使えません</td></tr>
+    <tr><td>「他の利用者が登録しています」</td><td>他の人のカレンダーのIDでないか確認します。同じカレンダーは1人しか使えません</td></tr>
     <tr><td>「設定画面で区所を選んでください」</td><td>「1. 区所を選ぶ」を選んで、もう一度保存します</td></tr>
   </table>
   <p>共有した直後は、反映まで少し時間がかかることがあります。数分おいて、もう一度試してください。</p>
@@ -347,6 +249,9 @@
         <b>同じ月は、何度登録し直してもかまいません。</b>このアプリが作った予定だけを消して、作り直します。手で入れた予定は消えません。<br>
         月末が泊なら、翌月1日の非番も一緒に登録されます。
       </div>
+      <h3>カレンダーに入った予定</h3>
+      <p>登録すると、Googleカレンダーに、番号のタイトルの終日の予定が入ります(泊の翌日は「〜」の非番)。</p>
+      <figure><img src="img/g-result.png"><figcaption>登録後のGoogleカレンダー(例)</figcaption></figure>
       <h3>リセット(カレンダーから消す)</h3>
       <p>「<b>リセット</b>」(<span class="n">4</span>)を押して月を選び、「削除」を押すと、その月にこのアプリで登録した予定を、カレンダーから消します。手で入れた予定と、画面の入力内容は消えません。もう一度「登録」すれば、元に戻ります。</p>
     </div>

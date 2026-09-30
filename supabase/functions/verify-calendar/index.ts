@@ -39,7 +39,7 @@ serve(async (req) => {
     }
   }
 
-  // ほかの利用者が検証済みで使っているカレンダーは使えない
+  // 他の利用者が検証済みで使っているカレンダーは使えない
   const ids = [...new Set([work, holiday].filter(Boolean))];
   let taken = false;
   for (const column of ["work_calendar_id", "holiday_calendar_id"]) {
@@ -54,7 +54,7 @@ serve(async (req) => {
     if (others && others.length > 0) taken = true;
   }
   if (taken) {
-    throw new AppError(400, "このカレンダーIDはほかの利用者が登録しています。自分のカレンダーのIDか確認してください。", "taken");
+    throw new AppError(400, "このカレンダーIDは他の利用者が登録しています。自分のカレンダーのIDか確認してください。", "taken");
   }
 
   // 日本時間の今日に終日のテスト予定を書いて、すぐ消す

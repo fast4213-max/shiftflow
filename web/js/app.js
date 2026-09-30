@@ -23,7 +23,7 @@ export function go(name) {
   location.replace(pageUrl(name));
 }
 
-// 上のナビ。current はいまのページのファイル名
+// 上のナビ。current は今のページのファイル名
 export function renderTopbar(current, { loggedIn = false, isAdmin = false } = {}) {
   const bar = document.createElement("nav");
   bar.className = "topbar";

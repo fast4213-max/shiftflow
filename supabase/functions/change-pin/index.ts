@@ -1,4 +1,4 @@
-// 自分のPINを変える(いまのPINを確かめてから)。管理者が仮のPINを発行したあとに使う。
+// 自分のPINを変える(今のPINを確かめてから)。管理者が仮のPINを発行したあとに使う。
 
 import { anonClient, requireMember } from "../_shared/auth.ts";
 import { emailFor, passwordFor, validatePin } from "../_shared/accounts.ts";
@@ -9,7 +9,7 @@ serve(async (req) => {
   const ctx = await requireMember(req);
   if (!ctx.employeeNo) throw new AppError(400, "この操作は利用者だけができます。");
   const body = await readBody(req);
-  const current = validatePin(body.current_pin, "いまのPIN");
+  const current = validatePin(body.current_pin, "今のPIN");
   const next = validatePin(body.new_pin, "新しいPIN");
 
   const key = `emp:${ctx.employeeNo}`;
@@ -20,7 +20,7 @@ serve(async (req) => {
   });
   if (error || !data.session) {
     await recordFailure(ctx.admin, key);
-    throw new AppError(401, "いまのPINが違います。", "bad_credentials");
+    throw new AppError(401, "今のPINが違います。", "bad_credentials");
   }
   await clearFailures(ctx.admin, key);
 
