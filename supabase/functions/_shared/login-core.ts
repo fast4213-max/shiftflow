@@ -52,6 +52,10 @@ export async function loginWithPin({ admin, anon }: Deps, body: Record<string, u
   return session;
 }
 
+function alreadyRegistered(): AppError {
+  return new AppError(409, "この社員番号はすでに登録されています。ログインしてください。PINを忘れたときは管理者に連絡してください。", "already_registered");
+}
+
 // 新規登録(共通パスワードを確かめてから作る)。登録したらすぐ使える
 export async function signUp({ admin }: { admin: SupabaseClient }, body: Record<string, unknown>, ip: string) {
   const employeeNo = validateEmployeeNo(body.employee_no);
@@ -78,7 +82,7 @@ export async function signUp({ admin }: { admin: SupabaseClient }, body: Record<
     .from("profiles").select("user_id").eq("employee_no", employeeNo).maybeSingle();
   if (existingError) throw existingError;
   if (existing) {
-    throw new AppError(409, "この社員番号はすでに登録されています。ログインしてください。PINを忘れたときは管理者に連絡してください。", "already_registered");
+    throw alreadyRegistered();
   }
 
   const email = emailFor(employeeNo);
@@ -88,6 +92,12 @@ export async function signUp({ admin }: { admin: SupabaseClient }, body: Record<
     // 前回の登録が途中で止まって、ユーザーだけ残っている場合はそれを使う(プロフィールが無い = 誰も登録していない)
     const left = await findUserByEmail(admin, email);
     if (!left) throw created.error ?? new Error("ユーザーを作れませんでした");
+    // 同じ社員番号の登録が同時に進んで、相手がもうプロフィールまで作っていたら使わない
+    // (使うと、先に登録した人のPINを書き換えたうえ、下のプロフィール作成の失敗で消してしまう)
+    const { data: owner, error: ownerError } = await admin
+      .from("profiles").select("user_id").eq("user_id", left.id).maybeSingle();
+    if (ownerError) throw ownerError;
+    if (owner) throw alreadyRegistered();
     const updated = await admin.auth.admin.updateUserById(left.id, { password: passwordFor(pin), email_confirm: true });
     if (updated.error) throw updated.error;
     userId = left.id;

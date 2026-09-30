@@ -48,8 +48,8 @@ function label(calendars: Calendars, id: string): string {
 
 // 対象月の、このアプリが作った予定を削除して件数を返す。
 // 翌月1日は、この月の月末の泊から作られる非番(勤務用カレンダーの offduty)だけを対象にする。
-// clearNextFirst のとき(この月の月末が泊で、翌月1日を非番にするとき)は、翌月1日のアプリの予定を全部消す
-// (翌月を先に登録していた場合の、1日の勤務・休日の予定が非番と重ならないように)。
+// clearNextFirst のとき(翌月1日の予定も作り直すとき)は、翌月1日のアプリの予定を全部消す
+// (翌月を先に登録していた場合の、1日の勤務・休日の予定と重ならないように)。
 // 手で入れた予定(印が無いもの)は消さない。
 export async function deleteAppEvents(
   calendars: Calendars,

@@ -63,9 +63,9 @@ async function main() {
     .catch((err) => ($("sa-email").value = "取得できませんでした: " + err.message));
   $("copy-sa").addEventListener("click", () => copyText($("sa-email").value, $("copy-sa")));
 
-  // IDを書き換えたら、テスト済みの表示を消す
-  ["work-id", "holiday-id"].forEach((id) =>
-    $(id).addEventListener("input", () => {
+  // 区所やIDを書き換えたら、保存するまでテスト済みの表示と「勤務入力へ」を消す
+  ["office", "work-id", "holiday-id"].forEach((id) =>
+    $(id).addEventListener(id === "office" ? "change" : "input", () => {
       message("result", "");
       $("go-input").classList.add("hidden");
     })

@@ -94,6 +94,16 @@ Deno.test("12月末が泊なら翌年1月1日の非番(年末年始なので休�
   assertEquals(p.events[1], { date: "2027-01-01", calendar: "work", kind: "offduty", title: "〜", description: "9:40" });
 });
 
+Deno.test("月末が泊でなければ、翌月1日の記録の予定を作り直す(泊から戻したとき1日が空にならないように)", () => {
+  const p = plan(2026, 10, { "2026-10-31": { code: "201" } }, { nextFirstEntry: { code: "201", memo: "" } });
+  assertEquals(p.events[1], { date: "2026-11-01", calendar: "work", kind: "day", title: "201", description: "9:00〜17:00" });
+  const h = plan(2026, 10, {}, { nextFirstEntry: { code: "公休", memo: "" } });
+  assertEquals(h.events, [{ date: "2026-11-01", calendar: "holiday", kind: "day", title: "公休", description: "" }]);
+  // 翌月1日は記録には入れない(翌月の分なので)
+  assertEquals(Object.keys(p.entries), ["2026-10-31"]);
+  assertEquals(h.entries, {});
+});
+
 Deno.test("メモだけの日は記録に残すが予定は作らない", () => {
   const p = plan(2026, 10, { "2026-10-05": { code: "", memo: "メモ" } });
   assertEquals(p.events, []);

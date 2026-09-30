@@ -122,10 +122,11 @@ export function codeOf(entry) {
 // 月内の入力から、保存する記録と登録する予定の一覧を作る。
 //   entries        { "yyyy-MM-dd": { code, memo } }  (memo は手修正したときだけ)
 //   prevLastCode   前月末の番号(1日が非番かどうかの判定用)
-//   nextFirstEntry 翌月1日の記録(月末が泊のとき、翌月1日の非番のメモに使う)
+//   nextFirstEntry 翌月1日の記録(月末が泊なら非番のメモに、泊でなければ翌月1日の予定に使う)
 //   master         indexMaster() の結果
 //   holidays       祝日の配列または Set
-// 非番の日は番号を無視し、翌月1日の非番(月末が泊の場合)も含める。
+// 非番の日は番号を無視する。翌月1日の予定も含める(月末が泊なら非番、泊でなければ翌月1日の記録の予定)。
+// 月末を泊から戻したとき、翌月1日の非番を消したあとに翌月1日の予定を作り直すため。
 export function buildPlan({ year, month, entries, prevLastCode, nextFirstEntry, master, holidays }) {
   const days = daysInMonth(year, month);
   const cleanEntries = {};
@@ -151,10 +152,8 @@ export function buildPlan({ year, month, entries, prevLastCode, nextFirstEntry, 
       }
       continue;
     }
-    if (d > days) break;
-
     if (!e.code && !e.memo) continue;
-    cleanEntries[key] = e;
+    if (d <= days) cleanEntries[key] = e;
     if (!e.code) continue;
 
     const entry = master[e.code];

@@ -57,11 +57,14 @@ export async function ensureHolidayYears(admin: SupabaseClient, years: number[])
       );
     }
 
-    const del = await admin.from("holidays").delete().gte("date", `${year}-01-01`).lte("date", `${year}-12-31`);
-    if (del.error) throw del.error;
+    // 先に入れてから、無くなった日だけ消す(全部消してから入れると、その間に登録した人の祝日が平日扱いになる)。
     // 同じ年を同時に取りに来ても主キーの重複で失敗しないよう upsert にする
     const ins = await admin.from("holidays").upsert(holidays, { onConflict: "date" });
     if (ins.error) throw ins.error;
+    const del = await admin.from("holidays").delete()
+      .gte("date", `${year}-01-01`).lte("date", `${year}-12-31`)
+      .not("date", "in", `(${holidays.map((h) => h.date).join(",")})`);
+    if (del.error) throw del.error;
     const up = await admin.from("holiday_years").upsert({ year, source: "google", fetched_at: new Date().toISOString() });
     if (up.error) throw up.error;
   }

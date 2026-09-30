@@ -50,7 +50,8 @@ serve(async (req) => {
     const saved = await ctx.db.rpc("save_month_records", { p_year: year, p_month: month, p_entries: plan.entries });
     if (saved.error) throw saved.error;
 
-    // 月末が泊なら翌月1日は非番になるので、翌月1日にある勤務・休日の予定も消す
+    // 翌月1日の予定(月末が泊なら非番、泊でなければ翌月1日の記録の予定)を作るときは、
+    // 翌月1日にあるアプリの予定を全部消してから作り直す(重ならないように)
     const clearNextFirst = plan.events.some((e) => e.date === nextFirst);
     await deleteAppEvents(calendars, year, month, { clearNextFirst });
     const { created, skipped } = await createEvents(calendars, plan.events);

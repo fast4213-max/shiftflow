@@ -11,7 +11,8 @@ type User = { id: string; email: string; password: string };
 type Profile = { user_id: string; employee_no: string | null; role: string; family_name?: string; given_name?: string };
 
 // 最小限の偽物: DB の関数(rpc)、profiles、Supabase Auth のユーザー
-function fakes(opts: { sharedPassword?: string | null; failProfileInsert?: boolean } = {}) {
+// racingSignUp: 同じ社員番号の登録が同時に進んでいる(社員番号の確認の時点では、相手のプロフィールがまだ見えない)
+function fakes(opts: { sharedPassword?: string | null; failProfileInsert?: boolean; racingSignUp?: boolean } = {}) {
   const attempts = new Map<string, { count: number; lockedUntil: number | null }>();
   const users: User[] = [];
   const profiles: Profile[] = [];
@@ -51,6 +52,9 @@ function fakes(opts: { sharedPassword?: string | null; failProfileInsert?: boole
         select: () => builder,
         eq: (col: string, val: unknown) => (filters.push([col, val]), builder),
         maybeSingle: () => {
+          if (opts.racingSignUp && filters.some(([c]) => c === "employee_no")) {
+            return Promise.resolve({ data: null, error: null });
+          }
           const row = profiles.find((p) => filters.every(([c, v]) => (p as Record<string, unknown>)[c] === v));
           return Promise.resolve({ data: row ?? null, error: null });
         },
@@ -195,6 +199,15 @@ Deno.test("新規登録: 前回の途中で止まってユーザーだけ残っ�
   assertEquals(f.profiles[0].user_id, "left-over");
   await loginWithPin(f.deps, { employee_no: "1234567", pin: "4829" });
   assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "0000" })), "bad_credentials");
+});
+
+Deno.test("新規登録: 同時に同じ社員番号で登録されても、先に登録できた人のPINを変えたり消したりしない", async () => {
+  const f = fakes({ racingSignUp: true });
+  f.users.push({ id: "first", email: emailFor("1234567"), password: passwordFor("4829") });
+  f.profiles.push({ user_id: "first", employee_no: "1234567", role: "user", family_name: "山田", given_name: "太郎" });
+  assertEquals(await code(() => signUp(f.deps, { ...reg, pin: "1111" }, "ip")), "already_registered");
+  assertEquals(f.users.length, 1);
+  await loginWithPin(f.deps, { employee_no: "1234567", pin: "4829" });
 });
 
 Deno.test("ログイン: 登録が無い・PINが違うと弾く。形式の間違いは失敗に数えない", async () => {
