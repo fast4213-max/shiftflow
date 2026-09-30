@@ -1,6 +1,6 @@
 // 使い方ページ。未ログインでも読める。
 // ログイン済みの利用者にだけ、登録用アドレス(サービスアカウントのメール)を表示する。
-import { $, callFunction, copyText, currentSession, loadProfile, renderTopbar } from "./app.js";
+import { $, callFunction, copyText, currentSession, loadProfile, renderTopbar } from "./app.js?v=dev";
 
 async function main() {
   let session = null;

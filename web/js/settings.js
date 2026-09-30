@@ -1,5 +1,5 @@
 // 設定: 区所とカレンダーIDだけ。保存すると、そのまま接続テストをする。
-import { $, callFunction, copyText, isReady, requireLogin, supabase, toHalfWidth } from "./app.js";
+import { $, callFunction, copyText, isReady, requireLogin, supabase, toHalfWidth } from "./app.js?v=dev";
 
 let session = null;
 let settings = null; // user_settings の行(無ければ null)

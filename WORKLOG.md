@@ -721,3 +721,19 @@ supabase/functions/register-month/index.ts, supabase/functions/verify-calendar/i
 - データベースの形は変えていない(migrations の追加なし)
 ### 私が手動でやる作業の残り
 - 反映後(1〜2分)に、勤務入力画面と管理画面の左上の表示を確認する
+
+## 2026-10-01 デバッグ(スマホで勤務入力が「読み込み中…」のまま止まる)
+### 原因
+- 前回の修正で input.html から版の行(id="version")を消したが、スマホのブラウザが古い input.js をキャッシュから使い続けていた。
+  古い input.js が無くなった id="version" に書き込もうとしてエラーになり、読み込みが止まっていた(PCは新しい JS を取り直していたので動いた)
+### やったこと
+- 全画面の CSS/JS の URL と、JS 同士の import に `?v=dev` を付けた。GitHub Pages に公開するとき、これを公開ごとに変わる値(コミットの先頭8文字)に置き換える。
+  これで直すたびにスマホでも必ず新しい CSS/JS が読み込まれる
+- 勤務入力: 読み込みの途中で予想外のエラーが起きても「読み込み中…」のまま止まらず、エラーの内容を画面の下に出すようにした
+### 変更したファイル
+web/*.html, web/js/admin.js, app.js, help.js, input.js, register.js, settings.js, .github/workflows/pages.yml, WORKLOG.md
+### 決めたこと(理由)
+- web/js/plan.js は Edge Function 側と同じ内容である必要があり、import も無いので変えていない
+- 新しく JS/CSS を足すときは、読み込む側に `?v=dev` を付けること(付け忘れるとキャッシュ対策が効かない)
+### 私が手動でやる作業の残り
+- 反映後、スマホで勤務入力画面を開き直す(直らなければ一度だけページを再読み込み)

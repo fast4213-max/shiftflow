@@ -1,5 +1,5 @@
 // 新規登録: 社員番号・名字・名前・PIN・共通パスワード。登録したらそのままログインして設定画面へ
-import { $, callFunction, configured, go, renderTopbar, startSession, toHalfWidth } from "./app.js";
+import { $, callFunction, configured, go, renderTopbar, startSession, toHalfWidth } from "./app.js?v=dev";
 
 renderTopbar("register.html");
 

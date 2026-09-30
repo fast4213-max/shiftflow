@@ -1,7 +1,7 @@
 // 管理画面(ダッシュボード)。管理者だけ。管理用パスワードでログインしたセッションで動く。
-import { $, callFunction, copyText, formatDateTime, requireLogin, supabase } from "./app.js";
-import { SUPABASE_ANON_KEY, SUPABASE_URL, TOKEN_EXPIRES } from "./config.js";
-import { checkMasterRows, masterRowsFromCsv, masterToCsv, readTextFile } from "./csv.js";
+import { $, callFunction, copyText, formatDateTime, requireLogin, supabase } from "./app.js?v=dev";
+import { SUPABASE_ANON_KEY, SUPABASE_URL, TOKEN_EXPIRES } from "./config.js?v=dev";
+import { checkMasterRows, masterRowsFromCsv, masterToCsv, readTextFile } from "./csv.js?v=dev";
 
 const MASTER_COLUMNS = [
   ["code", "番号"],

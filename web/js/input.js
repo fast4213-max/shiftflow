@@ -1,6 +1,6 @@
 // 勤務入力画面
-import { $, callFunction, requireLogin, supabase } from "./app.js";
-import { addDays, dateKey, dayTypeOf, daysInMonth, describe, dutyMemo, indexMaster, offdutyMemo, pad } from "./plan.js";
+import { $, callFunction, requireLogin, supabase } from "./app.js?v=dev";
+import { addDays, dateKey, dayTypeOf, daysInMonth, describe, dutyMemo, indexMaster, offdutyMemo, pad } from "./plan.js?v=dev";
 
 const MANUAL = "__manual__";
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
@@ -44,43 +44,47 @@ async function loadHolidays(first, nextFirst) {
 }
 
 async function load() {
+  setStatus("読み込み中…");
+  try {
+    await loadMonth();
+  } catch (err) {
+    setStatus(err.message || String(err), true);
+  }
+}
+
+async function loadMonth() {
   $("title").textContent = state.year + "年" + state.month + "月";
   $("prev").disabled = isFirstMonth();
   $("register").disabled = true;
   $("list").innerHTML = "";
-  setStatus("読み込み中…");
 
   const first = dateKey(state.year, state.month, 1);
   const last = dateKey(state.year, state.month, daysInMonth(state.year, state.month));
   const prevLast = addDays(first, -1);
   const nextFirst = addDays(last, 1);
-  try {
-    const [masterRes, recordsRes, holidays] = await Promise.all([
-      supabase.from("shift_master").select("*").eq("office_id", state.officeId).order("sort_order"),
-      supabase.from("shift_records").select("date, code, memo").gte("date", prevLast).lte("date", last),
-      loadHolidays(first, nextFirst),
-    ]);
-    if (masterRes.error) throw masterRes.error;
-    if (recordsRes.error) throw recordsRes.error;
+  const [masterRes, recordsRes, holidays] = await Promise.all([
+    supabase.from("shift_master").select("*").eq("office_id", state.officeId).order("sort_order"),
+    supabase.from("shift_records").select("date, code, memo").gte("date", prevLast).lte("date", last),
+    loadHolidays(first, nextFirst),
+  ]);
+  if (masterRes.error) throw masterRes.error;
+  if (recordsRes.error) throw recordsRes.error;
 
-    state.masterList = masterRes.data || [];
-    state.master = indexMaster(state.masterList);
-    state.entries = {};
-    state.prevLastCode = "";
-    (recordsRes.data || []).forEach((r) => {
-      if (r.date === prevLast) state.prevLastCode = r.code;
-      else state.entries[r.date] = { code: r.code, memo: r.memo };
-    });
-    state.holidays = holidays;
-    state.dirty = false;
-    render();
-    scrollToToday();
-    $("register").disabled = false;
-    $("reset").disabled = false;
-    setStatus(state.masterList.length ? "" : "この区所の勤務コードのマスタが空です。管理者に登録を頼んでください。", !state.masterList.length);
-  } catch (err) {
-    setStatus(err.message || String(err), true);
-  }
+  state.masterList = masterRes.data || [];
+  state.master = indexMaster(state.masterList);
+  state.entries = {};
+  state.prevLastCode = "";
+  (recordsRes.data || []).forEach((r) => {
+    if (r.date === prevLast) state.prevLastCode = r.code;
+    else state.entries[r.date] = { code: r.code, memo: r.memo };
+  });
+  state.holidays = holidays;
+  state.dirty = false;
+  render();
+  scrollToToday();
+  $("register").disabled = false;
+  $("reset").disabled = false;
+  setStatus(state.masterList.length ? "" : "この区所の勤務コードのマスタが空です。管理者に登録を頼んでください。", !state.masterList.length);
 }
 
 function entryOf(key) {
