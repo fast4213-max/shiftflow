@@ -101,7 +101,7 @@ function entryOf(key) {
 }
 
 // 非番の日 → 前日の泊のマスタ。前日の番号で決める(非番の日は番号なし扱い。サーバーの buildPlan と同じ判定)。
-// 非番の日の番号は無視する(登録時もサーバーが無視する)。消さずに残すので、前日を泊から戻すと元の番号に戻る
+// 非番の日の番号は無視する(登録時もサーバーが無視する)。番号を変えて非番になった日の番号は codeChanged で消す
 function offdutyDays() {
   const days = new Map();
   let prevCode = state.prevLastCode;
@@ -244,10 +244,15 @@ function changed() {
 }
 
 // 番号を変えたあと。前日の泊が変わって非番になった日・非番でなくなった日の手修正メモは、
-// 前の状態(勤務の日・非番の日)のためのものなので消して、自動の値に戻す
+// 前の状態(勤務の日・非番の日)のためのものなので消して、自動の値に戻す。
+// 非番になった日の番号も消す(登録してもサーバーが消す)。残しておくと、泊を1日前へ入れ直したとき
+// (5日を泊にしたあと4日を泊にし、さらに3日を泊にするなど)、上書きしたはずの番号が戻ってしまうため
 function codeChanged() {
   const before = state.offduty;
   const after = offdutyDays();
+  after.forEach((_, key) => {
+    if (!before.has(key) && state.entries[key]) state.entries[key].code = "";
+  });
   new Set([...before.keys(), ...after.keys()]).forEach((key) => {
     if (before.has(key) !== after.has(key) && state.entries[key]) state.entries[key].memo = "";
   });
