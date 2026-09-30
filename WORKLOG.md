@@ -581,3 +581,22 @@
 
 ### 次にやること・手動でやる作業の残り
 - README 手順3(Google のサービスアカウント作成)以降、手順9まで
+
+---
+
+## 2026-09-30 Google Cloud・Supabaseのシークレット・画面公開を済ませ、デプロイの失敗を直した
+
+### やったこと(私が手動でやった分)
+- Google Cloud でプロジェクトとサービスアカウントを作り、JSON の鍵を Supabase の `GOOGLE_SERVICE_ACCOUNT_JSON` に登録。`ADMIN_PASSWORD` も登録(README 手順3・4)
+- `web/js/config.js` を自分の値に書き換え、GitHub Pages を「GitHub Actions」にして公開に成功(手順5)
+- 「Deploy Supabase」を手動で実行したところ失敗
+
+### 原因と直したこと
+- ログ: `admin-login/index.ts` が見つからず、関数のデプロイが止まった(データベースの反映とほかの5つの関数は通っていた)
+- 原因: `login`・`sign-up`・`admin-login`・`admin-users`・`change-pin` の5つの関数が、`supabase/functions/_shared/` の中に置かれていた。正しくは `supabase/functions/` 直下
+- `git mv` で5つを直下に移した。中の import は `../_shared/...` のままで、そのまま正しい
+- Deno のテスト34件と、5つの関数の型チェックは通過
+
+### 次にやること・手動でやる作業の残り
+- 私: 「Deploy Supabase」をもう一度実行(Actions → Deploy Supabase → Run workflow)。緑になれば手順6は完了
+- 私: README 手順7(管理画面での最初の設定)以降
