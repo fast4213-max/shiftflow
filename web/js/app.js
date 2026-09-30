@@ -4,7 +4,7 @@
 // 利用者は社員番号+PIN、管理者は管理用パスワード。
 
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
+import { APP_VERSION, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
 
 export const configured = !SUPABASE_URL.includes("YOUR-PROJECT-REF");
 
@@ -37,6 +37,10 @@ export function renderTopbar(current, { loggedIn = false, isAdmin = false } = {}
   brand.className = "brand";
   brand.href = !loggedIn ? "index.html" : isAdmin ? "admin.html" : "input.html";
   brand.textContent = "shiftflow";
+  const ver = document.createElement("span");
+  ver.className = "version";
+  ver.textContent = APP_VERSION;
+  brand.appendChild(ver);
   bar.appendChild(brand);
 
   links.forEach(([href, label]) => {

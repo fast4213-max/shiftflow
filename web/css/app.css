@@ -37,6 +37,7 @@ input[type="text"], input[type="email"], input[type="password"], input:not([type
   padding: 6px 12px; background: #fff; border-bottom: 1px solid var(--line);
   font-size: 0.9rem;
 }
+.topbar .brand .version { font-weight: normal; font-size: 0.7rem; color: var(--muted); margin-left: 6px; }
 .topbar .brand { font-weight: bold; margin-right: auto; color: var(--text); text-decoration: none; }
 .topbar a { text-decoration: none; }
 .topbar a.current { color: var(--text); font-weight: bold; }
