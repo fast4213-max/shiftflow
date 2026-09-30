@@ -1,4 +1,6 @@
 /* 勤務入力画面 */
+/* 上へスクロールしすぎたときの引っぱって更新(Android の Chrome など)を止める。入力の途中で読み直さないように */
+html, body { overscroll-behavior-y: none; }
 .month-header {
   position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; justify-content: space-between;
