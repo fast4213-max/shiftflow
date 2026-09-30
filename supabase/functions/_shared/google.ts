@@ -134,7 +134,7 @@ export type CalendarEvent = {
 };
 
 // 終日予定を作る。アプリが作った印として extendedProperties.private.shiftflow = kind を付ける
-// (GAS 版の setTag("shiftflow", kind) と同じキー・値)
+// (extendedProperties.private.shiftflow = day / offduty)
 export async function insertAllDayEvent(
   calendarId: string,
   e: { date: string; endDate: string; title: string; description?: string; kind: string },

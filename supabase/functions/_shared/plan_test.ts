@@ -1,4 +1,4 @@
-// 予定の組み立て(GAS 版 buildPlan の挙動)のテスト
+// 予定の組み立てのテスト
 //   deno test supabase/functions --allow-read
 
 import { assertEquals } from "jsr:@std/assert@1";

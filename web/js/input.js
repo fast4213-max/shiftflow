@@ -1,4 +1,4 @@
-// 勤務入力画面(GAS 版 index.html の移植)
+// 勤務入力画面
 import { $, callFunction, requireLogin, supabase } from "./app.js";
 import { addDays, dateKey, dayTypeOf, daysInMonth, describe, dutyMemo, indexMaster, offdutyMemo, pad } from "./plan.js";
 

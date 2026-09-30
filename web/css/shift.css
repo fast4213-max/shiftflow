@@ -1,4 +1,4 @@
-/* 勤務入力画面(GAS 版 index.html の見た目を踏襲) */
+/* 勤務入力画面 */
 .month-header {
   position: sticky; top: 0; z-index: 2;
   display: flex; align-items: center; justify-content: space-between;
