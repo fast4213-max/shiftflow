@@ -1,6 +1,5 @@
 // 勤務入力画面
 import { $, callFunction, requireLogin, supabase } from "./app.js";
-import { APP_VERSION } from "./config.js";
 import { addDays, dateKey, dayTypeOf, daysInMonth, describe, dutyMemo, indexMaster, offdutyMemo, pad } from "./plan.js";
 
 const MANUAL = "__manual__";
@@ -45,7 +44,6 @@ async function loadHolidays(first, nextFirst) {
 }
 
 async function load() {
-  $("version").textContent = APP_VERSION;
   $("title").textContent = state.year + "年" + state.month + "月";
   $("prev").disabled = isFirstMonth();
   $("register").disabled = true;
@@ -95,16 +93,18 @@ function render() {
   const list = $("list");
   list.innerHTML = "";
 
+  // 前日の番号(非番の日は番号なし扱い。サーバーの buildPlan と同じ判定)
+  let prevCode = state.prevLastCode;
   for (let d = 1; d <= daysInMonth(year, month); d++) {
     const key = dateKey(year, month, d);
     const e = entryOf(key);
     const dayType = dayTypeOf(key, state.holidays);
     const weekday = new Date(year, month - 1, d).getDay();
 
-    const prevCode = d === 1 ? state.prevLastCode : (state.entries[dateKey(year, month, d - 1)] || {}).code;
     const prevMaster = state.master[prevCode];
+    // 非番の日の番号は無視する(登録時もサーバーが無視する)。消さずに残すので、前日を泊から戻すと元の番号に戻る
     const offduty = prevMaster && prevMaster.type === "泊";
-    if (offduty) e.code = "";
+    prevCode = offduty ? "" : e.code.trim();
 
     const tr = document.createElement("tr");
     if (key === todayKey) tr.className = "today";
@@ -257,7 +257,9 @@ $("prev").addEventListener("click", () => moveMonth(-1));
 $("next").addEventListener("click", () => moveMonth(1));
 
 window.addEventListener("beforeunload", (ev) => {
-  if (state.dirty) ev.preventDefault();
+  if (!state.dirty) return;
+  ev.preventDefault();
+  ev.returnValue = ""; // 古いブラウザは returnValue が無いと確認を出さない
 });
 
 $("register").addEventListener("click", async () => {

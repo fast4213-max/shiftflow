@@ -50,7 +50,9 @@ serve(async (req) => {
     const saved = await ctx.db.rpc("save_month_records", { p_year: year, p_month: month, p_entries: plan.entries });
     if (saved.error) throw saved.error;
 
-    await deleteAppEvents(calendars, year, month);
+    // 月末が泊なら翌月1日は非番になるので、翌月1日にある勤務・休日の予定も消す
+    const clearNextFirst = plan.events.some((e) => e.date === nextFirst);
+    await deleteAppEvents(calendars, year, month, { clearNextFirst });
     const { created, skipped } = await createEvents(calendars, plan.events);
 
     await ctx.admin.from("user_settings")

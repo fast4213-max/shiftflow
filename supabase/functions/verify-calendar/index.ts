@@ -72,6 +72,8 @@ serve(async (req) => {
       });
       await deleteEvent(id, ev.id);
     } catch (err) {
+      // 書けなくなったカレンダー(共有を外したなど)は、検証済みも外す(設定画面で「テスト済み」と出続けないように)
+      await ctx.admin.from("user_settings").update({ verified_at: null }).eq("user_id", ctx.userId);
       throw calendarAccessError(err, label);
     }
   }

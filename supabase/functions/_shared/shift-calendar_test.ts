@@ -68,6 +68,30 @@ Deno.test("deleteAppEvents: アプリの予定だけ、月内+翌月1日の非�
   assertEquals(count, 4);
 });
 
+Deno.test("deleteAppEvents: 月末が泊のときは、翌月1日のアプリの予定を全部消す(非番と重ならない)", async () => {
+  const work = "work@group.calendar.google.com";
+  const holiday = "holiday@group.calendar.google.com";
+  const calls = mockFetch((c) => {
+    if (c.method !== "GET") return;
+    if (c.url.pathname.includes(encodeURIComponent(work))) {
+      return Response.json({
+        items: [
+          { id: "c", start: { date: "2026-11-01" }, extendedProperties: tag("offduty") },
+          { id: "next-day", start: { date: "2026-11-01" }, extendedProperties: tag("day") },
+          { id: "next-manual", start: { date: "2026-11-01" } },
+          { id: "next-2", start: { date: "2026-11-02" }, extendedProperties: tag("day") },
+        ],
+      });
+    }
+    return Response.json({ items: [{ id: "h-next", start: { date: "2026-11-01" }, extendedProperties: tag("day") }] });
+  });
+
+  const count = await deleteAppEvents({ work, holiday }, 2026, 10, { clearNextFirst: true });
+  const deleted = calls.filter((c) => c.method === "DELETE").map((c) => c.url.pathname.split("/").pop()).sort();
+  assertEquals(deleted, ["c", "h-next", "next-day"]);
+  assertEquals(count, 3);
+});
+
 Deno.test("createEvents: 終日予定(終了日は翌日)に印を付けて作る", async () => {
   const calls = mockFetch((c) => (c.method === "POST" ? Response.json({ id: "new" }) : undefined));
   const result = await createEvents({ work: "w", holiday: "h" }, [

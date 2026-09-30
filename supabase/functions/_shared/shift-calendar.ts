@@ -48,8 +48,15 @@ function label(calendars: Calendars, id: string): string {
 
 // 対象月の、このアプリが作った予定を削除して件数を返す。
 // 翌月1日は、この月の月末の泊から作られる非番(勤務用カレンダーの offduty)だけを対象にする。
+// clearNextFirst のとき(この月の月末が泊で、翌月1日を非番にするとき)は、翌月1日のアプリの予定を全部消す
+// (翌月を先に登録していた場合の、1日の勤務・休日の予定が非番と重ならないように)。
 // 手で入れた予定(印が無いもの)は消さない。
-export async function deleteAppEvents(calendars: Calendars, year: number, month: number): Promise<number> {
+export async function deleteAppEvents(
+  calendars: Calendars,
+  year: number,
+  month: number,
+  { clearNextFirst = false } = {},
+): Promise<number> {
   const first = dateKey(year, month, 1);
   const nextFirst = addDays(dateKey(year, month, daysInMonth(year, month)), 1);
 
@@ -72,7 +79,8 @@ export async function deleteAppEvents(calendars: Calendars, year: number, month:
       if (!tag || !date) continue;
       const inMonth = date >= first && date < nextFirst;
       const nextOffduty = calendarId === calendars.work && date === nextFirst && tag === "offduty";
-      if (inMonth || nextOffduty) targets.push({ calendarId, eventId: ev.id });
+      const nextAll = clearNextFirst && date === nextFirst;
+      if (inMonth || nextOffduty || nextAll) targets.push({ calendarId, eventId: ev.id });
     }
   }
 

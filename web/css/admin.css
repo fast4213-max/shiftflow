@@ -3,6 +3,8 @@ body.admin { background: #eef1f6; }
 body.admin .topbar { background: #1f2a44; border-bottom: none; color: #cfd6e6; }
 body.admin .topbar a { color: #cfd6e6; }
 body.admin .topbar a.current, body.admin .topbar .brand { color: #fff; }
+/* 版の表示(紺の背景でも読めるよう明るい色にする) */
+body.admin .topbar .brand .version { color: #cfd6e6; }
 
 .dash-tabs {
   display: flex; gap: 0; overflow-x: auto; background: #1f2a44; padding: 0 8px;
