@@ -562,3 +562,22 @@
 
 ### 次にやること・手動でやる作業の残り
 - 前回から変更なし(README のセットアップ 1〜9。データベースはまだ未作成)
+
+---
+
+## 2026-09-30 Supabaseの設定を進めた(手動作業の記録)
+
+### やったこと
+- 私(利用者)が Supabase のプロジェクトを作成し、「Allow new users to sign up」オフ・「Confirm email」オフ・Email 有効を確認(README 手順1)
+- Supabase のアクセストークン(legacy)を作り、GitHub Secrets に `SUPABASE_ACCESS_TOKEN`・`SUPABASE_PROJECT_ID`・`SUPABASE_DB_PASSWORD` を登録(README 手順2)
+- コードの変更はなし
+
+### 決めたこと(理由)
+- Supabase の新しいトークン画面には「無期限」がなかったので、期限は1年に設定した(権限設定で失敗しにくい legacy token を選んだ)
+
+### 忘れないこと
+- **アクセストークンの期限は 2027年9月29日**。切れると自動デプロイ(データベースの変更・Edge Functions の更新)だけが失敗する。動いているアプリと keepalive は止まらない
+- 期限前に Supabase で新しいトークンを作り、GitHub Secrets の `SUPABASE_ACCESS_TOKEN` を上書きする
+
+### 次にやること・手動でやる作業の残り
+- README 手順3(Google のサービスアカウント作成)以降、手順9まで
