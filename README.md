@@ -23,7 +23,7 @@
   ├─ Edge Functions ……… ログイン・新規登録・カレンダーへの登録
   │      │  サービスアカウントの鍵(Supabase のシークレットにだけ置く)
   │      ▼
-  │   Google Calendar API … 利用者が「予定を変更できる権限」で共有したカレンダーにだけ書ける
+  │   Google Calendar API … 利用者が「すべての予定の詳細の変更や表示ができます」の権限で共有したカレンダーにだけ書ける
   └─ Supabase DB ……… マスタ・設定・勤務記録(本人の行しか読み書きできない)
 
 cron-job.org ──(6時間ごと)──▶ Supabase の keepalive() … 無料プランの一時停止を防ぐ
