@@ -860,3 +860,6 @@ docs/manual/manual.html, web/manual.pdf, docs/DESIGN.md, WORKLOG.md
 - データベースの形は変えていない(記録の削除は、登録で使っている save_month_records を空の入力で呼ぶ)
 ### 私が手動でやる作業の残り
 - main に取り込んで反映後、リセットで画面の入力も消えること、ログイン画面が勝手に進まないことを確認する
+
+## 2026-10-01 確認
+- Supabase の「Allow new users to sign up」がオフになっていることを利用者が確認した(README 1-4 のとおり)
