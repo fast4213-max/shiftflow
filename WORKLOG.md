@@ -799,5 +799,5 @@ supabase/functions/_shared/login-core.ts, supabase/functions/_shared/login-core_
 ### 決めたこと(理由)
 - データベースの形は変えていない(migrations の追加なし)
 ### 私が手動でやる作業の残り
-- Supabase の「Allow new users to sign up」がオフになっているか、念のため確認する(README 1-4)
+- ~~Supabase の「Allow new users to sign up」がオフになっているか確認する~~ → 2026-10-01 オフを確認済み
 - 反映後、スマホでログイン(保存したPINの自動入力を含む)と登録を確認する
