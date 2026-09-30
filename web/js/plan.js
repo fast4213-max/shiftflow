@@ -140,15 +140,18 @@ export function buildPlan({ year, month, entries, prevLastCode, nextFirstEntry, 
     const prevCode = d === 1 ? prevLastCode : codeOf(cleanEntries[dateKey(year, month, d - 1)]);
     const prevMaster = master[prevCode];
     if (prevMaster && prevMaster.type === "泊") {
+      // 番号が残っている日のメモは、その番号(勤務の日)のためのものなので使わない
+      // (前月末を泊にしたとき、翌月1日の記録に番号とメモが残っていることがある)
+      const memo = e.code ? "" : e.memo;
       events.push({
         date: key,
         calendar: "work",
         kind: "offduty",
         title: OFFDUTY_TITLE,
-        description: e.memo || offdutyMemo(prevMaster, dayType),
+        description: memo || offdutyMemo(prevMaster, dayType),
       });
-      if (d <= days && e.memo) {
-        cleanEntries[key] = { code: "", memo: e.memo };
+      if (d <= days && memo) {
+        cleanEntries[key] = { code: "", memo };
       }
       continue;
     }

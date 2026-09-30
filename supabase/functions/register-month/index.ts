@@ -52,6 +52,13 @@ serve(async (req) => {
     const saved = await ctx.db.rpc("save_month_records", { p_year: year, p_month: month, p_entries: plan.entries });
     if (saved.error) throw saved.error;
 
+    // 月末が泊で翌月1日が非番になったら、翌月1日に入れてあった番号(とそのメモ)は消す。
+    // 残しておくと、あとで月末を泊から戻したとき(泊を1日前へ入れ直したときなど)、消えたはずの番号が戻ってしまうため
+    if (codeOf(byDate[nextFirst]) && plan.events.some((e) => e.date === nextFirst && e.kind === "offduty")) {
+      const cleared = await ctx.db.from("shift_records").delete().eq("date", nextFirst);
+      if (cleared.error) throw cleared.error;
+    }
+
     const existing = await listAppEvents(calendars, year, month);
     const events = eventsToRegister(plan.events, existing, nextFirst);
     // 翌月1日の予定(月末が泊なら非番、泊でなければ翌月1日の記録の予定)を作るときは、

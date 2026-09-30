@@ -89,6 +89,14 @@ Deno.test("月末が泊なら翌月1日の非番も作る(翌月1日の手修正
   assertEquals(Object.keys(p.entries), ["2026-10-31"]);
 });
 
+Deno.test("非番の日に番号が残っていたら、そのメモは非番のメモに使わない(前月末を泊にしたときの翌月1日など)", () => {
+  const p = plan(2026, 10, { "2026-10-31": { code: "101" } }, { nextFirstEntry: { code: "201", memo: "早出" } });
+  assertEquals(p.events[1], { date: "2026-11-01", calendar: "work", kind: "offduty", title: "〜", description: "9:40" });
+  const m = plan(2026, 11, { "2026-11-01": { code: "201", memo: "早出" } }, { prevLastCode: "101" });
+  assertEquals(m.events, [{ date: "2026-11-01", calendar: "work", kind: "offduty", title: "〜", description: "9:40" }]);
+  assertEquals(m.entries, {});
+});
+
 Deno.test("12月末が泊なら翌年1月1日の非番(年末年始なので休日の列)", () => {
   const p = plan(2026, 12, { "2026-12-31": { code: "101" } });
   assertEquals(p.events[1], { date: "2027-01-01", calendar: "work", kind: "offduty", title: "〜", description: "9:40" });

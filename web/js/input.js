@@ -87,6 +87,12 @@ async function loadMonth(id) {
     else state.entries[r.date] = { code: r.code, memo: r.memo };
   });
   state.holidays = holidays;
+  // 非番の日に番号が残っていたら(前の月の月末を泊にしたときの1日など)、番号とメモを消す。
+  // 登録でもサーバーが消す。残しておくと、非番のメモに前の番号のメモが出てしまうため
+  offdutyDays().forEach((_, key) => {
+    const e = state.entries[key];
+    if (e && (e.code || "").trim()) state.entries[key] = { code: "", memo: "" };
+  });
   state.dirty = false;
   render();
   scrollToToday();
