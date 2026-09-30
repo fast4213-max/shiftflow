@@ -65,7 +65,10 @@ export function renderTopbar(current, { loggedIn = false, isAdmin = false } = {}
 }
 
 export async function logout() {
-  await supabase.auth.signOut();
+  // 通信に失敗すると、この端末のログインが残ったままになる(次に開くと勝手に入る)。
+  // そのときは、この端末のログインだけでも必ず消す
+  const { error } = await supabase.auth.signOut().catch((err) => ({ error: err }));
+  if (error) await supabase.auth.signOut({ scope: "local" }).catch(() => {});
   go("index.html");
 }
 

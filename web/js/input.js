@@ -370,13 +370,24 @@ $("reset-run").addEventListener("click", async () => {
   }
   const year = Number(m[1]);
   const month = Number(m[2]);
-  if (!confirm(year + "年" + month + "月の予定を削除します。よろしいですか？")) return;
+  if (!confirm(year + "年" + month + "月の予定と入力内容を削除します。よろしいですか？")) return;
   $("reset-dialog").close();
   $("reset").disabled = true;
   setStatus("削除中…");
   try {
     const result = await callFunction("delete-month", { year, month });
-    setStatus(year + "年" + month + "月の予定を" + result.count + "件削除しました。");
+    const message = year + "年" + month + "月の予定を" + result.count + "件削除し、入力内容を空にしました。";
+    // 表示中の月を消したときと、前の月を消したとき(1日の非番が変わる)は、画面を読み直す。
+    // 前の月のときは、表示中の月に登録していない変更があれば消さないよう読み直さない
+    const prev = new Date(state.year, state.month - 2, 1);
+    const isShown = year === state.year && month === state.month;
+    const isPrev = year === prev.getFullYear() && month === prev.getMonth() + 1;
+    if (!state.registering && (isShown || (isPrev && !state.dirty))) {
+      state.dirty = false;
+      await load();
+      if ($("status").className === "error") return; // 読み直しの失敗を見せる
+    }
+    setStatus(message);
   } catch (err) {
     setStatus(err.message, true);
   } finally {

@@ -66,14 +66,32 @@ async function main() {
     setMessage("user-message", "js/config.js に Supabase の URL とキーを設定してください。", "error");
     return;
   }
-  // すでにログインしていれば、そのまま先へ進む
+  if (location.hash === "#admin") showTab("admin");
+  // 前回のログインが残っていれば、そのまま先へ進む。
+  // 確かめている間(通信が遅いと数秒かかる)は入力できないようにする。
+  // 入力中に確認が終わって、勝手に先へ進んだように見えないように
   const session = await currentSession();
-  if (session) {
+  if (!session) return;
+  setFormsBusy(true);
+  const messageId = location.hash === "#admin" ? "admin-message" : "user-message";
+  setMessage(messageId, "前回のログインを確認しています…");
+  try {
     const profile = await loadProfile(session).catch(() => null);
     if (profile) return go(await homePageFor(session, profile));
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
+    setMessage(messageId, "");
+  } catch (err) {
+    // 確かめられなかったときは、残っていたログインを捨てて入力し直してもらう
+    await supabase.auth.signOut({ scope: "local" });
+    setMessage(messageId, "");
   }
-  if (location.hash === "#admin") showTab("admin");
+  setFormsBusy(false);
+  (location.hash === "#admin" ? $("admin-password") : $("employee-no")).focus();
+}
+
+function setFormsBusy(busy) {
+  document.querySelectorAll("#user-form input, #user-form button, #admin-form input, #admin-form button, .tabs button")
+    .forEach((el) => (el.disabled = busy));
 }
 
 main().catch((err) => setMessage("user-message", err.message || String(err), "error"));
