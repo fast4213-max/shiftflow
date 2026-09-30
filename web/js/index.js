@@ -1,7 +1,7 @@
 // 最初の画面: 利用者(社員番号+PIN)と管理(管理用パスワード)のタブ
 import {
   $, callFunction, configured, currentSession, go, homePageFor, loadProfile, renderTopbar, startSession, supabase, toHalfWidth,
-} from "./app.js";
+} from "./app.js?v=dev";
 
 renderTopbar("index.html");
 

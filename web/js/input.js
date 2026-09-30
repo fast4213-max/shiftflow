@@ -18,6 +18,8 @@ const state = {
   officeId: null,
   holidays: [],
   dirty: false,
+  loadId: 0,         // 読み込みの番号。月を続けて移動したとき、古い月の結果で上書きしないため
+  registering: false,
 };
 
 function isFirstMonth() {
@@ -44,19 +46,22 @@ async function loadHolidays(first, nextFirst) {
 }
 
 async function load() {
+  const id = ++state.loadId;
   setStatus("読み込み中…");
   try {
-    await loadMonth();
+    await loadMonth(id);
   } catch (err) {
-    setStatus(err.message || String(err), true);
+    if (id === state.loadId) setStatus(err.message || String(err), true);
   }
 }
 
-async function loadMonth() {
+async function loadMonth(id) {
   $("title").textContent = state.year + "年" + state.month + "月";
   $("prev").disabled = isFirstMonth();
   $("register").disabled = true;
   $("list").innerHTML = "";
+  // 読み込みが終わるまでは前の月の入力が残っているので、登録で送らないよう空にしておく
+  state.entries = {};
 
   const first = dateKey(state.year, state.month, 1);
   const last = dateKey(state.year, state.month, daysInMonth(state.year, state.month));
@@ -67,6 +72,7 @@ async function loadMonth() {
     supabase.from("shift_records").select("date, code, memo").gte("date", prevLast).lte("date", last),
     loadHolidays(first, nextFirst),
   ]);
+  if (id !== state.loadId) return; // 読み込み中に別の月へ移動した
   if (masterRes.error) throw masterRes.error;
   if (recordsRes.error) throw recordsRes.error;
 
@@ -249,6 +255,7 @@ $("picker-cancel").addEventListener("click", () => {
 });
 
 function moveMonth(delta) {
+  if (state.registering) return;
   if (delta < 0 && isFirstMonth()) return;
   if (state.dirty && !confirm("登録していない変更があります。移動しますか？")) return;
   const date = new Date(state.year, state.month - 1 + delta, 1);
@@ -269,6 +276,10 @@ window.addEventListener("beforeunload", (ev) => {
 $("register").addEventListener("click", async () => {
   const button = $("register");
   button.disabled = true;
+  // 登録中は月を移動できないようにする(移動先の月の入力と混ざらないように)
+  state.registering = true;
+  $("prev").disabled = true;
+  $("next").disabled = true;
   setStatus("登録中…(30秒ほどかかることがあります)");
   try {
     const result = await callFunction("register-month", {
@@ -282,7 +293,10 @@ $("register").addEventListener("click", async () => {
   } catch (err) {
     setStatus(err.message, true);
   } finally {
+    state.registering = false;
     button.disabled = false;
+    $("prev").disabled = isFirstMonth();
+    $("next").disabled = false;
   }
 });
 

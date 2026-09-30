@@ -29,6 +29,10 @@ jobs:
       # CSS/JS の URL の ?v=dev を公開のたびに変わる値にする。
       # スマホのブラウザが古い JS をキャッシュから使い続け、新しい画面と合わずに止まるのを防ぐ。
       - run: |
+          # 付け忘れ(同じフォルダの .js/.css を ?v=dev なしで読んでいる所)があれば止める
+          if grep -rnE '(from |src=|href=)"(\./)?(js/|css/)?[a-z]+\.(js|css)"' web --include='*.html' --include='*.js'; then
+            echo "::error::上の行に ?v=dev を付けてください"; exit 1
+          fi
           v="${GITHUB_SHA::8}"
           find web -name '*.html' -o -name '*.js' | xargs sed -i "s/?v=dev\"/?v=$v\"/g"
           if grep -rq '?v=dev"' web; then echo "::error::?v=dev が残っています"; exit 1; fi
