@@ -18,9 +18,18 @@ import { AppError } from "./http.ts";
 export type Session = { access_token: string; refresh_token: string };
 type Deps = { admin: SupabaseClient; anon: SupabaseClient };
 
-async function signIn(anon: SupabaseClient, email: string, password: string): Promise<Session | null> {
+// パスワードでサインインする。社員番号・PINの間違い(Supabase Auth の 400 など)は null を返す。
+// 混雑(429)や Supabase 側の障害・通信エラーは、PINが正しくても入れないので、間違いとして数えずにエラーにする
+// (ログインは全員この関数から Supabase Auth を呼ぶので、Auth から見ると同じ接続元になり、回数の制限に一緒にかかる)
+export async function signIn(anon: SupabaseClient, email: string, password: string): Promise<Session | null> {
   const { data, error } = await anon.auth.signInWithPassword({ email, password });
-  if (error || !data.session) return null;
+  if (error) {
+    const status = error.status ?? 0;
+    if (status >= 400 && status < 500 && status !== 429) return null;
+    console.error("signIn failed", status, error.message);
+    throw new AppError(503, "ただいまログインできません。少し待ってからもう一度お試しください。", "auth_unavailable");
+  }
+  if (!data.session) return null;
   return { access_token: data.session.access_token, refresh_token: data.session.refresh_token };
 }
 

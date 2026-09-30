@@ -33,7 +33,8 @@
 .shift .code input { width: 80px; margin-top: 4px; display: block; }
 .shift .offduty { color: var(--muted); padding-left: 4px; }
 .shift .memo { text-align: left; }
-.shift .memo input { width: 116px; border: 1px solid #bbb; border-radius: 4px; }
+/* 幅の狭いスマホ(画面の拡大表示にした iPhone など、幅320px)では、はみ出さないよう縮める */
+.shift .memo input { width: 100%; max-width: 116px; min-width: 72px; border: 1px solid #bbb; border-radius: 4px; }
 .shift .memo input.override { color: var(--accent); font-weight: bold; }
 .shift .memo .stay { display: block; font-size: 0.8rem; color: var(--muted); padding: 2px 2px 0; }
 

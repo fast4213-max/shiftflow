@@ -12,7 +12,10 @@ type Profile = { user_id: string; employee_no: string | null; role: string; fami
 
 // 最小限の偽物: DB の関数(rpc)、profiles、Supabase Auth のユーザー
 // racingSignUp: 同じ社員番号の登録が同時に進んでいる(社員番号の確認の時点では、相手のプロフィールがまだ見えない)
-function fakes(opts: { sharedPassword?: string | null; failProfileInsert?: boolean; racingSignUp?: boolean } = {}) {
+// authStatus: Supabase Auth のサインインが、この HTTP ステータスで失敗する(429 = 回数の制限、5xx = 障害)
+function fakes(
+  opts: { sharedPassword?: string | null; failProfileInsert?: boolean; racingSignUp?: boolean; authStatus?: number } = {},
+) {
   const attempts = new Map<string, { count: number; lockedUntil: number | null }>();
   const users: User[] = [];
   const profiles: Profile[] = [];
@@ -91,14 +94,19 @@ function fakes(opts: { sharedPassword?: string | null; failProfileInsert?: boole
     },
   };
 
+  // Supabase Auth のエラー(supabase-js の AuthApiError と同じく status を持つ)
+  const authError = (status: number, message: string) => Object.assign(new Error(message), { status });
   const anon = {
     auth: {
       signInWithPassword({ email, password }: { email: string; password: string }) {
+        if (opts.authStatus) {
+          return Promise.resolve({ data: { session: null }, error: authError(opts.authStatus, "Request rate limit reached") });
+        }
         const u = users.find((x) => x.email === email && x.password === password);
         return Promise.resolve(
           u
             ? { data: { session: { access_token: `at-${u.id}`, refresh_token: `rt-${u.id}` } }, error: null }
-            : { data: { session: null }, error: new Error("Invalid login credentials") },
+            : { data: { session: null }, error: authError(400, "Invalid login credentials") },
         );
       },
     },
@@ -235,6 +243,30 @@ Deno.test("ログイン: 5回間違えるとその社員番号は15分ロック�
   // 別の社員番号には影響しない
   await signUp(f.deps, { ...reg, employee_no: "2345678" }, "ip2");
   await loginWithPin(f.deps, { employee_no: "2345678", pin: "4829" });
+});
+
+Deno.test("ログイン: Supabase Auth の回数の制限・障害は、PINの間違いとして数えない(ロックしない)", async () => {
+  for (const status of [429, 500, 503]) {
+    const f = fakes();
+    await signUp(f.deps, reg, "ip");
+    const down = fakes({ authStatus: status });
+    // 同じ利用者・同じ失敗回数の記録を使い、Auth だけが失敗する状態にする
+    const deps = { admin: f.deps.admin, anon: down.deps.anon };
+    for (let i = 0; i < 6; i++) {
+      assertEquals(await code(() => loginWithPin(deps, { employee_no: "1234567", pin: "4829" })), "auth_unavailable");
+    }
+    assertEquals(f.attempts.size, 0);
+    // Auth が戻れば、すぐ入れる
+    await loginWithPin(f.deps, { employee_no: "1234567", pin: "4829" });
+  }
+});
+
+Deno.test("管理者ログイン: Supabase Auth が使えないときは、分かるエラーにする", async () => {
+  const f = fakes();
+  const secret = "admin-secret-1234";
+  await adminLogin(f.deps, { password: secret }, secret);
+  const down = fakes({ authStatus: 429 });
+  assertEquals(await code(() => adminLogin({ admin: f.deps.admin, anon: down.deps.anon }, { password: secret }, secret)), "auth_unavailable");
 });
 
 Deno.test("ログイン: 成功すると失敗回数が0に戻る", async () => {

@@ -4,6 +4,7 @@ import { anonClient, requireMember } from "../_shared/auth.ts";
 import { emailFor, passwordFor, validatePin } from "../_shared/accounts.ts";
 import { assertNotLocked, clearFailures, recordFailure } from "../_shared/attempts.ts";
 import { AppError, readBody, serve } from "../_shared/http.ts";
+import { signIn } from "../_shared/login-core.ts";
 
 serve(async (req) => {
   const ctx = await requireMember(req);
@@ -14,11 +15,8 @@ serve(async (req) => {
 
   const key = `emp:${ctx.employeeNo}`;
   await assertNotLocked(ctx.admin, key);
-  const { data, error } = await anonClient().auth.signInWithPassword({
-    email: emailFor(ctx.employeeNo),
-    password: passwordFor(current),
-  });
-  if (error || !data.session) {
+  const session = await signIn(anonClient(), emailFor(ctx.employeeNo), passwordFor(current));
+  if (!session) {
     await recordFailure(ctx.admin, key);
     throw new AppError(401, "今のPINが違います。", "bad_credentials");
   }

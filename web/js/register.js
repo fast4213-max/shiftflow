@@ -31,9 +31,9 @@ $("form").addEventListener("submit", async (ev) => {
   if (!configured) return setMessage("js/config.js に Supabase の URL とキーを設定してください。", "error");
   $("submit").disabled = true;
   setMessage("登録しています…");
+  const employeeNo = toHalfWidth($("employee-no").value);
+  const pin = toHalfWidth($("pin").value);
   try {
-    const employeeNo = toHalfWidth($("employee-no").value);
-    const pin = toHalfWidth($("pin").value);
     await callFunction("sign-up", {
       employee_no: employeeNo,
       family_name: $("family-name").value.trim(),
@@ -41,11 +41,18 @@ $("form").addEventListener("submit", async (ev) => {
       pin,
       shared_password: $("shared").value,
     });
+  } catch (err) {
+    setMessage(err.message || String(err), "error");
+    $("submit").disabled = false;
+    return;
+  }
+  try {
     const { session } = await callFunction("login", { employee_no: employeeNo, pin });
     await startSession(session);
     go("settings.html");
   } catch (err) {
-    setMessage(err.message || String(err), "error");
-    $("submit").disabled = false;
+    // 登録はできている(もう一度「登録する」を押すと「すでに登録されています」になる)ので、ログイン画面へ案内する
+    setMessage("登録はできました。続けてのログインに失敗したので、下の「ログインに戻る」から社員番号とPINでログインしてください。(" +
+      (err.message || String(err)) + ")", "error");
   }
 });

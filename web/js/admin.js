@@ -222,6 +222,8 @@ function fillOfficeSelects() {
       select.appendChild(opt);
     });
     if (stats.offices.some((o) => String(o.id) === keep)) select.value = keep;
+    // 取り込み先の区所が消されて別の区所に変わったら、確認中の CSV は取り消す(別の区所のマスタを入れ替えないように)
+    if (id === "import-office" && pendingRows && select.value !== keep) clearPreview();
   });
   $("csv-file").disabled = stats.offices.length === 0;
   $("csv-download").disabled = stats.offices.length === 0;

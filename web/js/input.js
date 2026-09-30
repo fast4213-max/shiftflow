@@ -17,7 +17,9 @@ const state = {
   prevLastCode: "",
   officeId: null,
   holidays: [],
+  offduty: new Map(), // 表示中の非番の日(番号を変えたとき、非番になった・非番でなくなった日を調べるため)
   dirty: false,
+  edits: 0,          // 書き換えた回数。登録中に書き換えた分を「登録済み」にしないため
   loadId: 0,         // 読み込みの番号。月を続けて移動したとき、古い月の結果で上書きしないため
   registering: false,
 };
@@ -98,23 +100,35 @@ function entryOf(key) {
   return state.entries[key];
 }
 
+// 非番の日 → 前日の泊のマスタ。前日の番号で決める(非番の日は番号なし扱い。サーバーの buildPlan と同じ判定)。
+// 非番の日の番号は無視する(登録時もサーバーが無視する)。消さずに残すので、前日を泊から戻すと元の番号に戻る
+function offdutyDays() {
+  const days = new Map();
+  let prevCode = state.prevLastCode;
+  for (let d = 1; d <= daysInMonth(state.year, state.month); d++) {
+    const key = dateKey(state.year, state.month, d);
+    const prevMaster = state.master[prevCode];
+    const offduty = !!(prevMaster && prevMaster.type === "泊");
+    if (offduty) days.set(key, prevMaster);
+    prevCode = offduty ? "" : ((state.entries[key] || {}).code || "").trim();
+  }
+  return days;
+}
+
 function render() {
   const { year, month } = state;
   const list = $("list");
   list.innerHTML = "";
+  state.offduty = offdutyDays();
 
-  // 前日の番号(非番の日は番号なし扱い。サーバーの buildPlan と同じ判定)
-  let prevCode = state.prevLastCode;
   for (let d = 1; d <= daysInMonth(year, month); d++) {
     const key = dateKey(year, month, d);
     const e = entryOf(key);
     const dayType = dayTypeOf(key, state.holidays);
     const weekday = new Date(year, month - 1, d).getDay();
 
-    const prevMaster = state.master[prevCode];
-    // 非番の日の番号は無視する(登録時もサーバーが無視する)。消さずに残すので、前日を泊から戻すと元の番号に戻る
-    const offduty = prevMaster && prevMaster.type === "泊";
-    prevCode = offduty ? "" : e.code.trim();
+    const prevMaster = state.offduty.get(key);
+    const offduty = !!prevMaster;
 
     const tr = document.createElement("tr");
     if (key === todayKey) tr.className = "today";
@@ -151,16 +165,18 @@ function render() {
       codeTd.appendChild(span);
       autoMemo = offdutyMemo(prevMaster, dayType);
     } else {
-      const entry = state.master[e.code];
-      const isManual = e.code && !entry;
+      // 番号は前後の空白を除いて見る(登録時もサーバーが除く)
+      const code = e.code.trim();
+      const entry = state.master[code];
+      const isManual = !!e.code && !entry;
       const pick = document.createElement("button");
       pick.className = "pick";
-      pick.textContent = isManual ? "手入力" : e.code;
+      pick.textContent = isManual ? "手入力" : code;
       pick.addEventListener("click", () => {
-        openPicker(d + "(" + WEEKDAYS[weekday] + ")", isManual ? MANUAL : e.code, (value) => {
+        openPicker(d + "(" + WEEKDAYS[weekday] + ")", isManual ? MANUAL : code, (value) => {
           e.code = value === MANUAL ? " " : value;
           e.memo = "";
-          changed();
+          codeChanged();
           if (value === MANUAL) list.children[d - 1].querySelector(".code input").focus();
         });
       });
@@ -168,12 +184,20 @@ function render() {
 
       if (isManual) {
         const input = document.createElement("input");
-        input.value = e.code.trim();
+        input.value = code;
         input.placeholder = "入力";
         input.addEventListener("input", () => {
           // 空欄でも手入力モードを保つため空白1文字を入れておく(登録時は無視される)
           e.code = input.value || " ";
-          state.dirty = true;
+          edited();
+        });
+        // 入れ終えたとき、一覧にある番号なら、その番号として表示し直す
+        // (登録ではサーバーが一覧の番号として扱う。泊なら翌日が非番になる)
+        input.addEventListener("change", () => {
+          const value = input.value.trim();
+          if (!state.master[value]) return;
+          e.code = value;
+          codeChanged();
         });
         codeTd.appendChild(input);
       } else if (entry) {
@@ -194,7 +218,7 @@ function render() {
       const value = memoInput.value.trim();
       e.memo = value === autoMemo ? "" : value;
       memoInput.className = e.memo ? "override" : "";
-      state.dirty = true;
+      edited();
     });
     memoTd.appendChild(memoInput);
     if (stay) {
@@ -209,9 +233,25 @@ function render() {
   }
 }
 
-function changed() {
+function edited() {
   state.dirty = true;
+  state.edits++;
+}
+
+function changed() {
+  edited();
   render();
+}
+
+// 番号を変えたあと。前日の泊が変わって非番になった日・非番でなくなった日の手修正メモは、
+// 前の状態(勤務の日・非番の日)のためのものなので消して、自動の値に戻す
+function codeChanged() {
+  const before = state.offduty;
+  const after = offdutyDays();
+  new Set([...before.keys(), ...after.keys()]).forEach((key) => {
+    if (before.has(key) !== after.has(key) && state.entries[key]) state.entries[key].memo = "";
+  });
+  changed();
 }
 
 function scrollToToday() {
@@ -273,6 +313,19 @@ window.addEventListener("beforeunload", (ev) => {
   ev.returnValue = ""; // 古いブラウザは returnValue が無いと確認を出さない
 });
 
+// iPhone の Safari(ホーム画面に追加したアプリも)は、ページを離れるときの確認(beforeunload)を出さない。
+// 上のナビ(設定・使い方・ログアウトなど)で移るときも、ここで確かめる
+document.addEventListener("click", (ev) => {
+  const link = ev.target.closest && ev.target.closest("a[href]");
+  if (!link || !state.dirty) return;
+  if (confirm("登録していない変更があります。移動しますか？")) {
+    state.dirty = false; // 移ると決めたので、beforeunload でもう一度聞かない
+    return;
+  }
+  ev.preventDefault();
+  ev.stopPropagation(); // ログアウトのリンクの処理も止める
+}, true);
+
 $("register").addEventListener("click", async () => {
   const button = $("register");
   button.disabled = true;
@@ -281,15 +334,19 @@ $("register").addEventListener("click", async () => {
   $("prev").disabled = true;
   $("next").disabled = true;
   setStatus("登録中…(30秒ほどかかることがあります)");
+  const edits = state.edits;
   try {
     const result = await callFunction("register-month", {
       year: state.year,
       month: state.month,
       entries: state.entries,
     });
-    state.dirty = false;
+    // 登録中に書き換えた分は送っていないので、未登録のままにする(月の移動などで確認が出るように)
+    const editedMeanwhile = state.edits !== edits;
+    if (!editedMeanwhile) state.dirty = false;
     setStatus(result.count + "件の予定を登録しました。" +
-      (result.skipped ? "(休日用のカレンダーを設定していないため、休日の予定" + result.skipped + "件は登録していません)" : ""));
+      (result.skipped ? "(休日用のカレンダーを設定していないため、休日の予定" + result.skipped + "件は登録していません)" : "") +
+      (editedMeanwhile ? "登録中に変えたところは、まだ登録していません。もう一度「登録」を押してください。" : ""));
   } catch (err) {
     setStatus(err.message, true);
   } finally {
