@@ -46,21 +46,15 @@ function label(calendars: Calendars, id: string): string {
   return calendars.work === id ? "勤務用カレンダー" : "休日用カレンダー";
 }
 
-// 対象月の、このアプリが作った予定を削除して件数を返す。
-// 翌月1日は、この月の月末の泊から作られる非番(勤務用カレンダーの offduty)だけを対象にする。
-// clearNextFirst のとき(翌月1日の予定も作り直すとき)は、翌月1日のアプリの予定を全部消す
-// (翌月を先に登録していた場合の、1日の勤務・休日の予定と重ならないように)。
-// 手で入れた予定(印が無いもの)は消さない。
-export async function deleteAppEvents(
-  calendars: Calendars,
-  year: number,
-  month: number,
-  { clearNextFirst = false } = {},
-): Promise<number> {
+// このアプリが作った予定(印の付いた終日予定)
+export type AppEvent = { calendarId: string; eventId: string; date: string; tag: string };
+
+// 対象月と翌月1日の、このアプリが作った予定の一覧。手で入れた予定(印が無いもの)は含めない
+export async function listAppEvents(calendars: Calendars, year: number, month: number): Promise<AppEvent[]> {
   const first = dateKey(year, month, 1);
   const nextFirst = addDays(dateKey(year, month, daysInMonth(year, month)), 1);
 
-  const targets: { calendarId: string; eventId: string }[] = [];
+  const found: AppEvent[] = [];
   for (const calendarId of new Set([calendars.work, calendars.holiday].filter(Boolean))) {
     let items;
     try {
@@ -76,13 +70,31 @@ export async function deleteAppEvents(
     for (const ev of items) {
       const tag = ev.extendedProperties?.private?.[APP_TAG];
       const date = ev.start?.date;
-      if (!tag || !date) continue;
-      const inMonth = date >= first && date < nextFirst;
-      const nextOffduty = calendarId === calendars.work && date === nextFirst && tag === "offduty";
-      const nextAll = clearNextFirst && date === nextFirst;
-      if (inMonth || nextOffduty || nextAll) targets.push({ calendarId, eventId: ev.id });
+      if (!tag || !date || date < first || date > nextFirst) continue;
+      found.push({ calendarId, eventId: ev.id, date, tag });
     }
   }
+  return found;
+}
+
+// 対象月の、このアプリが作った予定を削除して件数を返す。
+// 翌月1日は、この月の月末の泊から作られる非番(勤務用カレンダーの offduty)だけを対象にする。
+// clearNextFirst のとき(翌月1日の予定も作り直すとき)は、翌月1日のアプリの予定を全部消す
+// (翌月を先に登録していた場合の、1日の勤務・休日の予定と重ならないように)。
+// 手で入れた予定(印が無いもの)は消さない。existing に listAppEvents の結果を渡すと、読み直さずにそれを使う。
+export async function deleteAppEvents(
+  calendars: Calendars,
+  year: number,
+  month: number,
+  { clearNextFirst = false, existing }: { clearNextFirst?: boolean; existing?: AppEvent[] } = {},
+): Promise<number> {
+  const nextFirst = addDays(dateKey(year, month, daysInMonth(year, month)), 1);
+  const events = existing ?? await listAppEvents(calendars, year, month);
+  const targets = events.filter((e) =>
+    e.date < nextFirst ||
+    clearNextFirst ||
+    (e.calendarId === calendars.work && e.tag === "offduty")
+  );
 
   await runPool(targets, CONCURRENCY, async (t) => {
     try {
@@ -123,4 +135,12 @@ export async function createEvents(
     }
   });
   return { created: targets.length, skipped: events.length - targets.length };
+}
+
+// 登録する予定を決める。翌月1日の非番(月末が泊)は必ず作る。
+// 翌月1日の記録の予定(月末が泊でないとき)は、翌月1日にアプリの予定があるときだけ作り直す
+// (泊から戻したときに翌月1日が空にならないように。ただし翌月をリセットした人の翌月1日に、勝手に予定を作らない)。
+export function eventsToRegister(planned: PlannedEvent[], existing: AppEvent[], nextFirst: string): PlannedEvent[] {
+  const nextFirstHasApp = existing.some((e) => e.date === nextFirst);
+  return planned.filter((e) => e.date !== nextFirst || e.kind === "offduty" || nextFirstHasApp);
 }

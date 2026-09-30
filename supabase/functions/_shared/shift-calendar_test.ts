@@ -2,7 +2,7 @@
 //   deno test supabase/functions --allow-read --allow-env
 
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { createEvents, deleteAppEvents } from "./shift-calendar.ts";
+import { createEvents, deleteAppEvents, eventsToRegister } from "./shift-calendar.ts";
 import { AppError } from "./http.ts";
 
 // テスト用の使い捨て鍵でサービスアカウントを用意する
@@ -162,4 +162,22 @@ Deno.test("休日用のカレンダーが空でも、削除は勤務用だけを
   const gets = calls.filter((c) => c.method === "GET");
   assertEquals(gets.length, 1);
   assert(gets[0].url.pathname.includes("/calendars/w/"));
+});
+
+Deno.test("eventsToRegister: 翌月1日の非番は必ず作り、翌月1日の記録の予定はアプリの予定があるときだけ作り直す", () => {
+  const planned = [
+    { date: "2026-10-31", calendar: "work", kind: "day", title: "201", description: "" },
+    { date: "2026-11-01", calendar: "work", kind: "day", title: "201", description: "" },
+  ];
+  const offduty = [
+    { date: "2026-10-31", calendar: "work", kind: "day", title: "101", description: "" },
+    { date: "2026-11-01", calendar: "work", kind: "offduty", title: "〜", description: "" },
+  ];
+  const onNextFirst = [{ calendarId: "w", eventId: "x", date: "2026-11-01", tag: "offduty" }];
+  // 泊から戻した(翌月1日に非番が残っている) → 翌月1日の予定を作り直す
+  assertEquals(eventsToRegister(planned, onNextFirst, "2026-11-01"), planned);
+  // 翌月をリセットした・まだ登録していない(翌月1日にアプリの予定が無い) → 作らない
+  assertEquals(eventsToRegister(planned, [], "2026-11-01"), [planned[0]]);
+  // 月末が泊 → 非番は必ず作る
+  assertEquals(eventsToRegister(offduty, [], "2026-11-01"), offduty);
 });

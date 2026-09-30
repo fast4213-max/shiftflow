@@ -86,24 +86,24 @@ export async function signUp({ admin }: { admin: SupabaseClient }, body: Record<
   }
 
   const email = emailFor(employeeNo);
-  let userId: string;
-  const created = await admin.auth.admin.createUser({ email, password: passwordFor(pin), email_confirm: true });
+  let created = await admin.auth.admin.createUser({ email, password: passwordFor(pin), email_confirm: true });
   if (created.error || !created.data.user) {
-    // 前回の登録が途中で止まって、ユーザーだけ残っている場合はそれを使う(プロフィールが無い = 誰も登録していない)
+    // 前回の登録が途中で止まって、ユーザーだけ残っている場合(プロフィールが無い = 誰も登録していない)は、
+    // 消してから作り直す。そのまま使うと、そのユーザーで先にログインしていた人(Supabase の新規登録を
+    // オンにしていたときに他人が作ったなど)が、本人の登録後もそのまま入れてしまう
     const left = await findUserByEmail(admin, email);
     if (!left) throw created.error ?? new Error("ユーザーを作れませんでした");
-    // 同じ社員番号の登録が同時に進んで、相手がもうプロフィールまで作っていたら使わない
-    // (使うと、先に登録した人のPINを書き換えたうえ、下のプロフィール作成の失敗で消してしまう)
+    // 同じ社員番号の登録が同時に進んで、相手がもうプロフィールまで作っていたら触らない
     const { data: owner, error: ownerError } = await admin
       .from("profiles").select("user_id").eq("user_id", left.id).maybeSingle();
     if (ownerError) throw ownerError;
     if (owner) throw alreadyRegistered();
-    const updated = await admin.auth.admin.updateUserById(left.id, { password: passwordFor(pin), email_confirm: true });
-    if (updated.error) throw updated.error;
-    userId = left.id;
-  } else {
-    userId = created.data.user.id;
+    const removed = await admin.auth.admin.deleteUser(left.id);
+    if (removed.error) throw removed.error;
+    created = await admin.auth.admin.createUser({ email, password: passwordFor(pin), email_confirm: true });
+    if (created.error || !created.data.user) throw created.error ?? new Error("ユーザーを作れませんでした");
   }
+  const userId = created.data.user.id;
 
   const { error: profileError } = await admin.from("profiles").insert({
     user_id: userId,

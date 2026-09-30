@@ -20,17 +20,18 @@ function showTab(name) {
   $("tab-admin").setAttribute("aria-selected", String(!isUser));
   (isUser ? $("employee-no") : $("admin-password")).focus();
 }
+// 管理者のブックマーク(index.html#admin)を、同じページから開いたときも管理タブにする
+window.addEventListener("hashchange", () => showTab(location.hash === "#admin" ? "admin" : "user"));
 $("tab-user").addEventListener("click", () => showTab("user"));
 $("tab-admin").addEventListener("click", () => showTab("admin"));
 
-// 入力がそろったらボタンを押せるようにする
-function watch(form, button, ready) {
-  const update = () => ($(button).disabled = !ready());
-  $(form).addEventListener("input", update);
-  update();
+// ボタンは押せるままにして、押したときに入力を確かめる
+// (ブラウザが保存したパスワードを自動で入れたときは入力の合図が来ないことがあり、押せないままになるため)
+function userProblem() {
+  if (!/^\d{7}$/.test(toHalfWidth($("employee-no").value))) return "社員番号は7桁の数字で入力してください。";
+  if (!/^\d{4}$/.test(toHalfWidth($("pin").value))) return "PINは4桁の数字で入力してください。";
+  return "";
 }
-watch("user-form", "user-login", () => /^\d{7}$/.test(toHalfWidth($("employee-no").value)) && /^\d{4}$/.test(toHalfWidth($("pin").value)));
-watch("admin-form", "admin-login", () => $("admin-password").value.length > 0);
 
 async function loginWith(fn, body, messageId, buttonId) {
   $(buttonId).disabled = true;
@@ -50,10 +51,13 @@ async function loginWith(fn, body, messageId, buttonId) {
 
 $("user-form").addEventListener("submit", (ev) => {
   ev.preventDefault();
+  const problem = userProblem();
+  if (problem) return setMessage("user-message", problem, "error");
   loginWith("login", { employee_no: toHalfWidth($("employee-no").value), pin: toHalfWidth($("pin").value) }, "user-message", "user-login");
 });
 $("admin-form").addEventListener("submit", (ev) => {
   ev.preventDefault();
+  if (!$("admin-password").value) return setMessage("admin-message", "管理用パスワードを入力してください。", "error");
   loginWith("admin-login", { password: $("admin-password").value }, "admin-message", "admin-login");
 });
 

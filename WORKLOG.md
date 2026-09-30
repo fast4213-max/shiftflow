@@ -776,3 +776,28 @@ supabase/functions/_shared/shift-calendar.ts(コメント), supabase/functions/r
 - データベースの形は変えていない(migrations の追加なし)。データベースの権限(利用者が検証済みフラグなどを書けないこと)も確認し、問題なし
 ### 私が手動でやる作業の残り
 - 反映後(1〜2分)、いつもどおり登録できるか確認する
+
+## 2026-10-01 全体通しのデバッグ
+### やったこと
+- 登録: 前回の修正(月末を泊から戻したら翌月1日の予定を作り直す)の副作用で、翌月をリセットしていても、前の月を登録すると
+  翌月1日の予定が勝手に作り直されていた。翌月1日にアプリの予定が残っているとき(非番など)だけ作り直すようにした。
+  判定は shift-calendar.ts の eventsToRegister に分け、テストを1件追加
+- 新規登録: 前回の途中で残ったユーザーを使い回していたのをやめ、消してから作り直すようにした。
+  Supabase の「Allow new users to sign up」をオンにしていると他人が社員番号のユーザーを先に作れてしまい、
+  使い回すと、その人のログイン状態が本人の登録後もそのまま使えてしまうため(テストを更新)
+- README: トラブル対処で「Allow new users to sign up」をオンにしたら、試し終わったらオフに戻すと追記
+- ログイン画面: ボタンを入力がそろうまで押せない作りだったが、ブラウザが保存したパスワードを自動で入れたときは
+  入力の合図が来ず押せないままになることがあるので、ボタンは押せるままにして、押したときに入力を確かめるようにした
+- ログイン画面: 同じページで index.html#admin を開いたときも管理タブになるようにした
+- Supabase を偽物に差し替えたブラウザ(スマホの画面の大きさ)で、ログイン → 設定 → 勤務入力(泊・非番・祝日・手入力・メモ)
+  → 登録 → 月の移動 → リセット → ログアウト → 新規登録 → 管理画面(タブ・CSVの確認) → 使い方 を通しで動かし、エラーなし。
+  スマホ幅で横にはみ出さないことも確認
+- Deno の lint・型チェック・テスト38件は通過
+### 変更したファイル
+supabase/functions/_shared/shift-calendar.ts, supabase/functions/_shared/shift-calendar_test.ts, supabase/functions/register-month/index.ts,
+supabase/functions/_shared/login-core.ts, supabase/functions/_shared/login-core_test.ts, web/index.html, web/js/index.js, README.md, WORKLOG.md
+### 決めたこと(理由)
+- データベースの形は変えていない(migrations の追加なし)
+### 私が手動でやる作業の残り
+- Supabase の「Allow new users to sign up」がオフになっているか、念のため確認する(README 1-4)
+- 反映後、スマホでログイン(保存したPINの自動入力を含む)と登録を確認する

@@ -192,11 +192,13 @@ Deno.test("新規登録: プロフィールの作成に失敗したらユーザ�
   assertEquals(f.users.length, 0);
 });
 
-Deno.test("新規登録: 前回の途中で止まってユーザーだけ残っていたら、それを使って登録できる", async () => {
+Deno.test("新規登録: 前回の途中で止まってユーザーだけ残っていたら、消して作り直して登録できる", async () => {
   const f = fakes();
   f.users.push({ id: "left-over", email: emailFor("1234567"), password: passwordFor("0000") });
   await signUp(f.deps, reg, "ip");
-  assertEquals(f.profiles[0].user_id, "left-over");
+  // 残っていたユーザーは使わない(そのユーザーのログイン状態を引き継がせない)
+  assertEquals(f.users.map((u) => u.id), [f.profiles[0].user_id]);
+  assert(f.profiles[0].user_id !== "left-over");
   await loginWithPin(f.deps, { employee_no: "1234567", pin: "4829" });
   assertEquals(await code(() => loginWithPin(f.deps, { employee_no: "1234567", pin: "0000" })), "bad_credentials");
 });
