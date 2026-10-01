@@ -4,7 +4,7 @@
 import { addDays, daysInMonth, dateKey } from "./plan.js";
 import type { Context } from "./auth.ts";
 import { AppError } from "./http.ts";
-import { APP_TAG, calendarAccessError, deleteEvent, insertAllDayEvent, listEvents, runPool } from "./google.ts";
+import { APP_TAG, calendarAccessError, deleteEvent, insertAllDayEvent, insertTimedEvent, listEvents, runPool } from "./google.ts";
 
 // holiday は空でもよい(休日用のカレンダーを使わない人。種別が「休日」の予定は登録しない)
 export type Calendars = { work: string; holiday: string; officeId?: number | null; splitDayEvents?: boolean };
@@ -64,13 +64,15 @@ export async function listAppEvents(calendars: Calendars, year: number, month: n
         calendarId,
         `${addDays(first, -1)}T00:00:00+09:00`,
         `${addDays(nextSecond, 2)}T00:00:00+09:00`,
+        { timeZone: "Asia/Tokyo" },
       );
     } catch (err) {
       throw calendarAccessError(err, label(calendars, calendarId));
     }
     for (const ev of items) {
       const tag = ev.extendedProperties?.private?.[APP_TAG];
-      const date = ev.start?.date;
+      // 終日の予定はその日付、時間つきの予定(出勤を2件で登録したときの2件目)は日本時間の日付
+      const date = ev.start?.date || ev.start?.dateTime?.slice(0, 10);
       if (!tag || !date || date < first || date > nextSecond) continue;
       found.push({ calendarId, eventId: ev.id, date, tag });
     }
@@ -122,13 +124,9 @@ export type PlannedEvent = {
   title: string;
   description: string;
   // 番号の予定のあとに続けて作る、時間の予定(出勤を終日2件に分ける設定のとき)
-  second?: { title: string; description: string };
+  // (時間つき。startMin / endMin はその日の0時からの分)
+  second?: { title: string; description: string; startMin: number; endMin: number };
 };
-
-// 同じ日の2件(番号・時間)を、作った順(番号が先)にカレンダーで並べるための待ち時間。
-// Googleは作成時刻を秒単位で見ているらしく、ほぼ同時に作った2件は並びが決まらない(逆になることがある)ので、
-// 番号を全部作ってから、この時間をおいて時間の予定を作る(同じ日の2件は数秒以上あく)
-const SECOND_EVENT_DELAY_MS = 2000;
 
 // 予定を作る。休日用のカレンダーが無い人の「休日」の予定は作らない(skipped に数える)
 export async function createEvents(
@@ -150,12 +148,23 @@ export async function createEvents(
       throw calendarAccessError(err, label(calendars, calendarId));
     }
   };
-  await runPool(targets, CONCURRENCY, (e) => insert(e, e.title, e.description));
-  const seconds = targets.filter((e) => e.second);
-  if (seconds.length) {
-    await new Promise((r) => setTimeout(r, SECOND_EVENT_DELAY_MS));
-    await runPool(seconds, CONCURRENCY, (e) => insert(e, e.second!.title, e.second!.description));
-  }
+  await runPool(targets, CONCURRENCY, async (e) => {
+    await insert(e, e.title, e.description);
+    if (e.second) {
+      try {
+        await insertTimedEvent(calendars.work, {
+          date: e.date,
+          startMin: e.second.startMin,
+          endMin: e.second.endMin,
+          title: e.second.title,
+          description: e.second.description,
+          kind: e.kind,
+        });
+      } catch (err) {
+        throw calendarAccessError(err, label(calendars, calendars.work));
+      }
+    }
+  });
   return { created: targets.length, skipped: events.length - targets.length };
 }
 
@@ -200,14 +209,24 @@ export async function deleteRecords(ctx: Context, records: { date: string; memoO
   }
 }
 
-// 出勤を終日2件に分ける設定のとき、勤務用の出勤(日勤・泊)の予定に、時間の予定を付ける。
-// 1件目=番号(メモは今のまま)、2件目=時間(メモの1行目。例「10:15〜19:02」)。非番・休日・手入力は変えない。
+// 出勤を2件に分ける設定のとき、勤務用の出勤(日勤・泊)の予定に、出勤時間の予定(時間つき)を付ける。
+// 1件目=終日で、タイトルは番号・メモは今のまま(時間)。2件目=出勤時間から始まる時間つきの予定(タイトルはメモの1行目。例「10:15〜19:02」)。
+// 終日の予定は時間つきの予定より上に出るので、番号が上・時間が下に並ぶ。
+// 日勤は退勤まで、泊は出勤から1時間(泊の翌日は、終日の非番にメモで退勤時間が入る)。
+// 非番・休日・手入力、メモの1行目が時間でないもの(手で書き換えたとき)は、1件のまま
+export const SECOND_EVENT_MINUTES = 60;
+
 export function splitDayEvents(events: PlannedEvent[], master: Record<string, any>): PlannedEvent[] {
   return events.map((e) => {
     if (e.calendar !== "work" || e.kind !== "day") return e;
     const type = master[e.title]?.type;
     if (type !== "日勤" && type !== "泊") return e;
     const time = e.description.split("\n")[0].trim();
-    return time ? { ...e, second: { title: time, description: "" } } : e;
+    const m = time.match(/^(\d{1,2}):(\d{2})(?:〜(\d{1,2}):(\d{2}))?$/);
+    if (!m) return e;
+    const startMin = Number(m[1]) * 60 + Number(m[2]);
+    let endMin = m[3] === undefined || type === "泊" ? startMin + SECOND_EVENT_MINUTES : Number(m[3]) * 60 + Number(m[4]);
+    if (endMin <= startMin) endMin = startMin + SECOND_EVENT_MINUTES;
+    return { ...e, second: { title: time, description: "", startMin, endMin } };
   });
 }

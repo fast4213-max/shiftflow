@@ -66,8 +66,9 @@ Deno.test("deleteAppEvents: アプリの予定だけ、月内+翌月1日の非�
 
   const count = await deleteAppEvents({ work, holiday }, 2026, 10);
   const deleted = calls.filter((c) => c.method === "DELETE").map((c) => c.url.pathname.split("/").pop()).sort();
-  assertEquals(deleted, ["a", "b", "c", "h"]);
-  assertEquals(count, 4);
+  // 時間つきの予定(出勤を2件で登録したときの2件目。印あり)も消す
+  assertEquals(deleted, ["a", "b", "c", "h", "timed"]);
+  assertEquals(count, 5);
 });
 
 Deno.test("deleteAppEvents: 月末が泊のときは、翌月1日のアプリの予定を全部消す(非番と重ならない)", async () => {
@@ -271,7 +272,7 @@ Deno.test("eventsToRegister: 翌月1日の非番は必ず作り、翌月1日の�
   assertEquals(eventsToRegister(offduty, [], "2026-11-01"), offduty);
 });
 
-Deno.test("splitDayEvents: 勤務用の出勤(日勤・泊)だけ時間の予定を付ける", () => {
+Deno.test("splitDayEvents: 勤務用の出勤(日勤・泊)だけ、出勤時間の予定(時間つき)を付ける", () => {
   const master = indexMaster([
     { code: "25", kind: "日勤", weekday_start: "10:00", weekday_end: "18:30", holiday_start: "", holiday_end: "", stay: "" },
     { code: "40", kind: "泊", weekday_start: "9:01", weekday_end: "", holiday_start: "", holiday_end: "", stay: "品川" },
@@ -285,27 +286,39 @@ Deno.test("splitDayEvents: 勤務用の出勤(日勤・泊)だけ時間の予定
     ev("休", "", { calendar: "holiday" }),
     ev("〜", "7:00", { kind: "offduty" }),
     ev("手入力", "メモ"),
+    ev("25", "遅れて出勤"), // メモを時間でないものに書き換えた
+    ev("25", "5:00〜4:00"), // 退勤が出勤より前なら1時間
   ], master);
-  assertEquals(out[0].second, { title: "10:00〜18:30", description: "" });
-  assertEquals(out[1].second, { title: "9:01", description: "" });
+  assertEquals(out[0].second, { title: "10:00〜18:30", description: "", startMin: 600, endMin: 1110 });
+  assertEquals(out[1].second, { title: "9:01", description: "", startMin: 541, endMin: 601 }); // 泊は出勤から1時間
   assertEquals(out[2].second, undefined);
   assertEquals(out[3].second, undefined);
   assertEquals(out[4].second, undefined);
+  assertEquals(out[5].second, undefined);
+  assertEquals(out[6].second, { title: "5:00〜4:00", description: "", startMin: 300, endMin: 360 });
 });
 
-Deno.test("createEvents: 番号の予定を全部作ってから、時間をおいて時間の予定を作る", async () => {
-  const titles: string[] = [];
+Deno.test("createEvents: 番号は終日、2件目は日本時間の時間つきで作る", async () => {
+  const posted: any[] = [];
   mockFetch((c) => {
     if (c.method === "POST") {
-      titles.push(c.body.summary);
+      posted.push(c.body);
       return Response.json({ id: "x" });
     }
   });
   await createEvents({ work: "w@group.calendar.google.com", holiday: "" }, [
-    { date: "2026-10-01", calendar: "work", kind: "day", title: "25", description: "10:00〜18:30", second: { title: "10:00〜18:30", description: "" } },
-    { date: "2026-10-02", calendar: "work", kind: "day", title: "40", description: "9:01", second: { title: "9:01", description: "" } },
+    { date: "2026-10-01", calendar: "work", kind: "day", title: "25", description: "10:00〜18:30", second: { title: "10:00〜18:30", description: "", startMin: 600, endMin: 1110 } },
+    { date: "2026-10-02", calendar: "work", kind: "day", title: "40", description: "23:30", second: { title: "23:30", description: "", startMin: 1410, endMin: 1470 } },
   ]);
-  // 番号が全部先(同じ日の番号と時間は、間に待ち時間が入る)
-  assertEquals(titles.slice(0, 2).sort(), ["25", "40"]);
-  assertEquals(titles.slice(2).sort(), ["10:00〜18:30", "9:01"]);
+  const allDay = posted.filter((b) => b.start.date);
+  const timed = posted.filter((b) => b.start.dateTime);
+  assertEquals(allDay.map((b) => b.summary).sort(), ["25", "40"]);
+  assertEquals(allDay.find((b) => b.summary === "25").description, "10:00〜18:30");
+  const t25 = timed.find((b) => b.summary === "10:00〜18:30");
+  assertEquals(t25.start, { dateTime: "2026-10-01T10:00:00", timeZone: "Asia/Tokyo" });
+  assertEquals(t25.end, { dateTime: "2026-10-01T18:30:00", timeZone: "Asia/Tokyo" });
+  assertEquals(t25.extendedProperties, tag("day")); // 印が付く(あとで消せる)
+  // 24時を超えたら翌日
+  const t40 = timed.find((b) => b.summary === "23:30");
+  assertEquals(t40.end, { dateTime: "2026-10-03T00:30:00", timeZone: "Asia/Tokyo" });
 });

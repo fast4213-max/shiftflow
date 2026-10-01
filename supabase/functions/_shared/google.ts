@@ -2,6 +2,7 @@
 // 鍵はシークレット GOOGLE_SERVICE_ACCOUNT_JSON(鍵ファイルの JSON をそのまま)にだけ置く。
 
 import { AppError } from "./http.ts";
+import { addDays } from "./plan.js";
 
 const SCOPE = "https://www.googleapis.com/auth/calendar.events";
 const API = "https://www.googleapis.com/calendar/v3";
@@ -156,6 +157,27 @@ export async function deleteEvent(calendarId: string, eventId: string): Promise<
     if (err instanceof GoogleError && (err.status === 404 || err.status === 410)) return;
     throw err;
   }
+}
+
+// 時間つきの予定を作る(日本時間)。startMin / endMin は、その日の0時からの分(24時間を超えたら翌日)。
+// 出勤を終日2件で登録する設定のときの、2件目(出勤時間の予定)に使う
+export async function insertTimedEvent(
+  calendarId: string,
+  e: { date: string; startMin: number; endMin: number; title: string; description?: string; kind: string },
+): Promise<CalendarEvent> {
+  const at = (min: number) => {
+    const day = Math.floor(min / 1440);
+    const rest = min % 1440;
+    const pad = (n: number) => (n < 10 ? "0" : "") + n;
+    return `${addDays(e.date, day)}T${pad(Math.floor(rest / 60))}:${pad(rest % 60)}:00`;
+  };
+  return await call("POST", `${cal(calendarId)}/events`, {
+    summary: e.title,
+    ...(e.description ? { description: e.description } : {}),
+    start: { dateTime: at(e.startMin), timeZone: "Asia/Tokyo" },
+    end: { dateTime: at(e.endMin), timeZone: "Asia/Tokyo" },
+    extendedProperties: { private: { [APP_TAG]: e.kind } },
+  });
 }
 
 // 期間内の予定を全部取る(ページング込み)
