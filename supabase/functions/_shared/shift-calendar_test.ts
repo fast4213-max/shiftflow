@@ -2,8 +2,9 @@
 //   deno test supabase/functions --allow-read --allow-env
 
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { createEvents, deleteAppEvents, eventsToRegister } from "./shift-calendar.ts";
+import { createEvents, deleteAppEvents, eventsToRegister, staleNextMonthRecords } from "./shift-calendar.ts";
 import { AppError } from "./http.ts";
+import { indexMaster } from "./plan.js";
 
 // テスト用の使い捨て鍵でサービスアカウントを用意する
 const pair = await crypto.subtle.generateKey(
@@ -50,6 +51,7 @@ Deno.test("deleteAppEvents: アプリの予定だけ、月内+翌月1日の非�
           { id: "b", start: { date: "2026-10-31" }, extendedProperties: tag("day") },
           { id: "c", start: { date: "2026-11-01" }, extendedProperties: tag("offduty") },
           { id: "next-day", start: { date: "2026-11-01" }, extendedProperties: tag("day") },
+          { id: "next-2-off", start: { date: "2026-11-02" }, extendedProperties: tag("offduty") },
           { id: "timed", start: { dateTime: "2026-10-10T10:00:00+09:00" }, extendedProperties: tag("day") },
         ],
       });
@@ -92,6 +94,57 @@ Deno.test("deleteAppEvents: 月末が泊のときは、翌月1日のアプリの
   assertEquals(count, 3);
 });
 
+Deno.test("deleteAppEvents: 翌月1日が非番になるときは、翌月2日の非番(勤務用)も消す。翌月2日の他の予定は消さない", async () => {
+  const work = "work@group.calendar.google.com";
+  const holiday = "holiday@group.calendar.google.com";
+  const calls = mockFetch((c) => {
+    if (c.method !== "GET") return;
+    if (c.url.pathname.includes(encodeURIComponent(work))) {
+      return Response.json({
+        items: [
+          { id: "next-1", start: { date: "2026-11-01" }, extendedProperties: tag("day") },
+          { id: "next-2-off", start: { date: "2026-11-02" }, extendedProperties: tag("offduty") },
+          { id: "next-2-day", start: { date: "2026-11-02" }, extendedProperties: tag("day") },
+          { id: "next-2-manual", start: { date: "2026-11-02" } },
+          { id: "next-3-off", start: { date: "2026-11-03" }, extendedProperties: tag("offduty") },
+        ],
+      });
+    }
+    return Response.json({ items: [{ id: "h-next-2", start: { date: "2026-11-02" }, extendedProperties: tag("offduty") }] });
+  });
+
+  const count = await deleteAppEvents({ work, holiday }, 2026, 10, { clearNextFirst: true, clearNextSecondOffduty: true });
+  const deleted = calls.filter((c) => c.method === "DELETE").map((c) => c.url.pathname.split("/").pop()).sort();
+  assertEquals(deleted, ["next-1", "next-2-off"]);
+  assertEquals(count, 2);
+});
+
+Deno.test("staleNextMonthRecords: 月末の泊が変わって翌月1日の非番が変わるときに消す、翌月の記録", () => {
+  const master = indexMaster([
+    { code: "101", kind: "泊" },
+    { code: "201", kind: "日勤" },
+    { code: "公休", kind: "休日" },
+  ]);
+  const base = { nextFirst: "2026-11-01", master };
+  // 月末を泊にした(翌月1日が非番になる): 翌月1日の番号を消す。泊だったなら翌月2日の非番のメモも消す
+  assertEquals(staleNextMonthRecords({ ...base, lastCode: "", nextFirstOffduty: true, nextFirstCode: "201" }), [
+    { date: "2026-11-01", memoOnly: false },
+  ]);
+  assertEquals(staleNextMonthRecords({ ...base, lastCode: "201", nextFirstOffduty: true, nextFirstCode: "101" }), [
+    { date: "2026-11-01", memoOnly: false },
+    { date: "2026-11-02", memoOnly: true },
+  ]);
+  // 翌月1日に番号が無い(非番のメモだけ・記録なし)なら、何も消さない(非番のメモに使う)
+  assertEquals(staleNextMonthRecords({ ...base, lastCode: "101", nextFirstOffduty: true, nextFirstCode: "" }), []);
+  // 月末を泊から戻した・リセットした(翌月1日が非番でなくなる): 翌月1日の非番のメモ(番号の無い記録)を消す
+  assertEquals(staleNextMonthRecords({ ...base, lastCode: "101", nextFirstOffduty: false, nextFirstCode: "" }), [
+    { date: "2026-11-01", memoOnly: true },
+  ]);
+  // もともと非番でなかった(月末が泊でない)なら、翌月1日のメモは本人が書いたものなので残す
+  assertEquals(staleNextMonthRecords({ ...base, lastCode: "201", nextFirstOffduty: false, nextFirstCode: "" }), []);
+  assertEquals(staleNextMonthRecords({ ...base, lastCode: "", nextFirstOffduty: false, nextFirstCode: "201" }), []);
+});
+
 Deno.test("createEvents: 終日予定(終了日は翌日)に印を付けて作る", async () => {
   const calls = mockFetch((c) => (c.method === "POST" ? Response.json({ id: "new" }) : undefined));
   const result = await createEvents({ work: "w", holiday: "h" }, [
@@ -123,6 +176,42 @@ Deno.test("書き込み権限がないと、共有設定を確認するメッセ
   );
   assert(err.message.includes("勤務用カレンダーに書き込めません"));
   assert(err.message.includes("すべての予定の詳細の変更や表示ができます"));
+});
+
+Deno.test("1件失敗したら残りは作らず、作っている途中の分が終わってからエラーにする", async () => {
+  let active = 0;
+  let maxActive = 0;
+  const started: string[] = [];
+  const finished: string[] = [];
+  // 1件目の作成だけ失敗させ、他は少し時間をかけて成功させる
+  globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.host === "oauth2.googleapis.com") return Response.json({ access_token: "token", expires_in: 3600 });
+    const body = JSON.parse(String(init?.body));
+    started.push(body.summary);
+    active++;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((r) => setTimeout(r, body.summary === "d1" ? 5 : 30));
+    active--;
+    finished.push(body.summary);
+    if (body.summary === "d1") {
+      return Response.json({ error: { code: 403, errors: [{ reason: "requiredAccessLevel" }] } }, { status: 403 });
+    }
+    return Response.json({ id: body.summary });
+  };
+  const events = Array.from({ length: 12 }, (_, i) => ({
+    date: `2026-10-${String(i + 1).padStart(2, "0")}`,
+    calendar: "work",
+    kind: "day",
+    title: `d${i + 1}`,
+    description: "",
+  }));
+  await assertRejects(() => createEvents({ work: "w", holiday: "h" }, events), AppError);
+  // 同時に4件まで。失敗の時点で動いていた3件は終わってからエラーになり、残り(8件)は始めない
+  assertEquals(maxActive, 4);
+  assertEquals(started.length, 4);
+  assertEquals(finished.sort(), started.sort());
+  assertEquals(active, 0);
 });
 
 Deno.test("レート制限は待って再試行する", async () => {

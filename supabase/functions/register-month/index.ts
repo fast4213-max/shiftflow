@@ -8,9 +8,11 @@ import { addDays, buildPlan, codeOf, dateKey, daysInMonth, indexMaster } from ".
 import {
   createEvents,
   deleteAppEvents,
+  deleteRecords,
   eventsToRegister,
   listAppEvents,
   loadVerifiedCalendars,
+  staleNextMonthRecords,
   withUserLock,
 } from "../_shared/shift-calendar.ts";
 
@@ -30,14 +32,16 @@ serve(async (req) => {
     const prevLast = addDays(first, -1);
     const nextFirst = addDays(last, 1);
 
+    // 月末(last)は、登録する前の番号を見るために読む(翌月1日の非番が変わるかどうか)
     const [masterRes, recordsRes, holidays] = await Promise.all([
       ctx.db.from("shift_master").select("*").eq("office_id", calendars.officeId).order("sort_order"),
-      ctx.db.from("shift_records").select("date, code, memo").in("date", [prevLast, nextFirst]),
+      ctx.db.from("shift_records").select("date, code, memo").in("date", [prevLast, last, nextFirst]),
       loadHolidays(ctx.admin, first, nextFirst),
     ]);
     if (masterRes.error) throw masterRes.error;
     if (recordsRes.error) throw recordsRes.error;
     const byDate = Object.fromEntries((recordsRes.data || []).map((r) => [r.date, r]));
+    const master = indexMaster(masterRes.data || []);
 
     const plan = buildPlan({
       year,
@@ -45,26 +49,31 @@ serve(async (req) => {
       entries,
       prevLastCode: codeOf(byDate[prevLast]),
       nextFirstEntry: byDate[nextFirst],
-      master: indexMaster(masterRes.data || []),
+      master,
       holidays,
     });
+    const nextFirstOffduty = plan.events.some((e) => e.date === nextFirst && e.kind === "offduty");
 
     const saved = await ctx.db.rpc("save_month_records", { p_year: year, p_month: month, p_entries: plan.entries });
     if (saved.error) throw saved.error;
 
-    // 月末が泊で翌月1日が非番になったら、翌月1日に入れてあった番号(とそのメモ)は消す。
+    // 月末の泊が変わって翌月1日の非番が変わったら、翌月1日・2日の記録の、前の状態のための番号やメモを消す。
     // 残しておくと、あとで月末を泊から戻したとき(泊を1日前へ入れ直したときなど)、消えたはずの番号が戻ってしまうため
-    if (codeOf(byDate[nextFirst]) && plan.events.some((e) => e.date === nextFirst && e.kind === "offduty")) {
-      const cleared = await ctx.db.from("shift_records").delete().eq("date", nextFirst);
-      if (cleared.error) throw cleared.error;
-    }
+    await deleteRecords(ctx, staleNextMonthRecords({
+      nextFirst,
+      lastCode: codeOf(byDate[last]),
+      nextFirstOffduty,
+      nextFirstCode: codeOf(byDate[nextFirst]),
+      master,
+    }));
 
     const existing = await listAppEvents(calendars, year, month);
     const events = eventsToRegister(plan.events, existing, nextFirst);
     // 翌月1日の予定(月末が泊なら非番、泊でなければ翌月1日の記録の予定)を作るときは、
-    // 翌月1日にあるアプリの予定を全部消してから作り直す(重ならないように)
+    // 翌月1日にあるアプリの予定を全部消してから作り直す(重ならないように)。
+    // 翌月1日が非番なら翌月2日は非番にならないので、翌月2日に残った非番(翌月1日が泊だったとき)も消す
     const clearNextFirst = events.some((e) => e.date === nextFirst);
-    await deleteAppEvents(calendars, year, month, { clearNextFirst, existing });
+    await deleteAppEvents(calendars, year, month, { clearNextFirst, clearNextSecondOffduty: nextFirstOffduty, existing });
     const { created, skipped } = await createEvents(calendars, events);
 
     await ctx.admin.from("user_settings")

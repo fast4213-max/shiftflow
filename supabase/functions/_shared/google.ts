@@ -194,14 +194,22 @@ export function calendarAccessError(err: unknown, label: string): AppError {
   return new AppError(502, `${label}の操作に失敗しました。時間をおいてもう一度お試しください。`, "calendar_error");
 }
 
-// 同時に動かす数を絞って順に処理する
+// 同時に動かす数を絞って順に処理する。
+// 失敗したら残りは始めず、動いている分が終わるのを待ってから最初のエラーを投げる
+// (すぐに投げると、残りが裏で動き続けたまま二重実行防止のロックが外れ、やり直しの登録と重なるため)
 export async function runPool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
   let index = 0;
+  const errors: unknown[] = [];
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (index < items.length) {
+    while (index < items.length && errors.length === 0) {
       const item = items[index++];
-      await fn(item);
+      try {
+        await fn(item);
+      } catch (err) {
+        errors.push(err);
+      }
     }
   });
   await Promise.all(workers);
+  if (errors.length) throw errors[0];
 }

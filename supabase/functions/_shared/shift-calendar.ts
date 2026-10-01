@@ -49,10 +49,11 @@ function label(calendars: Calendars, id: string): string {
 // このアプリが作った予定(印の付いた終日予定)
 export type AppEvent = { calendarId: string; eventId: string; date: string; tag: string };
 
-// 対象月と翌月1日の、このアプリが作った予定の一覧。手で入れた予定(印が無いもの)は含めない
+// 対象月と翌月1日・2日の、このアプリが作った予定の一覧。手で入れた予定(印が無いもの)は含めない
+// (翌月2日は、翌月1日が非番になって、翌月2日が非番でなくなったときに、残った非番を消すため)
 export async function listAppEvents(calendars: Calendars, year: number, month: number): Promise<AppEvent[]> {
   const first = dateKey(year, month, 1);
-  const nextFirst = addDays(dateKey(year, month, daysInMonth(year, month)), 1);
+  const nextSecond = addDays(dateKey(year, month, daysInMonth(year, month)), 2);
 
   const found: AppEvent[] = [];
   for (const calendarId of new Set([calendars.work, calendars.holiday].filter(Boolean))) {
@@ -62,7 +63,7 @@ export async function listAppEvents(calendars: Calendars, year: number, month: n
       items = await listEvents(
         calendarId,
         `${addDays(first, -1)}T00:00:00+09:00`,
-        `${addDays(nextFirst, 2)}T00:00:00+09:00`,
+        `${addDays(nextSecond, 2)}T00:00:00+09:00`,
       );
     } catch (err) {
       throw calendarAccessError(err, label(calendars, calendarId));
@@ -70,7 +71,7 @@ export async function listAppEvents(calendars: Calendars, year: number, month: n
     for (const ev of items) {
       const tag = ev.extendedProperties?.private?.[APP_TAG];
       const date = ev.start?.date;
-      if (!tag || !date || date < first || date > nextFirst) continue;
+      if (!tag || !date || date < first || date > nextSecond) continue;
       found.push({ calendarId, eventId: ev.id, date, tag });
     }
   }
@@ -81,19 +82,27 @@ export async function listAppEvents(calendars: Calendars, year: number, month: n
 // 翌月1日は、この月の月末の泊から作られる非番(勤務用カレンダーの offduty)だけを対象にする。
 // clearNextFirst のとき(翌月1日の予定も作り直すとき)は、翌月1日のアプリの予定を全部消す
 // (翌月を先に登録していた場合の、1日の勤務・休日の予定と重ならないように)。
+// clearNextSecondOffduty のとき(翌月1日が非番になるとき)は、翌月2日の非番も消す。翌月1日が非番なら
+// 翌月2日は非番にならないので、翌月1日が泊だったときに翌月の登録で作った非番が残らないように。
 // 手で入れた予定(印が無いもの)は消さない。existing に listAppEvents の結果を渡すと、読み直さずにそれを使う。
 export async function deleteAppEvents(
   calendars: Calendars,
   year: number,
   month: number,
-  { clearNextFirst = false, existing }: { clearNextFirst?: boolean; existing?: AppEvent[] } = {},
+  { clearNextFirst = false, clearNextSecondOffduty = false, existing }: {
+    clearNextFirst?: boolean;
+    clearNextSecondOffduty?: boolean;
+    existing?: AppEvent[];
+  } = {},
 ): Promise<number> {
   const nextFirst = addDays(dateKey(year, month, daysInMonth(year, month)), 1);
+  const nextSecond = addDays(nextFirst, 1);
   const events = existing ?? await listAppEvents(calendars, year, month);
+  const isOffduty = (e: AppEvent) => e.calendarId === calendars.work && e.tag === "offduty";
   const targets = events.filter((e) =>
     e.date < nextFirst ||
-    clearNextFirst ||
-    (e.calendarId === calendars.work && e.tag === "offduty")
+    (e.date === nextFirst && (clearNextFirst || isOffduty(e))) ||
+    (e.date === nextSecond && clearNextSecondOffduty && isOffduty(e))
   );
 
   await runPool(targets, CONCURRENCY, async (t) => {
@@ -143,4 +152,37 @@ export async function createEvents(
 export function eventsToRegister(planned: PlannedEvent[], existing: AppEvent[], nextFirst: string): PlannedEvent[] {
   const nextFirstHasApp = existing.some((e) => e.date === nextFirst);
   return planned.filter((e) => e.date !== nextFirst || e.kind === "offduty" || nextFirstHasApp);
+}
+
+// 月末の泊が変わって翌月1日の非番が変わるときに、消す翌月の記録(月の中で泊を入れ直したときの画面の動きと同じにする)。
+//   翌月1日が非番になる: 翌月1日の番号(とそのメモ)を消す。残すと、あとで月末を泊から戻したとき、消えたはずの番号が戻る。
+//     その番号が泊なら翌月2日は非番でなくなるので、翌月2日の非番のために書き換えたメモ(番号の無い記録)も消す
+//   翌月1日が非番でなくなる(月末を泊から戻した・月をリセットした): 翌月1日の非番のために書き換えたメモ(番号の無い記録)を消す
+// lastCode は登録(リセット)する前の月末の番号。memoOnly の記録は、番号の無いものだけを消す
+export function staleNextMonthRecords(
+  { nextFirst, lastCode, nextFirstOffduty, nextFirstCode, master }: {
+    nextFirst: string;
+    lastCode: string;
+    nextFirstOffduty: boolean;
+    nextFirstCode: string;
+    master: Record<string, any>; // indexMaster() の結果
+  },
+): { date: string; memoOnly: boolean }[] {
+  if (nextFirstOffduty) {
+    if (!nextFirstCode) return [];
+    const stale = [{ date: nextFirst, memoOnly: false }];
+    if (master[nextFirstCode]?.type === "泊") stale.push({ date: addDays(nextFirst, 1), memoOnly: true });
+    return stale;
+  }
+  return master[lastCode]?.type === "泊" ? [{ date: nextFirst, memoOnly: true }] : [];
+}
+
+// staleNextMonthRecords の記録を消す(利用者の権限で消すので、本人の記録だけが対象)
+export async function deleteRecords(ctx: Context, records: { date: string; memoOnly: boolean }[]): Promise<void> {
+  for (const r of records) {
+    let query = ctx.db.from("shift_records").delete().eq("date", r.date);
+    if (r.memoOnly) query = query.eq("code", "");
+    const { error } = await query;
+    if (error) throw error;
+  }
 }

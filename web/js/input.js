@@ -397,6 +397,11 @@ $("reset-run").addEventListener("click", async () => {
       state.dirty = false;
       await load();
       if ($("status").className === "error") return; // 読み直しの失敗を見せる
+    } else if (!state.registering && isPrev) {
+      // 登録していない変更は残すが、前の月の月末は空になったので、1日の非番だけ表示し直す
+      // (1日が非番でなくなるので、非番のメモも自動の値に戻る。サーバーも同じように消している)
+      state.prevLastCode = "";
+      codeChanged();
     }
     setStatus(message);
   } catch (err) {
