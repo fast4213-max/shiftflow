@@ -190,3 +190,4 @@ GitHub の Secrets に入れるもの(最初に本人が1回だけ): `SUPABASE_A
 - DB の停止対策は `keepalive()`(未ログインで呼べる関数)を cron-job.org から POST で呼ぶ。URL とキーは管理画面の設定タブに表示する
 - 自動デプロイは `deploy-supabase.yml`(`supabase db push` と `supabase functions deploy`)。Secrets が未登録のあいだは、何もせずに終わる(失敗にしない)
 - 内部用のメールは `<社員番号>@users.shiftflow.invalid`、管理用は `admin@admin.shiftflow.invalid`
+- **出勤を2件で登録する設定**(`user_settings.split_day_events`。利用者が設定画面で選ぶ): 勤務用の出勤(日勤・泊)の終日の予定に続けて、メモの1行目の時間で時間つきの予定(日本時間)を作る。日勤は出勤〜退勤、泊は出勤から1時間。手で書き換えたメモの全角の数字や「～」も時間として読む。時間でないメモ・手入力の番号・出勤が24時以降のときは1件のまま(24時以降は翌日の予定になり、月末だと翌月1日に入って、登録し直しで消えずに増えるため)。削除は印で探すので、時間つきの予定も消える

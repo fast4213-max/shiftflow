@@ -64,9 +64,10 @@ async function main() {
     .catch((err) => ($("sa-email").value = "取得できませんでした: " + err.message));
   $("copy-sa").addEventListener("click", () => copyText($("sa-email").value, $("copy-sa")));
 
-  // 区所やIDを書き換えたら、保存するまでテスト済みの表示と「勤務入力へ」を消す
-  ["office", "work-id", "holiday-id"].forEach((id) =>
-    $(id).addEventListener(id === "office" ? "change" : "input", () => {
+  // 区所・ID・「出勤を2件で登録する」を変えたら、保存するまでテスト済みの表示と「勤務入力へ」を消す
+  // (保存せずに勤務入力へ進むと、変えた設定が使われないため)
+  ["office", "work-id", "holiday-id", "split-day"].forEach((id) =>
+    $(id).addEventListener(id === "office" || id === "split-day" ? "change" : "input", () => {
       message("result", "");
       $("go-input").classList.add("hidden");
     })

@@ -128,7 +128,8 @@ export type PlannedEvent = {
   second?: { title: string; description: string; startMin: number; endMin: number };
 };
 
-// 予定を作る。休日用のカレンダーが無い人の「休日」の予定は作らない(skipped に数える)
+// 予定を作る。休日用のカレンダーが無い人の「休日」の予定は作らない(skipped に数える)。
+// created は作った予定の数(出勤を2件で登録する人の時間の予定も数える。リセットで消した件数と合うように)
 export async function createEvents(
   calendars: Calendars,
   events: PlannedEvent[],
@@ -165,7 +166,8 @@ export async function createEvents(
       }
     }
   });
-  return { created: targets.length, skipped: events.length - targets.length };
+  const seconds = targets.filter((e) => e.second).length;
+  return { created: targets.length + seconds, skipped: events.length - targets.length };
 }
 
 // 登録する予定を決める。翌月1日の非番(月末が泊)は必ず作る。
@@ -216,16 +218,36 @@ export async function deleteRecords(ctx: Context, records: { date: string; memoO
 // 非番・休日・手入力、メモの1行目が時間でないもの(手で書き換えたとき)は、1件のまま
 export const SECOND_EVENT_MINUTES = 60;
 
+// メモの1行目の時間(「10:15〜19:02」「9:01」)を、その日の0時からの分にする。時間として読めなければ null。
+// 手で書き換えたメモも読めるよう、全角の数字・コロン、「～」「~」「-」「ー」、間の空白も受け付ける
+// (スマホや PC の日本語入力では、「〜」が全角の「～」に、「-」が「ー」になることが多い)。
+// 出勤が24時以降(25:00 など)は読まない。翌日の時間の予定になり、月末だと翌月1日に入って、
+// 登録し直しても消えずに増えていくため(その日は1件のまま)。退勤の分が読めなければ、出勤だけとみなす
+export function parseTimeRange(text: string): { start: number; end: number | null } | null {
+  const s = text
+    .replace(/[０-９：]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .replace(/[〜～~\-－−ー]/g, "〜")
+    .replace(/\s+/g, "");
+  const m = s.match(/^(\d{1,2}):(\d{2})(?:〜(?:(\d{1,2}):(\d{2}))?)?$/);
+  if (!m) return null;
+  const [sh, sm] = [Number(m[1]), Number(m[2])];
+  if (sh > 23 || sm > 59) return null;
+  const start = sh * 60 + sm;
+  if (m[3] === undefined) return { start, end: null };
+  const [eh, em] = [Number(m[3]), Number(m[4])];
+  return { start, end: eh > 47 || em > 59 ? null : eh * 60 + em };
+}
+
 export function splitDayEvents(events: PlannedEvent[], master: Record<string, any>): PlannedEvent[] {
   return events.map((e) => {
     if (e.calendar !== "work" || e.kind !== "day") return e;
     const type = master[e.title]?.type;
     if (type !== "日勤" && type !== "泊") return e;
     const time = e.description.split("\n")[0].trim();
-    const m = time.match(/^(\d{1,2}):(\d{2})(?:〜(\d{1,2}):(\d{2}))?$/);
-    if (!m) return e;
-    const startMin = Number(m[1]) * 60 + Number(m[2]);
-    let endMin = m[3] === undefined || type === "泊" ? startMin + SECOND_EVENT_MINUTES : Number(m[3]) * 60 + Number(m[4]);
+    const range = parseTimeRange(time);
+    if (!range) return e;
+    const startMin = range.start;
+    let endMin = range.end === null || type === "泊" ? startMin + SECOND_EVENT_MINUTES : range.end;
     if (endMin <= startMin) endMin = startMin + SECOND_EVENT_MINUTES;
     return { ...e, second: { title: time, description: "", startMin, endMin } };
   });

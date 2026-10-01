@@ -2,7 +2,7 @@
 //   deno test supabase/functions --allow-read --allow-env
 
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { createEvents, deleteAppEvents, eventsToRegister, splitDayEvents, staleNextMonthRecords } from "./shift-calendar.ts";
+import { createEvents, deleteAppEvents, eventsToRegister, parseTimeRange, splitDayEvents, staleNextMonthRecords } from "./shift-calendar.ts";
 import { AppError } from "./http.ts";
 import { indexMaster } from "./plan.js";
 
@@ -298,6 +298,42 @@ Deno.test("splitDayEvents: 勤務用の出勤(日勤・泊)だけ、出勤時間
   assertEquals(out[6].second, { title: "5:00〜4:00", description: "", startMin: 300, endMin: 360 });
 });
 
+Deno.test("parseTimeRange: 手で書き換えたメモの全角・「～」なども時間として読む。24時以降の出勤は読まない", () => {
+  assertEquals(parseTimeRange("10:15〜19:02"), { start: 615, end: 1142 });
+  assertEquals(parseTimeRange("9:01"), { start: 541, end: null });
+  // 日本語入力で入りやすい形(全角の「～」、全角の数字・コロン、「-」「ー」、間の空白)
+  assertEquals(parseTimeRange("8:00～17:00"), { start: 480, end: 1020 });
+  assertEquals(parseTimeRange("１０：００〜１８：３０"), { start: 600, end: 1110 });
+  assertEquals(parseTimeRange("8:00 - 17:00"), { start: 480, end: 1020 });
+  assertEquals(parseTimeRange("8:00ー17:00"), { start: 480, end: 1020 });
+  assertEquals(parseTimeRange("8:00~17:00"), { start: 480, end: 1020 });
+  // 退勤を消した・読めない(出勤だけとみなす)
+  assertEquals(parseTimeRange("9:00〜"), { start: 540, end: null });
+  assertEquals(parseTimeRange("9:00〜17:75"), { start: 540, end: null });
+  // 退勤は24時を超えてもよい(日をまたぐ)
+  assertEquals(parseTimeRange("15:00〜25:30"), { start: 900, end: 1530 });
+  // 出勤が24時以降・時刻でない(翌日の予定になってしまうので読まない)
+  assertEquals(parseTimeRange("25:00"), null);
+  assertEquals(parseTimeRange("24:30〜26:00"), null);
+  assertEquals(parseTimeRange("9:75"), null);
+  assertEquals(parseTimeRange("研修"), null);
+  assertEquals(parseTimeRange("9時〜17時"), null);
+  assertEquals(parseTimeRange(""), null);
+});
+
+Deno.test("splitDayEvents: 全角の「～」で書き換えたメモでも時間の予定を作り、24時以降の出勤は1件のまま(翌月1日に入らない)", () => {
+  const master = indexMaster([
+    { code: "25", kind: "日勤", weekday_start: "10:00", weekday_end: "18:30", holiday_start: "", holiday_end: "", stay: "" },
+    { code: "40", kind: "泊", weekday_start: "9:01", weekday_end: "", holiday_start: "", holiday_end: "", stay: "品川" },
+  ]);
+  const ev = (title: string, description: string) => ({ date: "2026-10-31", calendar: "work", kind: "day", title, description });
+  const out = splitDayEvents([ev("25", "8:00～17:00"), ev("40", "２３：３０\n品川"), ev("25", "25:00"), ev("40", "24:10\n品川")], master);
+  assertEquals(out[0].second, { title: "8:00～17:00", description: "", startMin: 480, endMin: 1020 });
+  assertEquals(out[1].second, { title: "２３：３０", description: "", startMin: 1410, endMin: 1470 });
+  assertEquals(out[2].second, undefined);
+  assertEquals(out[3].second, undefined);
+});
+
 Deno.test("createEvents: 番号は終日、2件目は日本時間の時間つきで作る", async () => {
   const posted: any[] = [];
   mockFetch((c) => {
@@ -306,13 +342,17 @@ Deno.test("createEvents: 番号は終日、2件目は日本時間の時間つき
       return Response.json({ id: "x" });
     }
   });
-  await createEvents({ work: "w@group.calendar.google.com", holiday: "" }, [
+  const result = await createEvents({ work: "w@group.calendar.google.com", holiday: "" }, [
     { date: "2026-10-01", calendar: "work", kind: "day", title: "25", description: "10:00〜18:30", second: { title: "10:00〜18:30", description: "", startMin: 600, endMin: 1110 } },
     { date: "2026-10-02", calendar: "work", kind: "day", title: "40", description: "23:30", second: { title: "23:30", description: "", startMin: 1410, endMin: 1470 } },
+    { date: "2026-10-03", calendar: "work", kind: "offduty", title: "〜", description: "9:30" },
   ]);
+  // 件数は、時間の予定も数える(リセットで消した件数と合うように)
+  assertEquals(result, { created: 5, skipped: 0 });
+  assertEquals(posted.length, 5);
   const allDay = posted.filter((b) => b.start.date);
   const timed = posted.filter((b) => b.start.dateTime);
-  assertEquals(allDay.map((b) => b.summary).sort(), ["25", "40"]);
+  assertEquals(allDay.map((b) => b.summary).sort(), ["25", "40", "〜"]);
   assertEquals(allDay.find((b) => b.summary === "25").description, "10:00〜18:30");
   const t25 = timed.find((b) => b.summary === "10:00〜18:30");
   assertEquals(t25.start, { dateTime: "2026-10-01T10:00:00", timeZone: "Asia/Tokyo" });
