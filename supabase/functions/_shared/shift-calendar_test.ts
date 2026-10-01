@@ -2,7 +2,7 @@
 //   deno test supabase/functions --allow-read --allow-env
 
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { createEvents, deleteAppEvents, eventsToRegister, parseTimeRange, splitDayEvents, staleNextMonthRecords } from "./shift-calendar.ts";
+import { createEvents, deleteAppEvents, eventsToRegister, parseTimeRange, isOffTitle, splitDayEvents, staleNextMonthRecords } from "./shift-calendar.ts";
 import { AppError } from "./http.ts";
 import { buildPlan, indexMaster } from "./plan.js";
 
@@ -379,4 +379,12 @@ Deno.test("手入力の番号: メモの時間から、buildPlan → splitDayEve
     ["2000", "１０：００―", 600, 660],
     ["2004", "", undefined, undefined],
   ]);
+});
+
+Deno.test("手入力の「〜」「-」「非番」「休」は、メモが時間でも1件のまま(泊の翌日に手で入れた非番)", () => {
+  const ev = (title: string) => ({ date: "2026-11-10", calendar: "work", kind: "day", title, description: "9:30" });
+  const out = splitDayEvents(["〜", "～", "-", "ー", "非番", "明け", "公休", "年休", "2001"].map(ev), {});
+  assertEquals(out.map((e) => e.second !== undefined), [false, false, false, false, false, false, false, false, true]);
+  assertEquals(isOffTitle("-"), true);
+  assertEquals(isOffTitle("201"), false);
 });

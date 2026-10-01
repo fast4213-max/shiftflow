@@ -215,7 +215,7 @@ export async function deleteRecords(ctx: Context, records: { date: string; memoO
 // 1件目=終日で、タイトルは番号・メモは今のまま(時間)。2件目=出勤時間から始まる時間つきの予定(タイトルはメモの1行目。例「10:15〜19:02」)。
 // 終日の予定は時間つきの予定より上に出るので、番号が上・時間が下に並ぶ。
 // 日勤は退勤まで、泊は出勤から1時間(泊の翌日は、終日の非番にメモで退勤時間が入る)。
-// 非番・休日、メモの1行目が時間でないもの(手で書き換えたとき)は、1件のまま
+// 非番・休日(手入力の「〜」「非番」「休」なども)、メモの1行目が時間でないもの(手で書き換えたとき)は、1件のまま
 export const SECOND_EVENT_MINUTES = 60;
 
 // メモの1行目の時間(「10:15〜19:02」「9:01」)を、その日の0時からの分にする。時間として読めなければ null。
@@ -238,10 +238,17 @@ export function parseTimeRange(text: string): { start: number; end: number | nul
   return { start, end: eh > 47 || em > 59 ? null : eh * 60 + em };
 }
 
+// 手入力の番号のうち、非番・休みを表すもの(「〜」「-」だけ、「非番」「明け」「休」を含む)は、メモに時間があっても分けない
+// (泊の翌日に手で「〜」や「非番」と入れて、メモに退勤時間を書く使い方があるため)
+export function isOffTitle(title: string): boolean {
+  return /^[〜～~\-－−ー―—–‐‑‒─ｰ\s]+$/.test(title) || /非番|明け|休/.test(title);
+}
+
 export function splitDayEvents(events: PlannedEvent[], master: Record<string, any>): PlannedEvent[] {
   return events.map((e) => {
     if (e.calendar !== "work" || e.kind !== "day") return e;
     // マスタにない番号(手入力)は日勤と同じ扱い(休日の番号は休日用カレンダーなので、上で外れる)
+    if (!master[e.title] && isOffTitle(e.title)) return e;
     const type = master[e.title]?.type ?? "日勤";
     if (type !== "日勤" && type !== "泊") return e;
     const time = e.description.split("\n")[0].trim();
