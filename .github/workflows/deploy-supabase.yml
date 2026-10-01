@@ -40,7 +40,9 @@ jobs:
       - if: steps.check.outputs.ready == 'true'
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # latest だと、最新版を調べるときに GitHub の回数制限で落ちることがあるので、版を固定する
+          # (上げたいときは、ここを書き換える)
+          version: 2.119.0
 
       # SQL の反映(まだ反映していない migrations のファイルだけが実行される)
       - if: steps.check.outputs.ready == 'true'
