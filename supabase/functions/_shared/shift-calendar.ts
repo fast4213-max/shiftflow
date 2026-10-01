@@ -199,14 +199,18 @@ export async function deleteRecords(ctx: Context, records: { date: string; memoO
   }
 }
 
+// 時間の予定のタイトルの頭に付ける文字。Googleカレンダーは同じ日の終日予定をタイトルの文字順に並べる
+// (作った順ではない)ので、数字の番号より後ろ(漢字)にして、番号が上・時間が下になるようにする
+export const TIME_TITLE_PREFIX = "出勤 ";
+
 // 出勤を終日2件に分ける設定のとき、勤務用の出勤(日勤・泊)の予定に、時間の予定を付ける。
-// 1件目=番号(メモは今のまま)、2件目=時間(メモの1行目。例「10:15〜19:02」)。非番・休日・手入力は変えない。
+// 1件目=番号(メモは今のまま)、2件目=時間(メモの1行目に頭の文字を付ける。例「出勤 10:15〜19:02」)。非番・休日・手入力は変えない。
 export function splitDayEvents(events: PlannedEvent[], master: Record<string, any>): PlannedEvent[] {
   return events.map((e) => {
     if (e.calendar !== "work" || e.kind !== "day") return e;
     const type = master[e.title]?.type;
     if (type !== "日勤" && type !== "泊") return e;
     const time = e.description.split("\n")[0].trim();
-    return time ? { ...e, second: { title: time, description: "" } } : e;
+    return time ? { ...e, second: { title: TIME_TITLE_PREFIX + time, description: "" } } : e;
   });
 }

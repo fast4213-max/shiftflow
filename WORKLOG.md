@@ -971,7 +971,13 @@ supabase/migrations/20261001000000_split_day_events.sql, supabase/functions/_sha
 web/settings.html, web/js/settings.js, web/js/app.js, web/css/app.css, web/help.html, web/css/help.css, web/img/manual/*, docs/manual/manual.html, web/manual.pdf, WORKLOG.md
 ### 決めたこと(理由)
 - 時間の予定のタイトルは、番号の予定のメモの1行目(手で書き換えた時間もそのまま使う)。泊は出勤時間だけ(例: 9:01)
-- 設定の画面の写真(settings.png)は、チェックが無い古いまま(撮り直していない)
 ### 私が手動でやる作業の残り
 - 反映後、Actions の「Deploy Supabase」(migration を含む)「GitHub Pages」「Test」が緑か確認する
 - 設定でチェックを入れて登録し、Googleカレンダーで番号が上・時間が下に並ぶか実機で確認する
+
+### 追記(同日): 並びが逆だった・設定の写真
+- 実機で、時間の予定が上・番号が下に並んだ。Googleカレンダーは同じ日の終日予定を、作った順ではなくタイトルの文字順で並べるため
+  (「10:00〜…」は「25」より前になる)。時間の予定のタイトルの頭に「出勤 」を付け、数字の番号より後ろ(漢字)になるようにした(例: 出勤 10:00〜18:30)。
+  作る順は番号→時間のまま。テストを1件追加(番号のタイトルより文字順で後ろになる)。次の登録から直る(すでに登録した月は、登録し直す)
+- 設定画面の写真(settings.png)を、チェック欄が入った今の画面で撮り直した(架空のデータ・Playwrightで撮影)。説明書・使い方ページ・PDFを作り直した
+- 私が手動でやる作業: 反映後、登録し直して番号が上・「出勤 時間」が下に並ぶか実機で確認する
