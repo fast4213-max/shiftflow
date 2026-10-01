@@ -12,6 +12,7 @@ import {
   eventsToRegister,
   listAppEvents,
   loadVerifiedCalendars,
+  splitDayEvents,
   staleNextMonthRecords,
   withUserLock,
 } from "../_shared/shift-calendar.ts";
@@ -68,7 +69,9 @@ serve(async (req) => {
     }));
 
     const existing = await listAppEvents(calendars, year, month);
-    const events = eventsToRegister(plan.events, existing, nextFirst);
+    const registered = eventsToRegister(plan.events, existing, nextFirst);
+    // 出勤を終日2件(番号・時間)に分ける設定の人は、次回の登録から時間の予定も作る
+    const events = calendars.splitDayEvents ? splitDayEvents(registered, master) : registered;
     // 翌月1日の予定(月末が泊なら非番、泊でなければ翌月1日の記録の予定)を作るときは、
     // 翌月1日にあるアプリの予定を全部消してから作り直す(重ならないように)。
     // 翌月1日が非番なら翌月2日は非番にならないので、翌月2日に残った非番(翌月1日が泊だったとき)も消す

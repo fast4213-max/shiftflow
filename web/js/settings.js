@@ -15,7 +15,7 @@ function updateGoInput() {
 
 // 利用者が書けるのは区所とカレンダーIDの列だけ(検証済みフラグは Edge Function が書く)
 async function saveSettings(values) {
-  const columns = "work_calendar_id, holiday_calendar_id, verified_at, office_id";
+  const columns = "work_calendar_id, holiday_calendar_id, verified_at, office_id, split_day_events";
   const { data, error } = settings
     ? await supabase.from("user_settings").update(values).eq("user_id", session.user.id).select(columns).single()
     : await supabase.from("user_settings").insert({ user_id: session.user.id, ...values }).select(columns).single();
@@ -51,6 +51,7 @@ async function main() {
   if (settings) {
     $("work-id").value = settings.work_calendar_id || "";
     $("holiday-id").value = settings.holiday_calendar_id || "";
+    $("split-day").checked = !!settings.split_day_events;
   }
   if (!isReady(settings)) $("first-time").classList.remove("hidden");
   if (isReady(settings)) message("result", "接続テスト済みです。", "ok");
@@ -77,6 +78,7 @@ async function main() {
       office_id: office ? Number(office) : null,
       work_calendar_id: $("work-id").value.trim(),
       holiday_calendar_id: $("holiday-id").value.trim(),
+      split_day_events: $("split-day").checked,
     };
     $("save").disabled = true;
     $("go-input").classList.add("hidden");

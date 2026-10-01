@@ -953,3 +953,25 @@ supabase/functions/register-month/index.ts, supabase/functions/delete-month/inde
 ### 私が手動でやる作業の残り
 - 反映後(1〜2分)、GitHub の Actions で「Deploy Supabase」「GitHub Pages」「Test」が緑になっていることを確認する
 - スマホで勤務入力を開き直し、一番下までスクロールして月末の行が押せること、登録がいつもどおりできることを確認する
+
+## 2026-10-01 機能追加: 出勤を終日2件(番号・時間)で登録する設定 / 使い方ページを説明書(PDF)と同じ内容に
+### 指示
+- 設定の3.に、出勤だけ終日の予定を2件(上が番号・下が時間)で登録するチェックを足す。メモの時間は今のまま、非番も今のまま。次回の登録から使い、登録済みの予定は何もしない。休日は今のまま
+- 使い方ページをPDFの説明書と同じ(画像つき)にする。main に反映する
+### やったこと
+- DB: `user_settings.split_day_events`(boolean・既定 false)を追加(migration 20261001000000)。利用者が書ける列に追加
+- 設定画面: 3.に「出勤を終日の予定2件で登録する」のチェックを追加。「保存して接続テスト」で保存する
+- 登録(register-month): 設定がオンのとき、勤務用の出勤(日勤・泊)の予定に、時間の予定(メモの1行目)を続けて作る。番号の予定を先に作るので、カレンダーで番号が上、時間が下になる(並びは実機で確認する)。非番・休日・手入力は1件のまま
+- 削除・リセットは印(shiftflow)で消すので、2件とも消える。設定を変えても、登録済みの予定は触らない(登録し直した月から)
+- 使い方ページ(web/help.html)を、説明書(docs/manual/manual.html)から作り直し、画像(web/img/manual/)を入れた。登録用アドレスのコピー欄は残した。
+  #share / #test のリンクは残してある。説明書にも「出勤を2件で登録する」を追記し、PDFを作り直した
+- テストを2件追加(splitDayEvents・番号→時間の作成順)。Deno のテスト46件は通過
+### 変更したファイル
+supabase/migrations/20261001000000_split_day_events.sql, supabase/functions/_shared/shift-calendar.ts(+_test.ts), supabase/functions/register-month/index.ts,
+web/settings.html, web/js/settings.js, web/js/app.js, web/css/app.css, web/help.html, web/css/help.css, web/img/manual/*, docs/manual/manual.html, web/manual.pdf, WORKLOG.md
+### 決めたこと(理由)
+- 時間の予定のタイトルは、番号の予定のメモの1行目(手で書き換えた時間もそのまま使う)。泊は出勤時間だけ(例: 9:01)
+- 設定の画面の写真(settings.png)は、チェックが無い古いまま(撮り直していない)
+### 私が手動でやる作業の残り
+- 反映後、Actions の「Deploy Supabase」(migration を含む)「GitHub Pages」「Test」が緑か確認する
+- 設定でチェックを入れて登録し、Googleカレンダーで番号が上・時間が下に並ぶか実機で確認する

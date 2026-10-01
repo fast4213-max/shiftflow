@@ -7,14 +7,14 @@ import { AppError } from "./http.ts";
 import { APP_TAG, calendarAccessError, deleteEvent, insertAllDayEvent, listEvents, runPool } from "./google.ts";
 
 // holiday は空でもよい(休日用のカレンダーを使わない人。種別が「休日」の予定は登録しない)
-export type Calendars = { work: string; holiday: string; officeId?: number | null };
+export type Calendars = { work: string; holiday: string; officeId?: number | null; splitDayEvents?: boolean };
 
 const CONCURRENCY = 4;
 
 export async function loadVerifiedCalendars(ctx: Context): Promise<Calendars> {
   const { data, error } = await ctx.db
     .from("user_settings")
-    .select("work_calendar_id, holiday_calendar_id, verified_at, office_id")
+    .select("work_calendar_id, holiday_calendar_id, verified_at, office_id, split_day_events")
     .eq("user_id", ctx.userId)
     .maybeSingle();
   if (error) throw error;
@@ -24,7 +24,7 @@ export async function loadVerifiedCalendars(ctx: Context): Promise<Calendars> {
   if (!data.verified_at) {
     throw new AppError(400, "設定画面で「接続テスト」を行ってください。", "not_verified");
   }
-  return { work: data.work_calendar_id, holiday: data.holiday_calendar_id, officeId: data.office_id };
+  return { work: data.work_calendar_id, holiday: data.holiday_calendar_id, officeId: data.office_id, splitDayEvents: !!data.split_day_events };
 }
 
 // 二重実行防止のロックを取って fn を実行する
@@ -121,6 +121,8 @@ export type PlannedEvent = {
   kind: string;
   title: string;
   description: string;
+  // 番号の予定のあとに続けて作る、時間の予定(出勤を終日2件に分ける設定のとき)
+  second?: { title: string; description: string };
 };
 
 // 予定を作る。休日用のカレンダーが無い人の「休日」の予定は作らない(skipped に数える)
@@ -139,6 +141,16 @@ export async function createEvents(
         description: e.description,
         kind: e.kind,
       });
+      // 番号を先に作ってから時間を作る(カレンダーで番号が上、時間が下に並ぶように)
+      if (e.second) {
+        await insertAllDayEvent(calendarId, {
+          date: e.date,
+          endDate: addDays(e.date, 1),
+          title: e.second.title,
+          description: e.second.description,
+          kind: e.kind,
+        });
+      }
     } catch (err) {
       throw calendarAccessError(err, label(calendars, calendarId));
     }
@@ -185,4 +197,16 @@ export async function deleteRecords(ctx: Context, records: { date: string; memoO
     const { error } = await query;
     if (error) throw error;
   }
+}
+
+// 出勤を終日2件に分ける設定のとき、勤務用の出勤(日勤・泊)の予定に、時間の予定を付ける。
+// 1件目=番号(メモは今のまま)、2件目=時間(メモの1行目。例「10:15〜19:02」)。非番・休日・手入力は変えない。
+export function splitDayEvents(events: PlannedEvent[], master: Record<string, any>): PlannedEvent[] {
+  return events.map((e) => {
+    if (e.calendar !== "work" || e.kind !== "day") return e;
+    const type = master[e.title]?.type;
+    if (type !== "日勤" && type !== "泊") return e;
+    const time = e.description.split("\n")[0].trim();
+    return time ? { ...e, second: { title: time, description: "" } } : e;
+  });
 }

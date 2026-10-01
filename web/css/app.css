@@ -53,6 +53,8 @@ input[type="text"], input[type="email"], input[type="password"], input:not([type
 .row > input { flex: 1; min-width: 0; }
 select { font: inherit; font-size: 1rem; padding: 8px; border: 1px solid #bbb; border-radius: 6px; background: #fff; width: 100%; }
 label { display: block; font-weight: bold; margin: 12px 0 4px; }
+label.check { display: flex; gap: 8px; align-items: flex-start; }
+label.check input { width: auto; margin-top: 4px; flex: none; }
 code, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; word-break: break-all; }
 .hidden { display: none !important; }
 

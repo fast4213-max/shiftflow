@@ -40,6 +40,9 @@
   .mono { font-family: "IPAGothic", monospace; background: #f1f3f4; padding: 0 1mm; border-radius: 1mm; }
   .qa dt { font-weight: bold; margin-top: 3mm; }
   .qa dd { margin: 0 0 1mm 0; }
+  .mock { width: 38mm; border: 1px solid #dadce0; border-radius: 2mm; padding: 1.5mm; margin: 2mm 0; background: #fafafa; }
+  .mock .mockday { font-size: 9pt; font-weight: bold; text-align: center; }
+  .mock .pill { background: #7b9cf2; color: #fff; border-radius: 1mm; font-size: 8pt; padding: 0 1.5mm; margin-top: 0.8mm; }
   .foot { color: #5f6368; font-size: 8.5pt; margin-top: 6mm; }
 </style>
 </head>
@@ -79,6 +82,7 @@
     <tr><th>種類</th><th>入るカレンダー</th><th>タイトル</th><th>メモ</th></tr>
     <tr><td>泊</td><td>勤務用</td><td>番号</td><td>出勤時間(2行目に泊地)</td></tr>
     <tr><td>日勤</td><td>勤務用</td><td>番号</td><td>出勤〜退勤</td></tr>
+    <tr><td>出勤を2件で登録(設定で選んだ人)</td><td>勤務用</td><td>番号の予定と、時間の予定(出勤〜退勤)の2つ</td><td>番号の予定のメモは今まで通り</td></tr>
     <tr><td>非番(泊の翌日)</td><td>勤務用</td><td>〜</td><td>退勤時間</td></tr>
     <tr><td>休日(公休・年休など)</td><td>休日用(なければ登録しない)</td><td>特休・公休・年休など</td><td>なし</td></tr>
   </table>
@@ -199,6 +203,7 @@
         <li><span class="n">2</span> 登録用アドレスは、手順3で共有に使ったものです(共有がまだの人は、手順3を先に行います)</li>
         <li><span class="n">3</span> 「勤務用カレンダーID」に、手順4でコピーしたIDを貼り付ける</li>
         <li>休日用のカレンダーを作った人は、「休日用カレンダーID」にそのIDを貼り付ける(使わない人は空のまま)</li>
+        <li>Googleカレンダーだけで勤務を見る人は、「<b>出勤を終日の予定2件で登録する</b>」にチェックを入れる(下の「出勤を2件で登録する」を見てください。ふだんのアプリの使い方なら、そのままで大丈夫です)</li>
         <li><span class="n">4</span> 「<b>保存して接続テスト</b>」を押す</li>
       </ol>
       <div class="note">
@@ -252,6 +257,15 @@
       <h3>カレンダーに入った予定</h3>
       <p>登録すると、Googleカレンダーに、番号のタイトルの終日の予定が入ります(泊の翌日は「〜」の非番)。</p>
       <figure><img src="img/g-result.png"><figcaption>登録後のGoogleカレンダー(例)</figcaption></figure>
+      <h3>出勤を2件で登録する(Googleカレンダーだけで見る人向け)</h3>
+      <p>設定画面の「出勤を終日の予定2件で登録する」にチェックを入れると、出勤の日(泊・日勤)に、終日の予定が<b>2つ</b>並びます。上が<b>番号</b>、下が<b>時間</b>です。</p>
+      <div class="mock"><div class="mockday">1</div><div class="pill">25</div><div class="pill">10:00〜18:30</div></div>
+      <ul>
+        <li>メモの時間は、今までどおり番号の予定に入ります</li>
+        <li>非番・休日は今までどおり(1件)です</li>
+        <li><b>次に登録する分から</b>変わります。すでに登録した予定は変わらないので、変えたい月は、登録し直します(予定は作り直されます)</li>
+        <li>チェックを外せば、元の1件に戻ります(これも登録し直した月から)</li>
+      </ul>
       <h3>リセット(カレンダーから消す)</h3>
       <p>「<b>リセット</b>」(<span class="n">4</span>)を押して月を選び、「削除」を押すと、その月にこのアプリで登録した予定を、カレンダーから消し、画面の入力内容も空にします。手で入れた予定は消えません。</p>
     </div>

@@ -2,7 +2,7 @@
 //   deno test supabase/functions --allow-read --allow-env
 
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { createEvents, deleteAppEvents, eventsToRegister, staleNextMonthRecords } from "./shift-calendar.ts";
+import { createEvents, deleteAppEvents, eventsToRegister, splitDayEvents, staleNextMonthRecords } from "./shift-calendar.ts";
 import { AppError } from "./http.ts";
 import { indexMaster } from "./plan.js";
 
@@ -269,4 +269,40 @@ Deno.test("eventsToRegister: 翌月1日の非番は必ず作り、翌月1日の�
   assertEquals(eventsToRegister(planned, [], "2026-11-01"), [planned[0]]);
   // 月末が泊 → 非番は必ず作る
   assertEquals(eventsToRegister(offduty, [], "2026-11-01"), offduty);
+});
+
+Deno.test("splitDayEvents: 勤務用の出勤(日勤・泊)だけ時間の予定を付ける", () => {
+  const master = indexMaster([
+    { code: "25", kind: "日勤", weekday_start: "10:00", weekday_end: "18:30", holiday_start: "", holiday_end: "", stay: "" },
+    { code: "40", kind: "泊", weekday_start: "9:01", weekday_end: "", holiday_start: "", holiday_end: "", stay: "品川" },
+    { code: "休", kind: "休日", weekday_start: "", weekday_end: "", holiday_start: "", holiday_end: "", stay: "" },
+  ]);
+  const ev = (title: string, description: string, over: Record<string, string> = {}) =>
+    ({ date: "2026-10-01", calendar: "work", kind: "day", title, description, ...over });
+  const out = splitDayEvents([
+    ev("25", "10:00〜18:30"),
+    ev("40", "9:01\n品川"),
+    ev("休", "", { calendar: "holiday" }),
+    ev("〜", "7:00", { kind: "offduty" }),
+    ev("手入力", "メモ"),
+  ], master);
+  assertEquals(out[0].second, { title: "10:00〜18:30", description: "" });
+  assertEquals(out[1].second, { title: "9:01", description: "" });
+  assertEquals(out[2].second, undefined);
+  assertEquals(out[3].second, undefined);
+  assertEquals(out[4].second, undefined);
+});
+
+Deno.test("createEvents: 番号の予定を作ってから時間の予定を作る", async () => {
+  const titles: string[] = [];
+  mockFetch((c) => {
+    if (c.method === "POST") {
+      titles.push(c.body.summary);
+      return Response.json({ id: "x" });
+    }
+  });
+  await createEvents({ work: "w@group.calendar.google.com", holiday: "" }, [
+    { date: "2026-10-01", calendar: "work", kind: "day", title: "25", description: "10:00〜18:30", second: { title: "10:00〜18:30", description: "" } },
+  ]);
+  assertEquals(titles, ["25", "10:00〜18:30"]);
 });

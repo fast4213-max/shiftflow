@@ -45,6 +45,8 @@
       <label for="holiday-id">休日用カレンダーID(なくてもよい)</label>
       <input id="holiday-id" class="mono" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="使わなければ空のまま">
       <p class="muted">休日用を空にすると、「休日」の番号(公休・年休など)はカレンダーに登録されません(勤務・非番だけ登録します)。休みも勤務用のカレンダーに入れたいときは、ここに<b>勤務用と同じID</b>を入れてください。</p>
+      <label class="check"><input id="split-day" type="checkbox"> 出勤を終日の予定2件で登録する(Googleカレンダーだけで見る人向け)</label>
+      <p class="muted">チェックを入れると、出勤の日に「番号」と「時間」の予定が2つ並びます(例: <b>25</b> と <b>10:00〜18:30</b>)。メモの時間は今のままです。<b>次に登録する分から</b>変わり、すでに登録した予定は変わりません。非番は変わりません。</p>
       <button id="save" class="primary block" type="button">保存して接続テスト</button>
       <p id="result" class="message"></p>
       <p id="go-input" class="hidden"><a href="input.html">勤務入力へ進む →</a></p>

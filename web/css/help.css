@@ -14,3 +14,28 @@
 .help .updated { margin-top: 32px; border-top: 1px solid var(--line); padding-top: 12px; }
 .help .trouble h3 { font-size: 0.95rem; margin: 14px 0 4px; color: var(--danger); }
 .help .trouble p, .help .trouble ul { margin: 4px 0; }
+
+/* 説明書(PDFと同じ内容)の部品 */
+.help .warn { background: #fff4e5; border: 1px solid #f5c98a; border-radius: 8px; padding: 10px 12px; margin: 12px 0; }
+.help .note { background: #e8f0fe; border-color: #b7cdf5; }
+.help .n { display: inline-flex; width: 1.4em; height: 1.4em; border-radius: 50%; background: #e53935; color: #fff; font-weight: bold; font-size: 0.8em; align-items: center; justify-content: center; vertical-align: 0.1em; }
+.help .flow { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.help .flow > div { display: flex; align-items: center; gap: 10px; padding: 10px; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
+.help .flow b.n { flex: none; width: 2em; height: 2em; font-size: 0.9em; background: #1a73e8; vertical-align: baseline; }
+.help .flow small { color: var(--muted); }
+.help figure { margin: 10px 0; text-align: center; }
+.help figure img { max-width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+.help figcaption { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+.help table.t { border-collapse: collapse; width: 100%; background: #fff; font-size: 0.85rem; margin: 8px 0; }
+.help table.t th, .help table.t td { border: 1px solid var(--line); padding: 6px; text-align: left; vertical-align: top; }
+.help table.t th { background: #f1f3f4; }
+.help .mono { background: #f1f3f4; padding: 0 4px; border-radius: 4px; }
+.help .addr-example { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; font-size: 0.8rem; }
+.help .qa dt { font-weight: bold; margin-top: 14px; }
+.help .qa dd { margin: 2px 0 0; }
+.help .foot { color: var(--muted); font-size: 0.8rem; }
+  .mock { width: 150px; border: 1px solid #dadce0; border-radius: 6px; padding: 6px; margin: 6px 0; background: #fafafa; }
+  .mock .mockday { font-size: 9pt; font-weight: bold; text-align: center; }
+  .mock .pill { background: #7b9cf2; color: #fff; border-radius: 4px; font-size: 8pt; padding: 0 6px; margin-top: 3px; }
+.help .cols { display: flex; flex-direction: column; gap: 4px; }
+@media (min-width: 640px) { .help .cols { flex-direction: row; gap: 16px; align-items: flex-start; } .help .cols > * { flex: 1; min-width: 0; } }
