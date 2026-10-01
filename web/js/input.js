@@ -101,6 +101,16 @@ async function loadMonth(id) {
   setStatus(state.masterList.length ? "" : "この区所の勤務コードのマスタが空です。管理者に登録を頼んでください。", !state.masterList.length);
 }
 
+// 手入力した番号が一覧にあれば、一覧の番号を返す(無ければ "")。
+// 全角の英数字は半角にして比べる(スマホの日本語キーボードで「１０１」と入っても、一覧の「101」として扱うため)
+function masterCodeOf(value) {
+  const half = (s) => s.replace(/[！-～]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).trim();
+  const typed = value.trim();
+  const found = state.masterList.find((m) => m.code === typed) ||
+    state.masterList.find((m) => half(m.code) === half(typed));
+  return found ? found.code : "";
+}
+
 function entryOf(key) {
   if (!state.entries[key]) state.entries[key] = { code: "", memo: "" };
   return state.entries[key];
@@ -197,11 +207,11 @@ function render() {
           e.code = input.value || " ";
           edited();
         });
-        // 入れ終えたとき、一覧にある番号なら、その番号として表示し直す
+        // 入れ終えたとき、一覧にある番号なら(全角で入れても)、その番号として表示し直す
         // (登録ではサーバーが一覧の番号として扱う。泊なら翌日が非番になる)
         input.addEventListener("change", () => {
-          const value = input.value.trim();
-          if (!state.master[value]) return;
+          const value = masterCodeOf(input.value);
+          if (!value) return;
           e.code = value;
           codeChanged();
         });

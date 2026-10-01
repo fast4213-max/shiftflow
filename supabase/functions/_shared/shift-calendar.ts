@@ -219,14 +219,14 @@ export async function deleteRecords(ctx: Context, records: { date: string; memoO
 export const SECOND_EVENT_MINUTES = 60;
 
 // メモの1行目の時間(「10:15〜19:02」「9:01」)を、その日の0時からの分にする。時間として読めなければ null。
-// 手で書き換えたメモも読めるよう、全角の数字・コロン、「～」「~」「-」「ー」「―」「−」などの横棒、間の空白も受け付ける
+// 手で書き換えたメモも読めるよう、全角の数字・コロン、「～」「~」「-」「ー」「―」「−」などの横棒、「→」「から」、間の空白も受け付ける
 // (スマホや PC の日本語入力では、「〜」が全角の「～」に、「-」が「ー」になることが多い)。
 // 出勤が24時以降(25:00 など)は読まない。翌日の時間の予定になり、月末だと翌月1日に入って、
 // 登録し直しても消えずに増えていくため(その日は1件のまま)。退勤の分が読めなければ、出勤だけとみなす
 export function parseTimeRange(text: string): { start: number; end: number | null } | null {
   const s = text
     .replace(/[０-９：]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
-    .replace(/[〜～~\-－−ー―—–‐‑‒─ｰ]/g, "〜")
+    .replace(/から|[〜～~∼〰\-－−ー―—–‐‑‒─ｰ→⇒]/g, "〜")
     .replace(/\s+/g, "");
   const m = s.match(/^(\d{1,2}):(\d{2})(?:〜(?:(\d{1,2}):(\d{2}))?)?$/);
   if (!m) return null;
@@ -238,10 +238,16 @@ export function parseTimeRange(text: string): { start: number; end: number | nul
   return { start, end: eh > 47 || em > 59 ? null : eh * 60 + em };
 }
 
-// 手入力の番号のうち、非番・休みを表すもの(「〜」「-」だけ、「非番」「明け」「休」を含む)は、メモに時間があっても分けない
-// (泊の翌日に手で「〜」や「非番」と入れて、メモに退勤時間を書く使い方があるため)
+// 手入力の番号のうち、非番・休みを表すものは、メモに時間があっても分けない
+// (泊の翌日に手で「〜」や「非番」と入れて、メモに退勤時間を書く使い方があるため)。
+//   記号だけのもの(「〜」「-」「ー」「→」「・」など。文字も数字も無い)・「非」「明」だけのもの・「非番」「明け」「明番」を含むもの・
+//   「休」を含むもの(公休・年休など)。ただし「休出」「休日出勤」「休日勤務」のように「出」「勤」も含むものは出勤なので分ける
+//   (「明」は、明石・有明のような駅名の番号を非番にしないよう、それだけのときと「明け」「明番」だけを見る)
 export function isOffTitle(title: string): boolean {
-  return /^[〜～~\-－−ー―—–‐‑‒─ｰ\s]+$/.test(title) || /非番|明け|休/.test(title);
+  const t = title.trim();
+  if (!/[\p{L}\p{N}]/u.test(t.replace(/[ーｰ]/g, ""))) return true;
+  if (t === "非" || t === "明" || /非番|明け|明番/.test(t)) return true;
+  return /休/.test(t) && !/[出勤]/.test(t);
 }
 
 export function splitDayEvents(events: PlannedEvent[], master: Record<string, any>): PlannedEvent[] {

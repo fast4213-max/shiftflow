@@ -388,3 +388,18 @@ Deno.test("手入力の「〜」「-」「非番」「休」は、メモが時�
   assertEquals(isOffTitle("-"), true);
   assertEquals(isOffTitle("201"), false);
 });
+
+Deno.test("手入力の非番・休みの判定: 記号だけ・「明」「明番」も非番。「休出」「休日出勤」など出勤を表すもの・駅名の「明石」は勤務なので分ける", () => {
+  for (const t of ["→", "・", "×", "／", "…", "明", "明番", "非", "非番明け", "代休", "有休", "休み"]) assertEquals(isOffTitle(t), true, t);
+  for (const t of ["休出", "休日出勤", "休日勤務", "休勤", "2001", "研修", "A1", "ー1", "非常勤", "明石", "有明2"]) assertEquals(isOffTitle(t), false, t);
+  const ev = (title: string) => ({ date: "2026-11-10", calendar: "work", kind: "day", title, description: "9:00-17:00" });
+  const out = splitDayEvents(["休出", "休日出勤", "明", "→"].map(ev), {});
+  assertEquals(out.map((e) => e.second?.endMin), [1020, 1020, undefined, undefined]);
+});
+
+Deno.test("parseTimeRange: 区切りの「→」「から」も読む", () => {
+  for (const s of ["10:00→23:00", "10:00から23:00", "10:00 から 23:00", "10:00⇒23:00", "10:00〰23:00", "10:00∼23:00"]) {
+    assertEquals(parseTimeRange(s), { start: 600, end: 1380 }, s);
+  }
+  assertEquals(parseTimeRange("10:00から"), { start: 600, end: null });
+});
