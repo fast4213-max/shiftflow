@@ -214,7 +214,7 @@ export async function deleteRecords(ctx: Context, records: { date: string; memoO
 // 出勤を2件に分ける設定のとき、勤務用の出勤(日勤・泊)の予定に、出勤時間の予定(時間つき)を付ける。
 // 1件目=終日で、タイトルは番号・メモは今のまま(時間)。2件目=出勤時間から始まる時間つきの予定(タイトルはメモの1行目。例「10:15〜19:02」)。
 // 終日の予定は時間つきの予定より上に出るので、番号が上・時間が下に並ぶ。
-// 日勤は退勤まで、泊は出勤から1時間(泊の翌日は、終日の非番にメモで退勤時間が入る)。
+// 日勤は退勤まで(退勤が出勤より前の時刻なら翌日の退勤まで)、泊は出勤から1時間(泊の翌日は、終日の非番にメモで退勤時間が入る)。
 // 非番・休日(手入力の「〜」「非番」「休」なども)、メモの1行目が時間でないもの(手で書き換えたとき)は、1件のまま
 export const SECOND_EVENT_MINUTES = 60;
 
@@ -262,7 +262,9 @@ export function splitDayEvents(events: PlannedEvent[], master: Record<string, an
     if (!range) return e;
     const startMin = range.start;
     let endMin = range.end === null || type === "泊" ? startMin + SECOND_EVENT_MINUTES : range.end;
-    if (endMin <= startMin) endMin = startMin + SECOND_EVENT_MINUTES;
+    // 退勤が出勤より前の時刻(「22:00〜6:00」など)は、日をまたいで翌日の退勤とする。同じ時刻なら1時間
+    if (endMin < startMin) endMin += 1440;
+    if (endMin === startMin) endMin = startMin + SECOND_EVENT_MINUTES;
     return { ...e, second: { title: time, description: "", startMin, endMin } };
   });
 }

@@ -288,7 +288,8 @@ Deno.test("splitDayEvents: 勤務用の出勤(日勤・泊)だけ、出勤時間
     ev("手入力", "メモ"),
     ev("2001", "10:00-23:00"), // マスタにない番号(手入力)でも、メモが時間なら分ける
     ev("25", "遅れて出勤"), // メモを時間でないものに書き換えた
-    ev("25", "5:00〜4:00"), // 退勤が出勤より前なら1時間
+    ev("25", "22:00〜6:00"), // 退勤が出勤より前の時刻なら、翌日の退勤(日をまたぐ)
+    ev("25", "9:00〜9:00"), // 出勤と退勤が同じなら1時間
   ], master);
   assertEquals(out[0].second, { title: "10:00〜18:30", description: "", startMin: 600, endMin: 1110 });
   assertEquals(out[1].second, { title: "9:01", description: "", startMin: 541, endMin: 601 }); // 泊は出勤から1時間
@@ -297,7 +298,8 @@ Deno.test("splitDayEvents: 勤務用の出勤(日勤・泊)だけ、出勤時間
   assertEquals(out[4].second, undefined);
   assertEquals(out[5].second, { title: "10:00-23:00", description: "", startMin: 600, endMin: 1380 });
   assertEquals(out[6].second, undefined);
-  assertEquals(out[7].second, { title: "5:00〜4:00", description: "", startMin: 300, endMin: 360 });
+  assertEquals(out[7].second, { title: "22:00〜6:00", description: "", startMin: 1320, endMin: 1800 });
+  assertEquals(out[8].second, { title: "9:00〜9:00", description: "", startMin: 540, endMin: 600 });
 });
 
 Deno.test("parseTimeRange: 手で書き換えたメモの全角・「～」なども時間として読む。24時以降の出勤は読まない", () => {
