@@ -125,36 +125,37 @@ export type PlannedEvent = {
   second?: { title: string; description: string };
 };
 
+// 同じ日の2件(番号・時間)を、作った順(番号が先)にカレンダーで並べるための待ち時間。
+// Googleは作成時刻を秒単位で見ているらしく、ほぼ同時に作った2件は並びが決まらない(逆になることがある)ので、
+// 番号を全部作ってから、この時間をおいて時間の予定を作る(同じ日の2件は数秒以上あく)
+const SECOND_EVENT_DELAY_MS = 2000;
+
 // 予定を作る。休日用のカレンダーが無い人の「休日」の予定は作らない(skipped に数える)
 export async function createEvents(
   calendars: Calendars,
   events: PlannedEvent[],
 ): Promise<{ created: number; skipped: number }> {
   const targets = events.filter((e) => e.calendar !== "holiday" || calendars.holiday);
-  await runPool(targets, CONCURRENCY, async (e) => {
+  const insert = async (e: PlannedEvent, title: string, description: string) => {
     const calendarId = e.calendar === "holiday" ? calendars.holiday : calendars.work;
     try {
       await insertAllDayEvent(calendarId, {
         date: e.date,
         endDate: addDays(e.date, 1),
-        title: e.title,
-        description: e.description,
+        title,
+        description,
         kind: e.kind,
       });
-      // 番号を先に作ってから時間を作る(カレンダーで番号が上、時間が下に並ぶように)
-      if (e.second) {
-        await insertAllDayEvent(calendarId, {
-          date: e.date,
-          endDate: addDays(e.date, 1),
-          title: e.second.title,
-          description: e.second.description,
-          kind: e.kind,
-        });
-      }
     } catch (err) {
       throw calendarAccessError(err, label(calendars, calendarId));
     }
-  });
+  };
+  await runPool(targets, CONCURRENCY, (e) => insert(e, e.title, e.description));
+  const seconds = targets.filter((e) => e.second);
+  if (seconds.length) {
+    await new Promise((r) => setTimeout(r, SECOND_EVENT_DELAY_MS));
+    await runPool(seconds, CONCURRENCY, (e) => insert(e, e.second!.title, e.second!.description));
+  }
   return { created: targets.length, skipped: events.length - targets.length };
 }
 
@@ -199,18 +200,14 @@ export async function deleteRecords(ctx: Context, records: { date: string; memoO
   }
 }
 
-// 時間の予定のタイトルの頭に付ける文字。Googleカレンダーは同じ日の終日予定をタイトルの文字順に並べる
-// (作った順ではない)ので、数字の番号より後ろ(漢字)にして、番号が上・時間が下になるようにする
-export const TIME_TITLE_PREFIX = "出勤 ";
-
 // 出勤を終日2件に分ける設定のとき、勤務用の出勤(日勤・泊)の予定に、時間の予定を付ける。
-// 1件目=番号(メモは今のまま)、2件目=時間(メモの1行目に頭の文字を付ける。例「出勤 10:15〜19:02」)。非番・休日・手入力は変えない。
+// 1件目=番号(メモは今のまま)、2件目=時間(メモの1行目。例「10:15〜19:02」)。非番・休日・手入力は変えない。
 export function splitDayEvents(events: PlannedEvent[], master: Record<string, any>): PlannedEvent[] {
   return events.map((e) => {
     if (e.calendar !== "work" || e.kind !== "day") return e;
     const type = master[e.title]?.type;
     if (type !== "日勤" && type !== "泊") return e;
     const time = e.description.split("\n")[0].trim();
-    return time ? { ...e, second: { title: TIME_TITLE_PREFIX + time, description: "" } } : e;
+    return time ? { ...e, second: { title: time, description: "" } } : e;
   });
 }

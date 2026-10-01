@@ -2,7 +2,7 @@
 //   deno test supabase/functions --allow-read --allow-env
 
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { createEvents, deleteAppEvents, eventsToRegister, splitDayEvents, TIME_TITLE_PREFIX, staleNextMonthRecords } from "./shift-calendar.ts";
+import { createEvents, deleteAppEvents, eventsToRegister, splitDayEvents, staleNextMonthRecords } from "./shift-calendar.ts";
 import { AppError } from "./http.ts";
 import { indexMaster } from "./plan.js";
 
@@ -286,14 +286,14 @@ Deno.test("splitDayEvents: 勤務用の出勤(日勤・泊)だけ時間の予定
     ev("〜", "7:00", { kind: "offduty" }),
     ev("手入力", "メモ"),
   ], master);
-  assertEquals(out[0].second, { title: "出勤 10:00〜18:30", description: "" });
-  assertEquals(out[1].second, { title: "出勤 9:01", description: "" });
+  assertEquals(out[0].second, { title: "10:00〜18:30", description: "" });
+  assertEquals(out[1].second, { title: "9:01", description: "" });
   assertEquals(out[2].second, undefined);
   assertEquals(out[3].second, undefined);
   assertEquals(out[4].second, undefined);
 });
 
-Deno.test("createEvents: 番号の予定を作ってから時間の予定を作る", async () => {
+Deno.test("createEvents: 番号の予定を全部作ってから、時間をおいて時間の予定を作る", async () => {
   const titles: string[] = [];
   mockFetch((c) => {
     if (c.method === "POST") {
@@ -303,11 +303,9 @@ Deno.test("createEvents: 番号の予定を作ってから時間の予定を作�
   });
   await createEvents({ work: "w@group.calendar.google.com", holiday: "" }, [
     { date: "2026-10-01", calendar: "work", kind: "day", title: "25", description: "10:00〜18:30", second: { title: "10:00〜18:30", description: "" } },
+    { date: "2026-10-02", calendar: "work", kind: "day", title: "40", description: "9:01", second: { title: "9:01", description: "" } },
   ]);
-  assertEquals(titles, ["25", "10:00〜18:30"]);
-});
-
-Deno.test("時間の予定のタイトルは、数字の番号より文字順で後ろになる", () => {
-  const title = TIME_TITLE_PREFIX + "10:00〜18:30";
-  for (const code of ["25", "101", "9", "40"]) assert(code < title);
+  // 番号が全部先(同じ日の番号と時間は、間に待ち時間が入る)
+  assertEquals(titles.slice(0, 2).sort(), ["25", "40"]);
+  assertEquals(titles.slice(2).sort(), ["10:00〜18:30", "9:01"]);
 });
