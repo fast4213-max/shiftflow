@@ -215,18 +215,18 @@ export async function deleteRecords(ctx: Context, records: { date: string; memoO
 // 1件目=終日で、タイトルは番号・メモは今のまま(時間)。2件目=出勤時間から始まる時間つきの予定(タイトルはメモの1行目。例「10:15〜19:02」)。
 // 終日の予定は時間つきの予定より上に出るので、番号が上・時間が下に並ぶ。
 // 日勤は退勤まで、泊は出勤から1時間(泊の翌日は、終日の非番にメモで退勤時間が入る)。
-// 非番・休日・手入力、メモの1行目が時間でないもの(手で書き換えたとき)は、1件のまま
+// 非番・休日、メモの1行目が時間でないもの(手で書き換えたとき)は、1件のまま
 export const SECOND_EVENT_MINUTES = 60;
 
 // メモの1行目の時間(「10:15〜19:02」「9:01」)を、その日の0時からの分にする。時間として読めなければ null。
-// 手で書き換えたメモも読めるよう、全角の数字・コロン、「～」「~」「-」「ー」、間の空白も受け付ける
+// 手で書き換えたメモも読めるよう、全角の数字・コロン、「～」「~」「-」「ー」「―」「−」などの横棒、間の空白も受け付ける
 // (スマホや PC の日本語入力では、「〜」が全角の「～」に、「-」が「ー」になることが多い)。
 // 出勤が24時以降(25:00 など)は読まない。翌日の時間の予定になり、月末だと翌月1日に入って、
 // 登録し直しても消えずに増えていくため(その日は1件のまま)。退勤の分が読めなければ、出勤だけとみなす
 export function parseTimeRange(text: string): { start: number; end: number | null } | null {
   const s = text
     .replace(/[０-９：]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
-    .replace(/[〜～~\-－−ー]/g, "〜")
+    .replace(/[〜～~\-－−ー―—–‐‑‒─ｰ]/g, "〜")
     .replace(/\s+/g, "");
   const m = s.match(/^(\d{1,2}):(\d{2})(?:〜(?:(\d{1,2}):(\d{2}))?)?$/);
   if (!m) return null;
@@ -241,7 +241,8 @@ export function parseTimeRange(text: string): { start: number; end: number | nul
 export function splitDayEvents(events: PlannedEvent[], master: Record<string, any>): PlannedEvent[] {
   return events.map((e) => {
     if (e.calendar !== "work" || e.kind !== "day") return e;
-    const type = master[e.title]?.type;
+    // マスタにない番号(手入力)は日勤と同じ扱い(休日の番号は休日用カレンダーなので、上で外れる)
+    const type = master[e.title]?.type ?? "日勤";
     if (type !== "日勤" && type !== "泊") return e;
     const time = e.description.split("\n")[0].trim();
     const range = parseTimeRange(time);
