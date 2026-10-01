@@ -4,7 +4,7 @@
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
 import { createEvents, deleteAppEvents, eventsToRegister, parseTimeRange, splitDayEvents, staleNextMonthRecords } from "./shift-calendar.ts";
 import { AppError } from "./http.ts";
-import { indexMaster } from "./plan.js";
+import { buildPlan, indexMaster } from "./plan.js";
 
 // テスト用の使い捨て鍵でサービスアカウントを用意する
 const pair = await crypto.subtle.generateKey(
@@ -366,4 +366,17 @@ Deno.test("createEvents: 番号は終日、2件目は日本時間の時間つき
   // 24時を超えたら翌日
   const t40 = timed.find((b) => b.summary === "23:30");
   assertEquals(t40.end, { dateTime: "2026-10-03T00:30:00", timeZone: "Asia/Tokyo" });
+});
+
+Deno.test("手入力の番号: メモの時間から、buildPlan → splitDayEvents で終日+時間の2件になる(退勤がなければ1時間)", () => {
+  const plan = buildPlan({
+    year: 2026, month: 11, prevLastCode: "", nextFirstEntry: null, master: {}, holidays: [],
+    entries: { "2026-11-09": { code: "2001", memo: "10:00-23:00" }, "2026-11-10": { code: "2000", memo: "１０：００―" }, "2026-11-11": { code: "2004", memo: "" } },
+  });
+  const out = splitDayEvents(plan.events, {});
+  assertEquals(out.map((e) => [e.title, e.description, e.second?.startMin, e.second?.endMin]), [
+    ["2001", "10:00-23:00", 600, 1380],
+    ["2000", "１０：００―", 600, 660],
+    ["2004", "", undefined, undefined],
+  ]);
 });
