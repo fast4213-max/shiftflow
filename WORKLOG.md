@@ -1147,3 +1147,8 @@ web/help.html, docs/manual/manual.html, web/manual.pdf, WORKLOG.md
 - 目次の名前・全体の流れの囲み・「スマホのカレンダーに出ない」の答えを、新しい節の名前に合わせて直した
 - 説明書PDF(web/manual.pdf)を作り直した(14 → 15ページ。Androidの人を12ページ、iPhoneの人を13ページにして、手順が途中で次のページに切れないよう、iPhoneの見出しの前で改ページ)
 - 変更したファイル: web/help.html, docs/manual/manual.html, web/manual.pdf, WORKLOG.md(コードは変えていない)
+
+## 2026-10-02 使い方・説明書PDFの見やすさ・順番の確認
+- 確認: 使い方ページ・説明書・目次の章の順番(はじめに〜9)が一致していること、目次のリンク先がすべてあること、スマホ幅(390px)で横にはみ出さないことを確かめた
+- 直した: PDF 6ページ目に「権限はここだけ間違えないでください」の注意書きだけが残っていたので、手順3の図を小さくして5ページ目に収めた(15 → 14ページ)
+- 変更したファイル: docs/manual/manual.html, web/manual.pdf, WORKLOG.md(コードは変えていない)
