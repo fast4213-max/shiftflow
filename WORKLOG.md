@@ -1139,3 +1139,11 @@ web/help.html, docs/manual/manual.html, web/manual.pdf, WORKLOG.md
   設定の手順には「流れの3番の設定のしかた」の見出しを付け、終わりに「標準カレンダーの同期がオンなら、つながる他のカレンダーアプリでも見られる」と書いた
 - 説明書PDF(web/manual.pdf)を作り直した(14ページのまま。12ページ目だけ変わった)
 - 変更したファイル: web/help.html, docs/manual/manual.html, web/manual.pdf, WORKLOG.md(コードは変えていない)
+
+## 2026-10-02 手順7を「スマホのカレンダーで見る設定(Android / iPhone)」にして、Androidの流れを追加
+- iPhoneの節にあった「Androidの人は〜」の文を外し、節を「Androidの人」と「iPhone・iPadの人」に分けた
+  - Android: Webアプリ → Googleカレンダー → お好きなカレンダーアプリ(Googleカレンダーの同期オン)
+  - iPhone・iPad: Webアプリ → Googleカレンダー → 標準カレンダーに同期 → お好きなカレンダーアプリ(標準カレンダーの同期オン)
+- 目次の名前・全体の流れの囲み・「スマホのカレンダーに出ない」の答えを、新しい節の名前に合わせて直した
+- 説明書PDF(web/manual.pdf)を作り直した(14 → 15ページ。Androidの人を12ページ、iPhoneの人を13ページにして、手順が途中で次のページに切れないよう、iPhoneの見出しの前で改ページ)
+- 変更したファイル: web/help.html, docs/manual/manual.html, web/manual.pdf, WORKLOG.md(コードは変えていない)
