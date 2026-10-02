@@ -1133,3 +1133,9 @@ web/help.html, docs/manual/manual.html, web/manual.pdf, WORKLOG.md
 ### 決めたこと(理由)
 - 画面の写真は足していない(iPhoneの設定画面は個人情報が写りやすく、文字の手順だけで足りるため)
 - 画面の名前はGoogle・Appleの案内に合わせた。iOSの版で名前が変わることがあるので、手順に「iOS 18以降は…」と書いた
+
+## 2026-10-02 iPhoneの節に「Webアプリ → Googleカレンダー → 標準カレンダー → お好きなカレンダー」の流れの図を追加
+- 使い方ページ(help.html)・説明書(manual.html)の「7. iPhone・iPadの人だけ」の頭に、4段の流れ(Webアプリで登録 → Googleカレンダー → 標準カレンダーに同期 → 標準カレンダーの同期をオンにしてお好きなカレンダーアプリで見る)を足した。
+  設定の手順には「流れの3番の設定のしかた」の見出しを付け、終わりに「標準カレンダーの同期がオンなら、つながる他のカレンダーアプリでも見られる」と書いた
+- 説明書PDF(web/manual.pdf)を作り直した(14ページのまま。12ページ目だけ変わった)
+- 変更したファイル: web/help.html, docs/manual/manual.html, web/manual.pdf, WORKLOG.md(コードは変えていない)
