@@ -1118,3 +1118,18 @@ docs/DESIGN.md, WORKLOG.md
 supabase/functions/_shared/shift-calendar.ts(コメントだけ), supabase/functions/_shared/shift-calendar_test.ts(コメントだけ), docs/DESIGN.md, WORKLOG.md
 ### 決めたこと(理由)
 - 日をまたぐ時間の予定は1時間(翌日まで伸ばすと、翌日の予定の並びが変わるため。時間の予定は時間を確かめるためのもの)
+
+## 2026-10-02 使い方・説明書PDFに「iPhone・iPadの人だけ」の設定を追加
+### 指示
+- iPhone・iOSの人だけ、標準のカレンダーアプリで見るために設定がいるので、使い方とPDFに足す
+### やったこと
+- 使い方ページ(help.html)と説明書(manual.html)に、新しい「7. iPhone・iPadの人だけ: 標準のカレンダーで見る設定」を足した
+  (設定 → カレンダー(iOS 18以降は アプリ → カレンダー)→ アカウント → アカウントを追加 → Google → ログイン → 「カレンダー」をオン → 保存)。
+  Androidの人・iPhoneでもGoogleカレンダーアプリで見る人はいらないことを先頭に書いた。出てこないときの対処(カレンダー一覧のチェック、syncselect、カレンダーを作ったのと同じアカウントで行う)も書いた
+- 後ろの節の番号を、ホーム画面に追加 7→8、こまったとき 8→9 に直した(目次も)。「スマホのカレンダーに出ない」の答えに手順7を案内する一文を足した。全体の流れの囲みにも一文足した
+- 説明書PDF(web/manual.pdf)を作り直した(13ページ → 14ページ。12ページ目が追加)
+### 変更したファイル
+web/help.html, docs/manual/manual.html, web/manual.pdf, WORKLOG.md
+### 決めたこと(理由)
+- 画面の写真は足していない(iPhoneの設定画面は個人情報が写りやすく、文字の手順だけで足りるため)
+- 画面の名前はGoogle・Appleの案内に合わせた。iOSの版で名前が変わることがあるので、手順に「iOS 18以降は…」と書いた
