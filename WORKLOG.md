@@ -1152,3 +1152,27 @@ web/help.html, docs/manual/manual.html, web/manual.pdf, WORKLOG.md
 - 確認: 使い方ページ・説明書・目次の章の順番(はじめに〜9)が一致していること、目次のリンク先がすべてあること、スマホ幅(390px)で横にはみ出さないことを確かめた
 - 直した: PDF 6ページ目に「権限はここだけ間違えないでください」の注意書きだけが残っていたので、手順3の図を小さくして5ページ目に収めた(15 → 14ページ)
 - 変更したファイル: docs/manual/manual.html, web/manual.pdf, WORKLOG.md(コードは変えていない)
+
+## 2026-10-03 古い勤務記録(前月の1日より前)の自動削除を追加
+### 指示
+- 画面は今月より前に戻れないので、2か月前より古い勤務記録はいらない。前月は月またぎの非番判定に使うので残す
+### やったこと
+- `shift_records` を読む場所を全部確かめた(勤務入力画面・register-month・delete-month)。読むのは前月末の1日分と今月以降だけで、前月の1日より前は使われない
+- migration `20261003000000_purge_old_shift_records.sql` を追加した
+  - `purge_old_shift_records()`: 日本時間で前月の1日より前の記録を消す(10月なら8月以前)。消した件数を返す
+  - `count_old_shift_records()`: 消える件数を数えるだけ(確認用)
+  - どちらも anon / authenticated から実行できないようにした
+  - `pg_cron` で毎日 日本時間3時(UTC 18:00)に実行する。`pg_cron` が使えない環境でも migration は失敗せず、注意メッセージだけ出す
+- README に「古い勤務記録の自動削除」を足した(件数確認・手動実行・登録確認・`pg_cron` が使えないときの手動登録)
+- 使い捨ての Postgres 16 で、関数・権限・消す範囲(前月1日と今日は残り、それより古いものだけ消える)を確かめた
+- main に push して自動デプロイした。本番の SQL エディタで `select jobname, schedule, active from cron.job;` を実行し、`purge-old-shift-records` / `0 18 * * *` / `true` が登録されているのを確認した
+### 変更したファイル
+supabase/migrations/20261003000000_purge_old_shift_records.sql(新規), README.md, WORKLOG.md(画面と Edge Functions は変えていない)
+### 決めたこと(理由)
+- Googleカレンダーの予定には触れない(DB の行を消すだけ)。画面の「削除」ボタン(delete-month)は予定も消すので、掃除には使わない
+- 毎日実行にした(何度実行しても同じ結果になり、取りこぼしても翌日に追いつくため)
+- 容量が理由ではない(200人でも年約9MB、無料プランの500MBには数十年もつ)。勤務の記録を長く預からないための整理
+- 本番に8月以前の記録はなかったので、初回の実行で消えるものはない
+### 次にやること
+- 翌日以降、`select status, return_message, start_time from cron.job_run_details order by start_time desc limit 5;` で `succeeded` になっているか確かめる
+- 必要なら `auth_attempts`(ログイン試行の記録)の古い行も自動で消す(今回は入れていない)
