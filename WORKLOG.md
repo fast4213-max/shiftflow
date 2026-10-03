@@ -1173,6 +1173,23 @@ supabase/migrations/20261003000000_purge_old_shift_records.sql(新規), README.m
 - 毎日実行にした(何度実行しても同じ結果になり、取りこぼしても翌日に追いつくため)
 - 容量が理由ではない(200人でも年約9MB、無料プランの500MBには数十年もつ)。勤務の記録を長く預からないための整理
 - 本番に8月以前の記録はなかったので、初回の実行で消えるものはない
+### 次にやること(どちらも任意)
+- 翌日以降に1回、`select status, return_message, start_time from cron.job_run_details order by start_time desc limit 5;` で `succeeded` になっているか見ておくと安心(失敗しても、古い記録が残るだけで害は小さい)
+
+## 2026-10-03 ログインの失敗回数(auth_attempts)の古い行の自動削除を追加
+### 指示
+- 掃除を入れても今のコードに影響がないなら入れる
+### やったこと
+- 影響を確かめた: 失敗回数はログイン成功でしか減らないので、何か月も前の失敗が残り続けていた。ロックは15分で、ロック中の行は updated_at が直近なので、30日より古い行を消してもロックの動きは変わらない。コード(Edge Functions・画面)は変えていない
+- migration `20261003000001_purge_old_auth_attempts.sql` を追加した
+  - `purge_old_auth_attempts()`: 30日以上更新されていない行(ロック中は除く)を消す。anon / authenticated から実行できない
+  - `pg_cron` で毎日 日本時間3時10分(UTC 18:10)に実行(ジョブ名 `purge-old-auth-attempts`)。`pg_cron` が使えなくても migration は失敗しない
+- README の節を「古い勤務記録・ログイン記録の自動削除」にして、手動登録の1文も足した
+- 使い捨ての Postgres 16 で、31日前の行と期限切れの古い行は消え、直近の行とロック中の行は残ることを確かめた
+### 変更したファイル
+supabase/migrations/20261003000001_purge_old_auth_attempts.sql(新規), README.md, WORKLOG.md
+### 決めたこと(理由)
+- 容量のためではなく、IP アドレスや失敗の記録を長く持たないための整理。副作用として、古い失敗回数が残らなくなる
+- 30日にした(通常のミスの数え直しには十分長く、記録を長く持たない目的には十分短いため)
 ### 次にやること
-- 翌日以降、`select status, return_message, start_time from cron.job_run_details order by start_time desc limit 5;` で `succeeded` になっているか確かめる
-- 必要なら `auth_attempts`(ログイン試行の記録)の古い行も自動で消す(今回は入れていない)
+- main への反映後、`select jobname, schedule, active from cron.job;` に `purge-old-auth-attempts` / `10 18 * * *` / `true` が出ることを確かめる
