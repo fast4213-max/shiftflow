@@ -255,6 +255,18 @@ deno test --allow-read --allow-env supabase/functions
 
 今は課金の機能はありません。将来、有料にするときのために、利用者ごとの「プラン」の欄(`profiles.plan`、今は全員 `free`)だけ用意してあります。
 
+## 古い勤務記録の自動削除
+
+勤務記録(`shift_records`)は、毎日 日本時間の午前3時に、**前月の1日より前**のぶんが自動で消えます(例: 10月なら 8月以前)。前月末は、月またぎの非番判定に使うので残します。Googleカレンダーの予定は消えません。
+
+- 仕組み: migration `20261003000000_purge_old_shift_records.sql`(`purge_old_shift_records()` を `pg_cron` で毎日実行)
+- 消える件数の確認(SQL エディタで): `select public.count_old_shift_records();`
+- 今すぐ消す(SQL エディタで): `select public.purge_old_shift_records();`
+- 登録状況の確認: `select jobname, schedule, active from cron.job;`(`purge-old-shift-records` が出ればOK)
+- `pg_cron` を設定できなかったときは、Supabase のダッシュボードで Database → Extensions から `pg_cron` を有効にし、SQL エディタで次を実行する
+  `select cron.schedule('purge-old-shift-records', '0 18 * * *', 'select public.purge_old_shift_records()');`
+- 初めて反映する前に、`count_old_shift_records()` で件数を確かめ、マスタを「CSVで保存」で書き出しておく
+
 ## 更新してもデータが消えないために(直す人向けのメモ)
 
 - 画面(`web/`)と関数(`supabase/functions/`)を直して push しても、データベースの中身(利用者・設定・勤務の記録・マスタ)は変わりません。自動デプロイは、コードを入れ替えるだけです
