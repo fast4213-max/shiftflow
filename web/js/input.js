@@ -34,7 +34,7 @@ function setStatus(text, isError) {
 }
 
 // 祝日: キャッシュが無い年だけ Edge Function に取りに行かせる
-// first は前月末から(1日が非番のとき、泊の日の平休を見るため)
+// first は前月末から(1日が非番のとき、泊の日の平休を見るため)。nextFirst は月末が泊のとき翌日の平休を見るため
 async function loadHolidays(first, nextFirst) {
   const years = [...new Set([Number(first.slice(0, 4)), Number(nextFirst.slice(0, 4))])];
   const { data: cached, error } = await supabase.from("holiday_years").select("year").in("year", years);
@@ -218,7 +218,7 @@ function render() {
         });
         codeTd.appendChild(input);
       } else if (entry) {
-        autoMemo = dutyMemo(entry, dayType);
+        autoMemo = dutyMemo(entry, dayType, dayTypeOf(addDays(key, 1), state.holidays));
         // 泊地はメモの2行目としてカレンダーに入る(画面ではメモ欄の下に表示)
         stay = describe(entry, "");
       }

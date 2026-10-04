@@ -1,15 +1,18 @@
--- 勤務コードマスタに「平休退勤」「休平退勤」を足す。
---   平休退勤: 平日に泊 → 休日に非番 のときの退勤(空なら休日退勤を使う)
---   休平退勤: 休日に泊 → 平日に非番 のときの退勤(空なら平日退勤を使う)
--- どちらも任意。今あるマスタの行は空になり、退勤の選び方は今までと同じ。
+-- 勤務コードマスタに「平休出勤」「平休退勤」「休平出勤」「休平退勤」を足す(泊の番号で使う)。
+--   平休出勤・平休退勤: 平日に泊 → 翌日が休日 のときの出勤・退勤(空なら平日出勤・休日退勤を使う)
+--   休平出勤・休平退勤: 休日に泊 → 翌日が平日 のときの出勤・退勤(空なら休日出勤・平日退勤を使う)
+-- どれも任意。今あるマスタの行は空になり、出勤・退勤の選び方は今までと同じ。
 
 alter table public.shift_master
-  add column weekday_holiday_end text not null default '',  -- 平休退勤
-  add column holiday_weekday_end text not null default '';  -- 休平退勤
+  add column weekday_holiday_start text not null default '',  -- 平休出勤
+  add column weekday_holiday_end   text not null default '',  -- 平休退勤
+  add column holiday_weekday_start text not null default '',  -- 休平出勤
+  add column holiday_weekday_end   text not null default '';  -- 休平退勤
 
 -- 区所のマスタを丸ごと入れ替える(管理画面の CSV 取り込み)
--- rows: [{code, kind, weekday_start, weekday_end, holiday_start, holiday_end, weekday_holiday_end, holiday_weekday_end, stay}, ...] (並び順どおり)
--- weekday_holiday_end / holiday_weekday_end は無くてもよい(空になる)
+-- rows: [{code, kind, weekday_start, weekday_end, holiday_start, holiday_end,
+--         weekday_holiday_start, weekday_holiday_end, holiday_weekday_start, holiday_weekday_end, stay}, ...] (並び順どおり)
+-- weekday_holiday_* / holiday_weekday_* は無くてもよい(空になる)
 create or replace function public.replace_shift_master(p_office_id bigint, rows jsonb)
 returns int
 language plpgsql
@@ -38,7 +41,9 @@ begin
     public.normalize_time(r ->> 'weekday_end')            as weekday_end,
     public.normalize_time(r ->> 'holiday_start')          as holiday_start,
     public.normalize_time(r ->> 'holiday_end')            as holiday_end,
+    public.normalize_time(r ->> 'weekday_holiday_start')  as weekday_holiday_start,
     public.normalize_time(r ->> 'weekday_holiday_end')    as weekday_holiday_end,
+    public.normalize_time(r ->> 'holiday_weekday_start')  as holiday_weekday_start,
     public.normalize_time(r ->> 'holiday_weekday_end')    as holiday_weekday_end,
     coalesce(trim(r ->> 'stay'), '')                      as stay,
     ord::int                                              as sort_order
@@ -60,9 +65,9 @@ begin
   delete from public.shift_master where office_id = p_office_id;
   insert into public.shift_master
     (office_id, code, kind, weekday_start, weekday_end, holiday_start, holiday_end,
-     weekday_holiday_end, holiday_weekday_end, stay, sort_order)
+     weekday_holiday_start, weekday_holiday_end, holiday_weekday_start, holiday_weekday_end, stay, sort_order)
   select p_office_id, code, kind, weekday_start, weekday_end, holiday_start, holiday_end,
-         weekday_holiday_end, holiday_weekday_end, stay, sort_order
+         weekday_holiday_start, weekday_holiday_end, holiday_weekday_start, holiday_weekday_end, stay, sort_order
     from incoming;
   get diagnostics n = row_count;
   return n;

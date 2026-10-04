@@ -10,7 +10,13 @@ const master = indexMaster([
   { code: "102", kind: "泊", weekday_start: "10:00", weekday_end: "8:45", holiday_start: "", holiday_end: "", stay: "" },
   {
     code: "103", kind: "泊", weekday_start: "10:04", weekday_end: "9:31", holiday_start: "9:56", holiday_end: "5:54",
-    weekday_holiday_end: "9:52", holiday_weekday_end: "9:20", stay: "",
+    weekday_holiday_start: "10:30", weekday_holiday_end: "9:52", holiday_weekday_start: "9:40", holiday_weekday_end: "9:20",
+    stay: "",
+  },
+  // 日勤に平休・休平の列があっても使わない(泊だけの列)
+  {
+    code: "203", kind: "日勤", weekday_start: "8:30", weekday_end: "17:15", holiday_start: "9:00", holiday_end: "17:00",
+    weekday_holiday_start: "7:00", weekday_holiday_end: "7:30", holiday_weekday_start: "7:00", holiday_weekday_end: "7:30", stay: "",
   },
   { code: "201", kind: "日勤", weekday_start: "8:30", weekday_end: "17:15", holiday_start: "9:00", holiday_end: "17:00", stay: "" },
   { code: "公休", kind: "休日", weekday_start: "", weekday_end: "", holiday_start: "", holiday_end: "", stay: "" },
@@ -149,6 +155,41 @@ Deno.test("非番の退勤: 月またぎも泊の日の平休を見る(前月末
   // 月末が泊: 2027-01-31(日)→ 2/1(月)は休平退勤、2026-10-30(金)→ 31(土)は平休退勤
   assertEquals(offduty(plan(2027, 1, { "2027-01-31": { code: "103" } })), ["2027-02-01 9:20"]);
   assertEquals(offduty(plan(2026, 10, { "2026-10-30": { code: "103" } })), ["2026-10-31 9:52"]);
+});
+
+// 出勤の日のメモ(1行目)
+function duty(p: { events: { kind: string; date: string; description: string }[] }) {
+  return p.events.filter((e) => e.kind === "day").map((e) => e.date + " " + e.description);
+}
+
+Deno.test("泊の出勤: 平→平は平日出勤、休→休は休日出勤、平→休は平休出勤、休→平は休平出勤", () => {
+  assertEquals(duty(plan(2026, 10, { "2026-10-05": { code: "103" } })), ["2026-10-05 10:04"]); // 月→火
+  assertEquals(duty(plan(2026, 10, { "2026-10-03": { code: "103" } })), ["2026-10-03 9:56"]); // 土→日
+  assertEquals(duty(plan(2026, 10, { "2026-10-02": { code: "103" } })), ["2026-10-02 10:30"]); // 金→土
+  assertEquals(duty(plan(2026, 10, { "2026-10-04": { code: "103" } })), ["2026-10-04 9:40"]); // 日→月
+  // 翌日が祝日・年末年始
+  assertEquals(duty(plan(2026, 10, { "2026-10-11": { code: "103" } }, { holidays: ["2026-10-12"] })), ["2026-10-11 9:56"]); // 日→祝
+  assertEquals(duty(plan(2026, 10, { "2026-10-09": { code: "103" } }, { holidays: ["2026-10-12"] })), ["2026-10-09 10:30"]); // 金→土
+  assertEquals(duty(plan(2026, 12, { "2026-12-29": { code: "103" } })), ["2026-12-29 10:30"]); // 火→年末
+});
+
+Deno.test("泊の出勤: 平休出勤・休平出勤が空(列の無いマスタ)なら今までどおり泊の日の列", () => {
+  assertEquals(duty(plan(2026, 10, { "2026-10-02": { code: "101" } })), ["2026-10-02 9:00\n泊地A"]); // 金→土: 平日出勤
+  assertEquals(duty(plan(2026, 10, { "2026-10-04": { code: "101" } })), ["2026-10-04 9:10\n泊地A"]); // 日→月: 休日出勤
+  assertEquals(duty(plan(2026, 10, { "2026-10-04": { code: "102" } })), ["2026-10-04 10:00"]); // 休日出勤も空なら平日出勤
+});
+
+Deno.test("日勤は平休・休平の列を使わない", () => {
+  assertEquals(duty(plan(2026, 10, { "2026-10-02": { code: "203" }, "2026-10-04": { code: "203" } })), [
+    "2026-10-02 8:30〜17:15",
+    "2026-10-04 9:00〜17:00",
+  ]);
+});
+
+Deno.test("泊の出勤: 月末・翌月1日の泊も翌日の平休を見る", () => {
+  assertEquals(duty(plan(2026, 10, { "2026-10-30": { code: "103" } })), ["2026-10-30 10:30"]); // 金→土
+  // 翌月1日の記録の予定: 2026-11-01(日)→ 2(月)は休平出勤
+  assertEquals(duty(plan(2026, 10, {}, { nextFirstEntry: { code: "103", memo: "" } })), ["2026-11-01 9:40"]);
 });
 
 Deno.test("メモだけの日は記録に残すが予定は作らない", () => {

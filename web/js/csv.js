@@ -59,8 +59,11 @@ const COLUMNS = {
   休日出勤: "holiday_start",
   休日退勤: "holiday_end",
   泊: "stay",
-  平休退勤: "weekday_holiday_end", // 平日に泊 → 休日に非番 のときの退勤(列は無くてもよい)
-  休平退勤: "holiday_weekday_end", // 休日に泊 → 平日に非番 のときの退勤(列は無くてもよい)
+  // 以下の4列は無くてもよい(泊の番号で使う)
+  平休出勤: "weekday_holiday_start", // 平日に泊 → 翌日が休日 のときの出勤
+  平休退勤: "weekday_holiday_end", //   同じく退勤
+  休平出勤: "holiday_weekday_start", // 休日に泊 → 翌日が平日 のときの出勤
+  休平退勤: "holiday_weekday_end", //   同じく退勤
 };
 const REQUIRED = ["番号", "種別", "平日出勤", "平日退勤", "休日出勤", "休日退勤"];
 
@@ -90,7 +93,10 @@ export function normalizeTime(value) {
   return m ? Number(m[1]) + ":" + m[2] : "";
 }
 
-const TIME_FIELDS = ["weekday_start", "weekday_end", "holiday_start", "holiday_end", "weekday_holiday_end", "holiday_weekday_end"];
+const TIME_FIELDS = [
+  "weekday_start", "weekday_end", "holiday_start", "holiday_end",
+  "weekday_holiday_start", "weekday_holiday_end", "holiday_weekday_start", "holiday_weekday_end",
+];
 
 // 取り込み前の確認: 時刻をそろえ、行ごとの問題を返す
 //   戻り値: [{ ...row(時刻はそろえた値), errors: ["..."] }]
@@ -119,10 +125,10 @@ function csvCell(v) {
 
 // マスタの行 → CSV(Excel でも文字化けしないよう BOM 付き)
 export function masterToCsv(rows) {
-  const header = ["番号", "種別", "平日出勤", "平日退勤", "休日出勤", "休日退勤", "泊", "平休退勤", "休平退勤"];
+  const header = ["番号", "種別", "平日出勤", "平日退勤", "休日出勤", "休日退勤", "泊", "平休出勤", "平休退勤", "休平出勤", "休平退勤"];
   const lines = [header.join(",")].concat(rows.map((r) =>
     [r.code, r.kind, r.weekday_start, r.weekday_end, r.holiday_start, r.holiday_end, r.stay,
-      r.weekday_holiday_end, r.holiday_weekday_end].map(csvCell).join(",")
+      r.weekday_holiday_start, r.weekday_holiday_end, r.holiday_weekday_start, r.holiday_weekday_end].map(csvCell).join(",")
   ));
   return "﻿" + lines.join("\r\n") + "\r\n";
 }
