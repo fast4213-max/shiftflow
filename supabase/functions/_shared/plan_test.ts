@@ -192,6 +192,20 @@ Deno.test("泊の出勤: 月末・翌月1日の泊も翌日の平休を見る", 
   assertEquals(duty(plan(2026, 10, {}, { nextFirstEntry: { code: "103", memo: "" } })), ["2026-11-01 9:40"]);
 });
 
+Deno.test("休日だけの番号(平日の時刻が空): 休日は休日の時間、平日はメモの時間なし", () => {
+  const m = indexMaster([
+    { code: "5742", kind: "日勤", weekday_start: "", weekday_end: "", holiday_start: "8:15", holiday_end: "16:00", stay: "" },
+  ]);
+  const p = buildPlan({
+    year: 2026, month: 10, prevLastCode: "", nextFirstEntry: null, master: m, holidays: [],
+    entries: { "2026-10-03": { code: "5742" }, "2026-10-05": { code: "5742" } },
+  });
+  assertEquals(p.events, [
+    { date: "2026-10-03", calendar: "work", kind: "day", title: "5742", description: "8:15〜16:00" },
+    { date: "2026-10-05", calendar: "work", kind: "day", title: "5742", description: "" },
+  ]);
+});
+
 Deno.test("メモだけの日は記録に残すが予定は作らない", () => {
   const p = plan(2026, 10, { "2026-10-05": { code: "", memo: "メモ" } });
   assertEquals(p.events, []);

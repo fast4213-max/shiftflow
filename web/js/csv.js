@@ -112,7 +112,8 @@ export function checkMasterRows(rows) {
       out[f] = normalizeTime(r[f]);
       if (r[f] && !out[f]) errors.push("時刻が読めない: " + r[f]);
     });
-    if (r.kind !== "休日" && !out.weekday_start) errors.push("平日出勤が空");
+    // 休日だけ動く番号(平日の時刻が空で、休日の時刻だけある)も取り込める。平日・休日とも出勤が空ならエラー
+    if (r.kind !== "休日" && !out.weekday_start && !out.holiday_start) errors.push("出勤が空(平日・休日とも)");
     out.errors = errors;
     return out;
   });
