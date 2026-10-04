@@ -1,10 +1,10 @@
-# Edge Functions のテスト(予定の組み立て・カレンダー操作・ログインと新規登録)
+# Edge Functions のテスト(予定の組み立て・カレンダー操作・ログインと新規登録・マスタの CSV チェック)
 name: Test
 
 on:
   push:
     branches: [main]
-    paths: ["supabase/functions/**", "web/js/plan.js", ".github/workflows/test.yml"]
+    paths: ["supabase/functions/**", "web/js/plan.js", "web/js/csv.js", ".github/workflows/test.yml"]
   workflow_dispatch:
 
 permissions:

@@ -67,7 +67,8 @@ const COLUMNS = {
 };
 const REQUIRED = ["番号", "種別", "平日出勤", "平日退勤", "休日出勤", "休日退勤"];
 
-// マスタの CSV → replace_shift_master に渡す行の配列。列の順番は自由
+// マスタの CSV → replace_shift_master に渡す行の配列。列の順番は自由。
+// 番号だけ空の行も残す(checkMasterRows で「番号が空」にして、写し漏れに気づけるように)
 export function masterRowsFromCsv(text) {
   const rows = parseCsv(text);
   if (rows.length < 2) throw new Error("CSV にデータがありません。");
@@ -84,7 +85,13 @@ export function masterRowsFromCsv(text) {
       });
       return obj;
     })
-    .filter((r) => r.code !== "");
+    .filter((r) => Object.values(r).some((v) => v !== ""));
+}
+
+// 時刻の欄の「-」「－」「―」「ー」「×」「・」「＊」「／」など、記号だけのもの(時刻なしの印)。
+// 「〃」(上と同じ)は空にすると違う時刻になるので含めない(「時刻が読めない」になる)
+export function isNoTimeMark(value) {
+  return /^[\s\-－―ー−‐‑–—ｰ~〜～×✕xX・･*＊/／]+$/.test(String(value || ""));
 }
 
 // "09:01:00" や "(9:01)" を "9:01" にそろえる(DB の normalize_time と同じ)
@@ -97,6 +104,7 @@ const TIME_FIELDS = [
   "weekday_start", "weekday_end", "holiday_start", "holiday_end",
   "weekday_holiday_start", "weekday_holiday_end", "holiday_weekday_start", "holiday_weekday_end",
 ];
+const CROSS_FIELDS = ["weekday_holiday_start", "weekday_holiday_end", "holiday_weekday_start", "holiday_weekday_end"];
 
 // 取り込み前の確認: 時刻をそろえ、行ごとの問題を返す
 //   戻り値: [{ ...row(時刻はそろえた値), errors: ["..."] }]
@@ -106,14 +114,25 @@ export function checkMasterRows(rows) {
   return rows.map((r) => {
     const errors = [];
     const out = { ...r };
+    if (!r.code) errors.push("番号が空");
     if (["泊", "日勤", "休日"].indexOf(r.kind) === -1) errors.push("種別は 泊/日勤/休日");
-    if (count[r.code] > 1) errors.push("番号が重複");
+    if (r.code && count[r.code] > 1) errors.push("番号が重複");
+    const unreadable = new Set();
     TIME_FIELDS.forEach((f) => {
-      out[f] = normalizeTime(r[f]);
-      if (r[f] && !out[f]) errors.push("時刻が読めない: " + r[f]);
+      // 記号だけの欄(「-」「×」など)は、時刻なし(空)として扱う
+      const raw = isNoTimeMark(r[f]) ? "" : r[f];
+      out[f] = normalizeTime(raw);
+      if (raw && !out[f]) {
+        errors.push("時刻が読めない: " + r[f]);
+        unreadable.add(f);
+      }
     });
+    // 平休・休平の列は泊だけで使う。日勤・休日の行に書いてあっても使われないので、気づけるようにする
+    if (r.kind !== "泊" && CROSS_FIELDS.some((f) => out[f])) errors.push("平休・休平の時刻は泊だけ");
     // 休日だけ動く番号(平日の時刻が空で、休日の時刻だけある)も取り込める。平日・休日とも出勤が空ならエラー
-    if (r.kind !== "休日" && !out.weekday_start && !out.holiday_start) errors.push("出勤が空(平日・休日とも)");
+    // (読めない時刻の欄は、そのエラーだけを出す)
+    const startBlank = (f) => !out[f] && !unreadable.has(f);
+    if (r.kind !== "休日" && startBlank("weekday_start") && startBlank("holiday_start")) errors.push("出勤が空(平日・休日とも)");
     out.errors = errors;
     return out;
   });
