@@ -7,7 +7,7 @@
 // 予定はすべて終日。
 //   泊   : タイトル=番号 / メモ=出勤時間(2行目に泊地)
 //   日勤 : タイトル=番号 / メモ=出勤〜退勤 (例: 10:15〜19:02)
-//   非番 : タイトル=「〜」 / メモ=退勤時間 (泊の翌日に自動作成)
+//   非番 : タイトル=「〜」 / メモ=退勤時間 (泊の翌日に自動作成。退勤時間の列は offdutyMemo を参照)
 //   休日 : タイトル=番号(特休など) / メモなし(休日用カレンダー)
 //   手入力 : タイトル=入力文字 / メモなし
 // 時間は、その日が土日祝・年末年始(12/30〜1/3)なら「休日」、それ以外は「平日」の列を使う。
@@ -62,7 +62,8 @@ export function dayTypeOf(key, holidays) {
 
 // ---------- マスタ ----------
 
-// DB の shift_master の行 → { code: { code, type, start: {平日, 休日}, end: {平日, 休日}, stay } }
+// DB の shift_master の行 → { code: { code, type, start: {平日, 休日}, end: {平日, 休日, 平休, 休平}, stay } }
+//   end.平休 = 平日に泊 → 休日に非番 のときの退勤、end.休平 = 休日に泊 → 平日に非番 のときの退勤(どちらも空でもよい)
 export function indexMaster(rows) {
   const map = {};
   rows.forEach((r) => {
@@ -70,7 +71,12 @@ export function indexMaster(rows) {
       code: r.code,
       type: r.kind,
       start: { 平日: r.weekday_start || "", 休日: r.holiday_start || "" },
-      end: { 平日: r.weekday_end || "", 休日: r.holiday_end || "" },
+      end: {
+        平日: r.weekday_end || "",
+        休日: r.holiday_end || "",
+        平休: r.weekday_holiday_end || "",
+        休平: r.holiday_weekday_end || "",
+      },
       stay: r.stay || "",
     };
   });
@@ -89,9 +95,15 @@ export function dutyMemo(entry, dayType) {
   return entry.type === "日勤" && start && end ? start + "〜" + end : start;
 }
 
-// 非番の自動メモ: 前日の泊の退勤時間(その日の平休の列)
-export function offdutyMemo(prevEntry, dayType) {
-  return pickTime(prevEntry.end, dayType);
+// 非番の自動メモ: 前日の泊の退勤時間。泊の日(prevDayType)と非番の日(dayType)の平休で列を選ぶ
+//   平日に泊 → 休日に非番: 平休退勤(空なら休日退勤)
+//   休日に泊 → 平日に非番: 休平退勤(空なら平日退勤)
+//   それ以外: 非番の日の平休の列
+// 休日の列が空なら平日の列を使う(pickTime)
+export function offdutyMemo(prevEntry, prevDayType, dayType) {
+  const cross = prevDayType === "平日" && dayType === "休日" ? "平休"
+    : prevDayType === "休日" && dayType === "平日" ? "休平" : "";
+  return (cross && prevEntry.end[cross]) || pickTime(prevEntry.end, dayType);
 }
 
 // 予定のメモ全体。泊なら2行目に泊地を付ける
@@ -124,7 +136,7 @@ export function codeOf(entry) {
 //   prevLastCode   前月末の番号(1日が非番かどうかの判定用)
 //   nextFirstEntry 翌月1日の記録(月末が泊なら非番のメモに、泊でなければ翌月1日の予定に使う)
 //   master         indexMaster() の結果
-//   holidays       祝日の配列または Set
+//   holidays       祝日の配列または Set(前月末も含める。1日が非番のとき、泊の日の平休を見るため)
 // 非番の日は番号を無視する。翌月1日の予定も含める(月末が泊なら非番、泊でなければ翌月1日の記録の予定)。
 // 月末を泊から戻したとき、翌月1日の非番を消したあとに翌月1日の予定を作り直すため。
 export function buildPlan({ year, month, entries, prevLastCode, nextFirstEntry, master, holidays }) {
@@ -148,7 +160,7 @@ export function buildPlan({ year, month, entries, prevLastCode, nextFirstEntry, 
         calendar: "work",
         kind: "offduty",
         title: OFFDUTY_TITLE,
-        description: memo || offdutyMemo(prevMaster, dayType),
+        description: memo || offdutyMemo(prevMaster, dayTypeOf(addDays(key, -1), holidays), dayType),
       });
       if (d <= days && memo) {
         cleanEntries[key] = { code: "", memo };

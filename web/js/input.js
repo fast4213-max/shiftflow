@@ -34,6 +34,7 @@ function setStatus(text, isError) {
 }
 
 // 祝日: キャッシュが無い年だけ Edge Function に取りに行かせる
+// first は前月末から(1日が非番のとき、泊の日の平休を見るため)
 async function loadHolidays(first, nextFirst) {
   const years = [...new Set([Number(first.slice(0, 4)), Number(nextFirst.slice(0, 4))])];
   const { data: cached, error } = await supabase.from("holiday_years").select("year").in("year", years);
@@ -72,7 +73,7 @@ async function loadMonth(id) {
   const [masterRes, recordsRes, holidays] = await Promise.all([
     supabase.from("shift_master").select("*").eq("office_id", state.officeId).order("sort_order"),
     supabase.from("shift_records").select("date, code, memo").gte("date", prevLast).lte("date", last),
-    loadHolidays(first, nextFirst),
+    loadHolidays(prevLast, nextFirst),
   ]);
   if (id !== state.loadId) return; // 読み込み中に別の月へ移動した
   if (masterRes.error) throw masterRes.error;
@@ -179,7 +180,7 @@ function render() {
       span.className = "offduty";
       span.textContent = "非番";
       codeTd.appendChild(span);
-      autoMemo = offdutyMemo(prevMaster, dayType);
+      autoMemo = offdutyMemo(prevMaster, dayTypeOf(addDays(key, -1), state.holidays), dayType);
     } else {
       // 番号は前後の空白を除いて見る(登録時もサーバーが除く)
       const code = e.code.trim();

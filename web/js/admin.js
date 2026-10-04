@@ -11,6 +11,8 @@ const MASTER_COLUMNS = [
   ["holiday_start", "休日出勤"],
   ["holiday_end", "休日退勤"],
   ["stay", "泊"],
+  ["weekday_holiday_end", "平休退勤"],
+  ["holiday_weekday_end", "休平退勤"],
 ];
 
 let stats = null;

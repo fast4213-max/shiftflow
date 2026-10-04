@@ -64,7 +64,7 @@ help.html      使い方(未ログインでも読める)
 |---|---|
 | 概要 | 数字のカード(登録人数・接続テスト済み・30日以内に登録した人・区所数)、区所ごとの人数、最近の登録 |
 | 利用者 | 一覧(社員番号・氏名・区所・接続テスト・最終ログイン・最終登録)。**削除**、**PINの再設定**(PIN を忘れた人向けに仮のPINを発行) |
-| マスタ表 | 区所を選ぶと、そのマスタを全列(番号・種別・平日出勤・平日退勤・休日出勤・休日退勤・泊)の表で表示。CSV で書き出し |
+| マスタ表 | 区所を選ぶと、そのマスタを全列(番号・種別・平日出勤・平日退勤・休日出勤・休日退勤・泊・平休退勤・休平退勤)の表で表示。CSV で書き出し |
 | マスタ登録 | 区所の追加・名前変更・削除。区所を選んで CSV を選ぶ → 取り込む内容を表で確認(問題の行は赤で取り込み不可)→ 入れ替え |
 | 設定 | 共通パスワードの変更、登録用アドレス(サービスアカウント)の表示 |
 
@@ -124,7 +124,7 @@ GitHub の Secrets に入れるもの(最初に本人が1回だけ): `SUPABASE_A
 |---|---|---|
 | `profiles` | user_id, employee_no(7桁・一意), family_name, given_name, role(user/admin), plan(free), created_at | 本人は自分の行を読める。管理者は全員分を読める。作成・削除は Edge Function |
 | `offices` | id, name, sort_order | 全員が読む。書くのは管理者 |
-| `shift_master` | office_id, code, kind, weekday_start, weekday_end, holiday_start, holiday_end, stay, sort_order | 全員が読む。書くのは管理者(区所ごとに丸ごと入れ替え) |
+| `shift_master` | office_id, code, kind, weekday_start, weekday_end, holiday_start, holiday_end, weekday_holiday_end(平休退勤), holiday_weekday_end(休平退勤), stay, sort_order | 全員が読む。書くのは管理者(区所ごとに丸ごと入れ替え) |
 | `user_settings` | user_id, office_id, work_calendar_id, holiday_calendar_id, verified_at, busy_until, last_registered_at | 本人だけ。本人が書けるのは区所とカレンダーIDだけ |
 | `shift_records` | user_id, date, code, memo, updated_at | 本人だけ |
 | `holidays` / `holiday_years` | 祝日のキャッシュ | 全員が読む。書くのは Edge Function |
@@ -238,3 +238,4 @@ GitHub の Secrets に入れるもの(最初に本人が1回だけ): `SUPABASE_A
 - 自動デプロイは `deploy-supabase.yml`(`supabase db push` と `supabase functions deploy`)。Secrets が未登録のあいだは、何もせずに終わる(失敗にしない)
 - 内部用のメールは `<社員番号>@users.shiftflow.invalid`、管理用は `admin@admin.shiftflow.invalid`
 - **出勤を2件で登録する設定**(`user_settings.split_day_events`。利用者が設定画面で選ぶ): 勤務用の出勤(日勤・泊)の終日の予定に続けて、メモの1行目の時間で時間つきの予定(日本時間)を作る。日勤は出勤〜退勤、泊は出勤から1時間。退勤が出勤より前の時刻(22:00〜6:00 など日をまたぐもの)も1時間(翌日まで伸ばすと翌日の予定の並びが変わるため。時間を確かめられれば十分)。手で書き換えたメモの全角の数字や「～」も時間として読む。マスタにない手入力の番号も日勤と同じに分ける(ただし記号だけのもの(「〜」「-」「→」など)・「非」「明」だけのもの・「非番」「明け」「明番」を含むもの・「休」を含むもの(公休・年休など)は非番・休みなので1件のまま。「明石」のような駅名は勤務として分ける。「休出」「休日出勤」のように「出」「勤」も含むものは出勤なので分ける)。時間の区切りは「-」「ー」「―」「−」「～」などの横棒・「→」「から」のどれでも可。時間でないメモ・出勤が24時以降のときは1件のまま(24時以降は翌日の予定になり、月末だと翌月1日に入って、登録し直しで消えずに増えるため)。削除は印で探すので、時間つきの予定も消える
+- **平休退勤・休平退勤**(`shift_master.weekday_holiday_end` / `holiday_weekday_end`。どちらも任意): 泊の翌日の非番の退勤は、泊の日と非番の日の平休で列を選ぶ。平→平は平日退勤、休→休は休日退勤、平→休は平休退勤(空なら休日退勤)、休→平は休平退勤(空なら平日退勤)。休日退勤が空なら平日退勤。平休の判定は今までどおり(土日祝・12/30〜1/3が休)。1日が非番のときも前月末の平休を見るので、祝日は前月末から読む。CSV の「平休退勤」「休平退勤」列は無くてもよく、無いマスタは今までと同じ動き

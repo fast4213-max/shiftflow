@@ -8,6 +8,10 @@ import { buildPlan, dayTypeOf, indexMaster } from "./plan.js";
 const master = indexMaster([
   { code: "101", kind: "泊", weekday_start: "9:00", weekday_end: "9:30", holiday_start: "9:10", holiday_end: "9:40", stay: "泊地A" },
   { code: "102", kind: "泊", weekday_start: "10:00", weekday_end: "8:45", holiday_start: "", holiday_end: "", stay: "" },
+  {
+    code: "103", kind: "泊", weekday_start: "10:04", weekday_end: "9:31", holiday_start: "9:56", holiday_end: "5:54",
+    weekday_holiday_end: "9:52", holiday_weekday_end: "9:20", stay: "",
+  },
   { code: "201", kind: "日勤", weekday_start: "8:30", weekday_end: "17:15", holiday_start: "9:00", holiday_end: "17:00", stay: "" },
   { code: "公休", kind: "休日", weekday_start: "", weekday_end: "", holiday_start: "", holiday_end: "", stay: "" },
 ]);
@@ -110,6 +114,41 @@ Deno.test("月末が泊でなければ、翌月1日の記録の予定を作り�
   // 翌月1日は記録には入れない(翌月の分なので)
   assertEquals(Object.keys(p.entries), ["2026-10-31"]);
   assertEquals(h.entries, {});
+});
+
+// 非番の日の退勤(泊の日の平休 → 非番の日の平休)
+function offduty(p: { events: { kind: string; date: string; description: string }[] }) {
+  return p.events.filter((e) => e.kind === "offduty").map((e) => e.date + " " + e.description);
+}
+
+Deno.test("非番の退勤: 平→平は平日退勤、休→休は休日退勤", () => {
+  assertEquals(offduty(plan(2026, 10, { "2026-10-05": { code: "103" } })), ["2026-10-06 9:31"]); // 月→火
+  assertEquals(offduty(plan(2026, 10, { "2026-10-03": { code: "103" } })), ["2026-10-04 5:54"]); // 土→日
+});
+
+Deno.test("非番の退勤: 平→休は平休退勤、休→平は休平退勤", () => {
+  assertEquals(offduty(plan(2026, 10, { "2026-10-02": { code: "103" } })), ["2026-10-03 9:52"]); // 金→土
+  assertEquals(offduty(plan(2026, 10, { "2026-10-04": { code: "103" } })), ["2026-10-05 9:20"]); // 日→月
+  // 祝日・年末年始も休日として見る
+  assertEquals(offduty(plan(2026, 10, { "2026-10-11": { code: "103" } }, { holidays: ["2026-10-12"] })), ["2026-10-12 5:54"]); // 日→祝
+  assertEquals(offduty(plan(2026, 10, { "2026-10-12": { code: "103" } }, { holidays: ["2026-10-12"] })), ["2026-10-13 9:20"]); // 祝→火
+  assertEquals(offduty(plan(2026, 12, { "2026-12-29": { code: "103" } })), ["2026-12-30 9:52"]); // 火→年末
+  assertEquals(offduty(plan(2026, 12, { "2026-12-31": { code: "103" } })), ["2027-01-01 5:54"]); // 年末→元日
+});
+
+Deno.test("非番の退勤: 平休退勤・休平退勤が空(列の無いマスタ)なら今までどおり非番の日の列", () => {
+  assertEquals(offduty(plan(2026, 10, { "2026-10-02": { code: "101" } })), ["2026-10-03 9:40"]); // 金→土: 休日退勤
+  assertEquals(offduty(plan(2026, 10, { "2026-10-04": { code: "101" } })), ["2026-10-05 9:30"]); // 日→月: 平日退勤
+  assertEquals(offduty(plan(2026, 10, { "2026-10-02": { code: "102" } })), ["2026-10-03 8:45"]); // 休日退勤も空なら平日退勤
+});
+
+Deno.test("非番の退勤: 月またぎも泊の日の平休を見る(前月末の祝日も)", () => {
+  // 2029-04-30(月)は振替休日 → 5/1(火)の非番は休平退勤。祝日を知らなければ平日扱い
+  assertEquals(offduty(plan(2029, 5, {}, { prevLastCode: "103", holidays: ["2029-04-30"] })), ["2029-05-01 9:20"]);
+  assertEquals(offduty(plan(2029, 5, {}, { prevLastCode: "103" })), ["2029-05-01 9:31"]);
+  // 月末が泊: 2027-01-31(日)→ 2/1(月)は休平退勤、2026-10-30(金)→ 31(土)は平休退勤
+  assertEquals(offduty(plan(2027, 1, { "2027-01-31": { code: "103" } })), ["2027-02-01 9:20"]);
+  assertEquals(offduty(plan(2026, 10, { "2026-10-30": { code: "103" } })), ["2026-10-31 9:52"]);
 });
 
 Deno.test("メモだけの日は記録に残すが予定は作らない", () => {

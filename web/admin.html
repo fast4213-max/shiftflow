@@ -95,7 +95,7 @@
         <select id="import-office"></select>
         <label for="csv-file">CSV ファイル(この区所のマスタを丸ごと入れ替えます)</label>
         <input type="file" id="csv-file" accept=".csv,text/csv">
-        <p class="muted">1行目は <code>番号,種別,平日出勤,平日退勤,休日出勤,休日退勤,泊</code>(「泊」列は無くてもよい)。種別は 泊 / 日勤 / 休日。</p>
+        <p class="muted">1行目は <code>番号,種別,平日出勤,平日退勤,休日出勤,休日退勤,泊,平休退勤,休平退勤</code>(「泊」「平休退勤」「休平退勤」列は無くてもよい)。種別は 泊 / 日勤 / 休日。平休退勤は平日に泊→休日に非番、休平退勤は休日に泊→平日に非番のときの退勤(空なら休日退勤・平日退勤を使う)。</p>
         <p id="csv-message" class="message"></p>
         <div id="csv-preview" class="hidden">
           <strong id="csv-summary"></strong>

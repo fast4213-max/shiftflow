@@ -34,10 +34,11 @@ serve(async (req) => {
     const nextFirst = addDays(last, 1);
 
     // 月末(last)は、登録する前の番号を見るために読む(翌月1日の非番が変わるかどうか)
+    // 祝日は前月末から読む(1日が非番のとき、泊の日の平休で退勤の列を選ぶため)
     const [masterRes, recordsRes, holidays] = await Promise.all([
       ctx.db.from("shift_master").select("*").eq("office_id", calendars.officeId).order("sort_order"),
       ctx.db.from("shift_records").select("date, code, memo").in("date", [prevLast, last, nextFirst]),
-      loadHolidays(ctx.admin, first, nextFirst),
+      loadHolidays(ctx.admin, prevLast, nextFirst),
     ]);
     if (masterRes.error) throw masterRes.error;
     if (recordsRes.error) throw recordsRes.error;
