@@ -1264,14 +1264,23 @@ WORKLOG.md(コードは変えていない)
 - 4列とも任意にする(列の無いマスタ・古い CSV でもエラーにせず、今までと同じ結果にするため)
 - 書き出す CSV の列順は、今の7列のあとに 平休出勤・平休退勤・休平出勤・休平退勤(今の CSV の並びを変えないため)
 - 日勤に4列の値があっても使わない(エラーにもしない)
+- 祝日を読む範囲を広げた(平休の判定で、祝日だけは祝日の一覧を見ないと分からないため)
+  - 今までは「今月1日〜翌月1日」。その日の平休だけで時刻を決めていたので足りていた
+  - 今回から前日・翌日の平休も見るので、月の端で1日はみ出す。1日が非番なら前月末、翌月1日が泊なら翌月2日を見る
+  - 登録(`register-month`)は前月末〜翌月2日、入力画面は前月末〜翌月1日(今月の日しか表示しないため)
+  - 例: 2029-04-30(月)は振替休日。4/30 泊 → 5/1 非番 は「休→平」で休平退勤。4/30 を読まないと平日扱いになり、平日退勤になってしまう
+  - 1月は前月末が前年の12/31になり、前年の祝日も読みにいく(12/31 は年末なので休日扱いは変わらない。普通は12月の登録で保存済み)
 ### 変更したファイル
 - `supabase/migrations/20261004000000_shift_master_cross_times.sql`(新規)
 - `supabase/functions/_shared/plan.js` / `web/js/plan.js` / `supabase/functions/_shared/plan_test.ts`
 - `supabase/functions/register-month/index.ts` / `web/js/input.js`
 - `web/js/csv.js` / `web/js/admin.js` / `web/admin.html`
 - `supabase/seed/shift_master.example.csv` / `README.md` / `docs/DESIGN.md` / `WORKLOG.md`
+### 反映
+- main に push した(Deploy Supabase で migration と Edge Functions、GitHub Pages で画面が反映される)
 ### 手動でやる作業の残り
-- main に反映したあと、区所のマスタを平休退勤の入った CSV で取り込み直す(取り込むまでは今までどおり)
+- Actions の「Test」「Deploy Supabase」「GitHub Pages」が緑か確認する
+- 区所のマスタを平休退勤の入った CSV で取り込み直す(取り込むまでは今までどおり)
 - 登録済みの月は、登録し直すと新しい列で入る
 - 取り込みは区所のマスタを丸ごと入れ替えるので、以後は管理画面で書き出した CSV(11列)を元に直す
 - 写真からマスタ CSV を作るスキル(kinmu-master-csv)にも4列を足す(リポジトリの外)
