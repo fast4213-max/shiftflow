@@ -1718,6 +1718,10 @@ WORKLOG.md(コードは変えていない)
 - `supabase/migrations/20261005000001_save_month_records_safe_dates.sql`(新規)
 - `supabase/functions/_shared/login-core.ts` / `login-core_test.ts` / `csv_test.ts` / `web/js/input.js` / `web/js/csv.js`
 - `README.md` / `web/admin.html` / `docs/DESIGN.md` / `WORKLOG.md`
+### 反映
+- main に push した。Test・Deploy Supabase(test → deploy の順)・GitHub Pages とも成功。migration `20261005000001_save_month_records_safe_dates.sql` も当たった
+- 番号の扱い(確認): 半角の `変7d` はそのまま取り込める。全角の `変７ｄ` は `変7d` に直して取り込む。どちらもエラーにならない(日本語はそのまま)。時刻の欄は今までどおり半角だけ(全角は「時刻が読めない」)
+- 手動の確認のお願い: 管理者ログインが1回できること、勤務入力で「登録」が1回成功すること(コードと DB の関数を変えたため)
 ### 全体のデバッグの修正案の状況(この時点)
 - 対応済み: 4・6・7・11・13・14・15・16・17・19
 - 見送り・割り切り: 1・2・3・5・8・9・10・12(・20)
