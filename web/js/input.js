@@ -370,7 +370,14 @@ $("register").addEventListener("click", async () => {
       (result.skipped ? "(休日用のカレンダーを設定していないため、休日の予定" + result.skipped + "件は登録していません)" : "") +
       (editedMeanwhile ? "登録中に変えたところは、まだ登録していません。もう一度「登録」を押してください。" : ""));
   } catch (err) {
-    setStatus(err.message, true);
+    // 登録に失敗したら、カレンダーに反映できたとは言えないので、未登録の扱いにする(月の移動などで確認が出るように)。
+    // 登録は「保存 → 今ある予定を削除 → 作り直し」の順なので、途中で失敗すると予定が欠けたままになる。
+    // 何も変わっていない失敗(設定の不足・二重実行・ログイン切れ)には、この案内は付けない
+    state.dirty = true;
+    const untouched = ["busy", "not_configured", "not_verified", "no_office", "unauthenticated", "not_member"];
+    setStatus(err.message + (untouched.includes(err.code)
+      ? ""
+      : "(入力は保存されています。カレンダーの予定が途中までになっていることがあるので、もう一度「登録」を押してください)"), true);
   } finally {
     state.registering = false;
     button.disabled = false;
