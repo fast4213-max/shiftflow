@@ -60,7 +60,7 @@ supabase/
     _shared/                共通処理とテスト
 .github/workflows/          Pages への公開、Supabase への自動デプロイ、テスト
 docs/DESIGN.md              設計
-WORKLOG.md                  作業ログ
+WORKLOG.md                  作業ログ(要約と現在の状態)。詳しい経緯は docs/WORKLOG-archive.md
 ```
 
 ---
