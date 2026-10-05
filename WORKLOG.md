@@ -1632,3 +1632,26 @@ WORKLOG.md(コードは変えていない)
 12. iOS 15.3 以前の Safari では、番号の一覧とリセットの画面(`<dialog>`)が開かない(低)
    - 影響: ログイン(ライブラリ)は iOS 14 から動くが、`<dialog>` は iOS 15.4 から。番号を選べず、理由も出ない
    - 案: `<dialog>` が使えないときは「iOS を新しくしてください」と出す。使えなかった人が出たら、この案で直す
+
+## 2026-10-05 修正: 全体のデバッグの 13・11・14・6・17
+### 指示
+- 13・11・14・6・17 を全部直して main に push
+### やったこと
+- 13: 勤務入力・設定・管理の画面も、ライブラリ(jsDelivr)や画面のプログラムが読めないときは、「読み込み中…」のままにせず「画面を読み込めませんでした。電波の良いところで、ページを読み直してください。広告ブロックを使っているときは、このサイトではオフにしてください」と出す(script の `onerror`)。ライブラリを `web/` の中に置く案は、変更が大きいので今回はしていない
+- 11: 手入力の番号が `constructor`・`toString`・`valueOf`・`hasOwnProperty`・`__proto__` などでも止まらないよう、`indexMaster`(両方の `plan.js`)とマスタの CSV の重複の数え方(`csv.js`)を、継承の無い連想配列(`Object.create(null)`)にした。手入力の番号として扱う。テストを追加(直す前は失敗することを確認)
+- 14: 使い方ページは、ログインが切れていても(ほかの端末でPINを変えた・再設定された直後など)ログイン画面へ移らず、登録用アドレスを出さないだけにした(`callFunction` に `stayOnLoss` を足し、`help.js` で使う)
+- 6: Edge Functions の Supabase のライブラリを `npm:@supabase/supabase-js@2.117.2` に固定した(`auth.ts`・`attempts.ts`・`login-core.ts`・`holidays.ts`・`login-core_test.ts`)。画面と同じ版。上げるときは、これらと `app.js` の版を一緒に書き換えて確かめる
+- 17: README の冒頭に「出勤を2件で登録を選んだ人は時間つきの予定も付く」、`delete-month/` の説明に「その月の入力内容も消す」を足した
+### 確かめたこと
+- `deno lint` / `deno check` / `deno test`(77件)が通る
+- Chromium: ライブラリを読めないとき、勤務入力・設定・管理の画面に案内が出る。普通に読めるときは出ない(ログインしていなければログイン画面へ移る)。使い方ページは、サーバーがログイン切れを返しても(模擬)、移らず・メッセージも出ない
+### データへの影響
+- なし(画面・Edge Function・README のみ。DB の変更なし)
+### 変更したファイル
+- `supabase/functions/_shared/plan.js` / `web/js/plan.js` / `web/js/csv.js` / `web/js/app.js` / `web/js/help.js`
+- `supabase/functions/_shared/{auth,attempts,login-core,login-core_test,holidays}.ts` / `supabase/functions/_shared/plan_test.ts` / `supabase/functions/_shared/csv_test.ts`
+- `web/input.html` / `web/settings.html` / `web/admin.html` / `README.md` / `WORKLOG.md`
+### 全体のデバッグの修正案の状況(この時点)
+- 対応済み: 6・11・13・14・16・17
+- 見送り: 1・2・3・10・12(・20)
+- 未対応: 4・5・7・8・9・15・18・19

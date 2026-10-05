@@ -2,7 +2,7 @@
 //   deno test supabase/functions --allow-read --allow-env
 
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.117.2";
 import { adminLogin, changePin, loginWithPin, resetPin, sessionIdOf, signUp } from "./login-core.ts";
 import { AppError } from "./http.ts";
 import { emailFor, passwordFor, randomPin, toHalfWidth } from "./accounts.ts";

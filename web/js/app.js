@@ -129,7 +129,8 @@ export async function logout() {
 }
 
 // Edge Function を呼ぶ。失敗したら、画面に出せるメッセージ付きの Error を投げる
-export async function callFunction(name, body = {}) {
+// stayOnLoss: ログインが切れていても、ログイン画面へ移らない(未ログインでも読める使い方ページ用)
+export async function callFunction(name, body = {}, { stayOnLoss = false } = {}) {
   const { data, error } = await supabase.functions.invoke(name, { body });
   if (!error) return data;
   let message = "通信に失敗しました。電波の良いところでもう一度お試しください。";
@@ -145,7 +146,7 @@ export async function callFunction(name, body = {}) {
   const err = new Error(message);
   err.code = code;
   // ログインが無くなっていた(ほかの端末でPINを変えた・再設定された・削除された)ときは、ログイン画面へ
-  if (code === "unauthenticated" || code === "not_member") {
+  if (!stayOnLoss && (code === "unauthenticated" || code === "not_member")) {
     await loginLost("ログインが切れました。もう一度ログインしてください。");
   }
   throw err;

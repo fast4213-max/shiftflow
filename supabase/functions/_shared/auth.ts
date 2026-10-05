@@ -1,6 +1,6 @@
 // ログイン中の利用者を JWT から取り出す。リクエスト本文の値は信用しない。
 
-import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.117.2";
 import { AppError } from "./http.ts";
 
 export type Context = {

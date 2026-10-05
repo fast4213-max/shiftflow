@@ -77,7 +77,8 @@ export function dayTypeOf(key, holidays) {
 // DB の shift_master の行 → { code: { code, type, start: {平日, 休日, 平休, 休平}, end: {平日, 休日, 平休, 休平}, stay } }
 //   平休 = 平日に泊 → 休日に非番 のときの出勤・退勤、休平 = 休日に泊 → 平日に非番 のときの出勤・退勤(どれも空でもよい)
 export function indexMaster(rows) {
-  const map = {};
+  // 手入力の番号が constructor・toString・__proto__ などでも、マスタにある番号と間違えないよう、継承の無い連想配列にする
+  const map = Object.create(null);
   rows.forEach((r) => {
     map[r.code] = {
       code: r.code,

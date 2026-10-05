@@ -1,6 +1,6 @@
 // ログイン・登録の失敗回数のロック(5回失敗で15分)。DB の関数を service_role で呼ぶ。
 
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.117.2";
 import { AppError } from "./http.ts";
 
 function lockError(until: string): AppError {

@@ -45,3 +45,10 @@ Deno.test("CSV: 泊・日勤で平日出勤と休日出勤がどちらも空な�
   const rows = check(["5742,日勤,,,8:15,16:00,,,,,", "9,日勤,-,-,-,-,,,,,"]);
   assertEquals(rows.map((r: { errors: string[] }) => r.errors), [[], ["出勤が空(平日・休日とも)"]]);
 });
+
+
+Deno.test("CSV: 番号が constructor・__proto__ でも重複を数えられる", () => {
+  const rows = check(["constructor,日勤,6:00,14:00,,,,,,,", "constructor,日勤,6:00,14:00,,,,,,,", "__proto__,日勤,6:00,14:00,,,,,,,"]);
+  assertEquals(rows.map((r: { errors: string[] }) => r.errors), [["番号が重複"], ["番号が重複"], []]);
+});
+

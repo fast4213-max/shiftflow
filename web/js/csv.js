@@ -109,7 +109,7 @@ const CROSS_FIELDS = ["weekday_holiday_start", "weekday_holiday_end", "holiday_w
 // 取り込み前の確認: 時刻をそろえ、行ごとの問題を返す
 //   戻り値: [{ ...row(時刻はそろえた値), errors: ["..."] }]
 export function checkMasterRows(rows) {
-  const count = {};
+  const count = Object.create(null); // 番号が constructor などでも数えられるよう、継承の無い連想配列にする
   rows.forEach((r) => (count[r.code] = (count[r.code] || 0) + 1));
   return rows.map((r) => {
     const errors = [];

@@ -13,7 +13,7 @@ async function main() {
   if (!profile) return;
 
   try {
-    const config = await callFunction("app-config");
+    const config = await callFunction("app-config", {}, { stayOnLoss: true });
     $("sa-email").value = config.serviceAccountEmail;
     $("sa-box").classList.remove("hidden");
     $("sa-login").classList.add("hidden");

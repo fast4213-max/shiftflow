@@ -2,7 +2,7 @@
 // Google を呼ぶのは、その年が未取得のときと、今年以降の年を30日ごとに取り直すときだけ。
 // holiday_years.source が 'manual'(手で取り込んだ年)は取り直さない。
 
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.117.2";
 import { listEvents } from "./google.ts";
 import { AppError } from "./http.ts";
 import { holidayYearsFor } from "./plan.js";

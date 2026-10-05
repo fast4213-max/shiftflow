@@ -221,6 +221,15 @@ Deno.test("祝日の一覧が要る年: 年末年始にはみ出すだけの年�
   assertEquals(holidayYearsFor("2026-12-30", "2027-01-03"), []);
 });
 
+Deno.test("手入力の番号が constructor・toString・__proto__ などでも止まらず、手入力として扱う", () => {
+  for (const name of ["constructor", "toString", "valueOf", "hasOwnProperty", "__proto__"]) {
+    const p = plan(2026, 10, { "2026-10-05": { code: name, memo: "" } });
+    assertEquals(p.events, [{ date: "2026-10-05", calendar: "work", kind: "day", title: name, description: "" }]);
+  }
+  // 前日の番号が constructor などでも、非番にならず止まらない
+  assertEquals(plan(2026, 10, {}, { prevLastCode: "constructor" }).events, []);
+});
+
 Deno.test("メモだけの日は記録に残すが予定は作らない", () => {
   const p = plan(2026, 10, { "2026-10-05": { code: "", memo: "メモ" } });
   assertEquals(p.events, []);

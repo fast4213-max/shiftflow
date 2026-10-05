@@ -1,7 +1,7 @@
 // ログイン・新規登録・管理者ログインの本体。
 // Edge Function の入口(index.ts)から呼ぶ。偽の Supabase を渡してテストできるよう、クライアントは引数で受け取る。
 
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.117.2";
 import {
   ADMIN_EMAIL,
   emailFor,
