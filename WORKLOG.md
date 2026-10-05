@@ -1479,4 +1479,7 @@ WORKLOG.md(コードは変えていない)
 - `supabase/functions/_shared/login-core.ts` / `supabase/functions/_shared/login-core_test.ts` / `supabase/functions/change-pin/index.ts` / `supabase/functions/admin-users/index.ts`
 - `web/js/settings.js` / `web/js/admin.js` / `web/js/register.js` / `web/admin.html` / `web/help.html` / `docs/manual/manual.html` / `web/manual.pdf` / `WORKLOG.md`
 ### 手動でやる作業の残り
-- 反映後、Actions の「Deploy Supabase」のログで `revoke_user_sessions: ... can delete auth.sessions = t` を確認する(f なら、ログインを消す部分だけ動かない。PINの変更はできる)
+- 反映した(Test・Deploy Supabase・GitHub Pages とも成功。migration も当たった)。ただし `supabase db push` は NOTICE をログに出さないので、権限の確認の行はログに出なかった
+- 関数が本番でログインを消せるかは、次のどちらかで確かめる(どちらもデータは変えない)
+  - 管理画面で、テスト用の利用者のPINを再設定し、ダイアログに「すべてログアウトしました」と出るか見る(「消せませんでした」なら権限が無い。PINの再設定そのものはできている)
+  - Supabase の SQL Editor で `select has_table_privilege('postgres', 'auth.sessions', 'DELETE');` を実行して `true` か見る
