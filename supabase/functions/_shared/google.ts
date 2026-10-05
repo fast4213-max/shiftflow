@@ -93,10 +93,43 @@ function isRetryable(status: number, reason: string): boolean {
     (status === 403 && /rateLimitExceeded|userRateLimitExceeded|quotaExceeded/.test(reason));
 }
 
-// 短時間に大量に作成・削除すると失敗することがあるので、待ってから再試行する(最大5回)
+// 再試行の待ち時間。Google カレンダー API の回数の上限(1分600回、全員の合計)は1分たつと戻るので、
+// 混んでいるときは1分近く待てるようにしてある(合計で約67秒。ずらし込みで約50〜84秒)。
+// 全員が同じ時刻に再試行してまた一斉に当たらないよう、待ち時間は ±25% ずらす。テストは baseMs を短くして使う
+export const retryPolicy = { baseMs: [2000, 5000, 10000, 20000, 30000], jitter: 0.25 };
+
+// 登録・削除の全体の時間の上限(withRetryBudget)に、待ち時間を収める。
+// 上限が無い呼び出し(祝日の読み込み・接続テストなど)は、呼び出しごとに15秒まで
+const DEFAULT_RETRY_MS = 15_000;
+
+type Budget = { deadline: number };
+let budgetStore: { getStore(): Budget | undefined; run<T>(store: Budget, fn: () => T): T } | null = null;
+try {
+  const { AsyncLocalStorage } = await import("node:async_hooks");
+  budgetStore = new AsyncLocalStorage<Budget>();
+} catch {
+  // 使えない実行環境では、上限なし(呼び出しごとに15秒)の動きになるだけ
+}
+
+// fn の中の Google の呼び出しは、いまから ms ミリ秒までに終わるように再試行する(待って次の再試行が超えるなら諦める)。
+// 二重実行防止のロック(150秒)より短くしておく
+export function withRetryBudget<T>(ms: number, fn: () => Promise<T>): Promise<T> {
+  return budgetStore ? budgetStore.run({ deadline: Date.now() + ms }, fn) : fn();
+}
+
+// i回目(0から)の再試行の前に待つミリ秒。再試行の回数が尽きた・待つと期限を超えるときは null
+export function nextRetryDelay(i: number, now: number, deadline: number, random = Math.random()): number | null {
+  const base = retryPolicy.baseMs[i];
+  if (base === undefined) return null;
+  const wait = Math.round(base * (1 - retryPolicy.jitter + 2 * retryPolicy.jitter * random));
+  return now + wait > deadline ? null : wait;
+}
+
+// 短時間に大量に作成・削除すると失敗することがあるので、待ってから再試行する
 async function call(method: string, path: string, body?: unknown, query?: Record<string, string>): Promise<any> {
   const url = new URL(API + path);
   if (query) Object.entries(query).forEach(([k, v]) => url.searchParams.set(k, v));
+  const deadline = budgetStore?.getStore()?.deadline ?? Date.now() + DEFAULT_RETRY_MS;
   for (let i = 0; ; i++) {
     const res = await fetch(url, {
       method,
@@ -117,8 +150,9 @@ async function call(method: string, path: string, body?: unknown, query?: Record
       message = err?.message || text;
     } catch { /* JSON でなければそのまま */ }
 
-    if (i < 4 && isRetryable(res.status, reason)) {
-      await sleep(1000 * Math.pow(2, i));
+    const wait = isRetryable(res.status, reason) ? nextRetryDelay(i, Date.now(), deadline) : null;
+    if (wait !== null) {
+      await sleep(wait);
       continue;
     }
     throw new GoogleError(res.status, reason, message);

@@ -4,12 +4,15 @@
 import { addDays, daysInMonth, dateKey } from "./plan.js";
 import type { Context } from "./auth.ts";
 import { AppError } from "./http.ts";
-import { APP_TAG, calendarAccessError, deleteEvent, insertAllDayEvent, insertTimedEvent, listEvents, runPool } from "./google.ts";
+import { APP_TAG, calendarAccessError, deleteEvent, insertAllDayEvent, insertTimedEvent, listEvents, runPool, withRetryBudget } from "./google.ts";
 
 // holiday は空でもよい(休日用のカレンダーを使わない人。種別が「休日」の予定は登録しない)
 export type Calendars = { work: string; holiday: string; officeId?: number | null; splitDayEvents?: boolean };
 
 const CONCURRENCY = 4;
+
+// 登録・削除の全体で、Google の混雑の待ちを含めて収める時間。ロックの150秒より短くする
+const WORK_BUDGET_MS = 120_000;
 
 export async function loadVerifiedCalendars(ctx: Context): Promise<Calendars> {
   const { data, error } = await ctx.db
@@ -35,7 +38,7 @@ export async function withUserLock<T>(ctx: Context, fn: () => Promise<T>): Promi
     throw new AppError(409, "登録または削除を実行中です。少し待ってからもう一度お試しください。", "busy");
   }
   try {
-    return await fn();
+    return await withRetryBudget(WORK_BUDGET_MS, fn);
   } finally {
     await ctx.admin.rpc("release_user_lock", { p_user_id: ctx.userId });
   }

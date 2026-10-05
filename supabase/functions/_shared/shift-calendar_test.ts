@@ -4,6 +4,7 @@
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
 import { createEvents, deleteAppEvents, eventsToRegister, parseTimeRange, isOffTitle, splitDayEvents, staleNextMonthRecords } from "./shift-calendar.ts";
 import { AppError } from "./http.ts";
+import { nextRetryDelay, retryPolicy, withRetryBudget } from "./google.ts";
 import { buildPlan, indexMaster } from "./plan.js";
 
 // テスト用の使い捨て鍵でサービスアカウントを用意する
@@ -216,6 +217,8 @@ Deno.test("1件失敗したら残りは作らず、作っている途中の分�
 });
 
 Deno.test("レート制限は待って再試行する", async () => {
+  const saved = [...retryPolicy.baseMs];
+  retryPolicy.baseMs = [20];
   let n = 0;
   const calls = mockFetch((c) => {
     if (c.method !== "POST") return;
@@ -223,8 +226,78 @@ Deno.test("レート制限は待って再試行する", async () => {
     if (n === 1) return Response.json({ error: { code: 403, errors: [{ reason: "rateLimitExceeded" }] } }, { status: 403 });
     return Response.json({ id: "ok" });
   });
-  await createEvents({ work: "w", holiday: "h" }, [{ date: "2026-10-01", calendar: "work", kind: "day", title: "x", description: "" }]);
+  try {
+    await createEvents({ work: "w", holiday: "h" }, [{ date: "2026-10-01", calendar: "work", kind: "day", title: "x", description: "" }]);
+  } finally {
+    retryPolicy.baseMs = saved;
+  }
   assertEquals(calls.filter((c) => c.method === "POST").length, 2);
+});
+
+Deno.test("nextRetryDelay: 待ち時間は長くなり、±25%ずらし、回数が尽きる・期限を超えるなら null", () => {
+  const base = retryPolicy.baseMs;
+  assertEquals(base.reduce((a, b) => a + b, 0), 67000); // 合計は約1分(1分で上限が戻る)
+  for (let i = 0; i < base.length; i++) {
+    assertEquals(nextRetryDelay(i, 0, 1e12, 0), Math.round(base[i] * 0.75));
+    assertEquals(nextRetryDelay(i, 0, 1e12, 0.5), base[i]);
+    assertEquals(nextRetryDelay(i, 0, 1e12, 1), Math.round(base[i] * 1.25));
+  }
+  assertEquals(nextRetryDelay(base.length, 0, 1e12), null); // 回数が尽きた
+  assertEquals(nextRetryDelay(0, 1000, 2999, 0.5), null); // 待つと期限(2999)を超える
+  assertEquals(nextRetryDelay(0, 1000, 3000, 0.5), 2000); // ちょうどなら待つ
+});
+
+Deno.test("混んでいても、期限の中なら待って再試行して成功する(期限が無いときの15秒を超えて待てる)", async () => {
+  const saved = [...retryPolicy.baseMs];
+  retryPolicy.baseMs = [20, 20, 20];
+  try {
+    let n = 0;
+    const calls = mockFetch((c) => {
+      if (c.method !== "POST") return;
+      n++;
+      return n <= 3 ? Response.json({ error: { code: 429 } }, { status: 429 }) : Response.json({ id: "ok" });
+    });
+    await withRetryBudget(60_000, () =>
+      createEvents({ work: "w", holiday: "h" }, [{ date: "2026-10-01", calendar: "work", kind: "day", title: "x", description: "" }])
+    );
+    assertEquals(calls.filter((c) => c.method === "POST").length, 4);
+  } finally {
+    retryPolicy.baseMs = saved;
+  }
+});
+
+Deno.test("期限が近いと、待たずに諦めてエラーにする(ロックの150秒を超えない)", async () => {
+  const saved = [...retryPolicy.baseMs];
+  retryPolicy.baseMs = [5000, 5000];
+  try {
+    const calls = mockFetch((c) => (c.method === "POST" ? Response.json({ error: { code: 429 } }, { status: 429 }) : undefined));
+    const started = Date.now();
+    await assertRejects(
+      () =>
+        withRetryBudget(1000, () =>
+          createEvents({ work: "w", holiday: "h" }, [{ date: "2026-10-01", calendar: "work", kind: "day", title: "x", description: "" }])),
+      AppError,
+    );
+    assertEquals(calls.filter((c) => c.method === "POST").length, 1); // 5秒待つと期限を超えるので再試行しない
+    assert(Date.now() - started < 1000);
+  } finally {
+    retryPolicy.baseMs = saved;
+  }
+});
+
+Deno.test("期限が無い呼び出しは、呼び出しごとに15秒までで諦める", async () => {
+  const saved = [...retryPolicy.baseMs];
+  retryPolicy.baseMs = [10, 20000];
+  try {
+    const calls = mockFetch((c) => (c.method === "POST" ? Response.json({ error: { code: 429 } }, { status: 429 }) : undefined));
+    await assertRejects(
+      () => createEvents({ work: "w", holiday: "h" }, [{ date: "2026-10-01", calendar: "work", kind: "day", title: "x", description: "" }]),
+      AppError,
+    );
+    assertEquals(calls.filter((c) => c.method === "POST").length, 2); // 10ms 待って1回、20秒は期限(15秒)を超えるので諦める
+  } finally {
+    retryPolicy.baseMs = saved;
+  }
 });
 
 Deno.test("休日用のカレンダーが空なら、「休日」の予定は作らない(勤務・非番は作る)", async () => {
