@@ -1688,6 +1688,8 @@ WORKLOG.md(コードは変えていない)
 - なし(画面と GitHub Actions の設定だけ。DB の変更なし)
 ### 変更したファイル
 - `.github/workflows/deploy-supabase.yml` / `web/js/input.js` / `WORKLOG.md`
+### 反映
+- main に push した。Deploy Supabase は、新しい `test` ジョブが先に成功し、そのあと `deploy` ジョブが成功した(テストを待ってから反映する動きを、本番の Actions で確認)。GitHub Pages も成功。`test.yml` の Test は、supabase/ や plan.js・csv.js を変えていないため、この push では動いていない
 ### 全体のデバッグの修正案の状況(この時点)
 - 対応済み: 4・6・7・11・13・14・16・17
 - 見送り・割り切り: 1・2・3・5・8・9・10・12(・20)
