@@ -1,7 +1,7 @@
 // 最初の画面: 利用者(社員番号+PIN)と管理(管理用パスワード)のタブ
 import {
-  $, callFunction, canSaveLogin, configured, currentSession, go, homePageFor, loadProfile, renderTopbar, startSession, STORAGE_HELP,
-  supabase, toHalfWidth,
+  $, AUTOFILL_HINT, callFunction, canSaveLogin, configured, currentSession, go, homePageFor, loadProfile, renderTopbar, startSession,
+  STORAGE_HELP, supabase, toHalfWidth,
 } from "./app.js?v=dev";
 
 renderTopbar("index.html");
@@ -26,12 +26,12 @@ window.addEventListener("hashchange", () => showTab(location.hash === "#admin" ?
 $("tab-user").addEventListener("click", () => showTab("user"));
 $("tab-admin").addEventListener("click", () => showTab("admin"));
 
-// iPhone などが保存した値が自動で入って、社員番号・PINの形でなかったとき(app.js の bindDigitsOnly が空にする)
-const AUTOFILL_HINT = "自動で入った値が社員番号・PINの形ではなかったので消しました。手で入力してください" +
-  "(iPhoneなどに保存されたパスワードが、名前や共通パスワードになっていることがあります)。";
-["employee-no", "pin"].forEach((id) =>
-  $(id).addEventListener("digits-rejected", () => setMessage("user-message", AUTOFILL_HINT, "error"))
-);
+// iPhone などが保存した値が自動で入って、社員番号・PINの形でなかったとき(app.js の bindDigitsOnly が空にする)。
+// 画面のプログラムより先に入っていて、もう消してあったときも案内する
+["employee-no", "pin"].forEach((id) => {
+  $(id).addEventListener("digits-rejected", () => setMessage("user-message", AUTOFILL_HINT, "error"));
+  if ($(id).dataset.rejected) setMessage("user-message", AUTOFILL_HINT, "error");
+});
 
 // ボタンは押せるままにして、押したときに入力を確かめる
 // (ブラウザが保存したパスワードを自動で入れたときは入力の合図が来ないことがあり、押せないままになるため)

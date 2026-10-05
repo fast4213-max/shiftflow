@@ -1,5 +1,7 @@
 // 新規登録: 社員番号・名字・名前・PIN・共通パスワード。登録したらそのままログインして設定画面へ
-import { $, callFunction, canSaveLogin, configured, go, renderTopbar, startSession, STORAGE_HELP, toHalfWidth } from "./app.js?v=dev";
+import {
+  $, AUTOFILL_HINT, callFunction, canSaveLogin, configured, go, renderTopbar, startSession, STORAGE_HELP, toHalfWidth,
+} from "./app.js?v=dev";
 
 renderTopbar("register.html");
 
@@ -18,14 +20,16 @@ function problem() {
   return "";
 }
 
-$("form").addEventListener("input", () => {
+$("form").addEventListener("input", (ev) => {
   if (!canSaveLogin()) return;
   $("submit").disabled = !!problem();
-  setMessage("");
+  // 社員番号・PINの欄に形の違う値が自動で入って消したとき(app.js の bindDigitsOnly)は、その案内を出す
+  setMessage(ev.target.dataset && ev.target.dataset.rejected ? AUTOFILL_HINT : "", "error");
 });
 $("submit").disabled = true;
 // ログインを保存できない(Safari の「すべてのCookieをブロック」など)と、登録してもそのまま使えないので先に知らせる
 if (!canSaveLogin()) setMessage(STORAGE_HELP, "error");
+else if (document.querySelector("#form [data-rejected]")) setMessage(AUTOFILL_HINT, "error");
 
 $("form").addEventListener("submit", async (ev) => {
   ev.preventDefault();

@@ -19,6 +19,9 @@ export const $ = (id) => document.getElementById(id);
 // 画面のプログラムが読み込めたしるし(HTML の onsubmit が見る。読み込めないときに、社員番号やPINを
 // URL に付けて送ってしまわないよう、フォームの送信は止めて、読み込めなかったことを知らせる)
 window.shiftflowReady = true;
+// 読み込み中にボタンを押したときの「読み込み中です」を、読み込めたら消す
+const loadWait = document.getElementById("load-wait");
+if (loadWait) loadWait.classList.add("hidden");
 
 // この端末にログインを保存できるか。Safari の「すべてのCookieをブロック」がオンなどだと保存できず、
 // ログインしても次の画面でログイン画面に戻ってしまう(エラーも出ない)ので、先に確かめて知らせる
@@ -35,7 +38,12 @@ export function canSaveLogin() {
 
 export const STORAGE_HELP =
   "この画面ではログインを保存できません。iPhoneは「設定」→「アプリ」→「Safari」(iOSによっては「設定」→「Safari」)の" +
-  "「すべてのCookieをブロック」をオフにしてから、開き直してください。プライベートブラウズのときは、通常のタブで開いてください。";
+  "「すべてのCookieをブロック」をオフにしてから、開き直してください。プライベートブラウズのときは、通常のタブで開いてください。" +
+  "Android(Chrome)は、右上の「︙」→「設定」→「サイトの設定」で、このサイトのCookie(サイトのデータ)を許可してから、開き直してください。";
+
+// 社員番号・PINの欄に、形の違う値が自動で入ったので消したときの案内(bindDigitsOnly)
+export const AUTOFILL_HINT = "自動で入った値が社員番号・PINの形ではなかったので消しました。手で入力してください" +
+  "(iPhoneなどに保存されたパスワードが、名前や共通パスワードになっていることがあります)。";
 
 // このページと同じフォルダの別ページの URL(GitHub Pages のサブパスでも動くように)
 export function pageUrl(name) {
@@ -232,9 +240,13 @@ export function toHalfWidth(value) {
 // ただし、1文字ずつ打ったのではなく(自動入力・貼り付け)、数字以外の文字(空白・ハイフンを除く)があるか
 // 桁が多すぎるときは、iPhone などが保存した別の値(名前や共通パスワードなど)が自動で入ったとみなす。
 // 切り詰めると違う社員番号・PINで送ってしまうので、空にして "digits-rejected" で知らせる
+// (消した欄には data-rejected を付ける。画面のプログラムより先に入っていた値を消したときは、
+// 各画面の知らせを受ける準備がまだなので、各画面はこの印を見て案内を出す)
 function isTyping(ev) {
-  const type = ev && ev.inputType;
-  if (!type) return !ev || ev.type !== "input"; // 最初の1回・日本語入力の確定(compositionend)は打った扱い
+  // 最初の1回(画面のプログラムが動く前に入っていた値)は自動入力の扱い。日本語入力の確定(compositionend)は打った扱い
+  if (!ev) return false;
+  const type = ev.inputType;
+  if (!type) return ev.type !== "input";
   if (type === "insertText") return (ev.data || "").length <= 1;
   return type === "insertCompositionText" || type.startsWith("delete");
 }
@@ -244,13 +256,16 @@ function bindDigitsOnly(input) {
     const max = Number(input.getAttribute("maxlength")) || 0;
     const raw = toHalfWidth(input.value);
     let value = raw.replace(/\D/g, "");
-    if (!isTyping(ev) && (/[^\d\s\-ー－]/.test(raw) || (max && value.length > max))) {
-      value = "";
-      input.dispatchEvent(new CustomEvent("digits-rejected"));
-    } else if (max) {
-      value = value.slice(0, max);
-    }
+    const rejected = !isTyping(ev) && (/[^\d\s\-ー－]/.test(raw) || (max && value.length > max));
+    if (rejected) value = "";
+    else if (max) value = value.slice(0, max);
     if (value !== input.value) input.value = value;
+    if (rejected) {
+      input.dataset.rejected = "1";
+      input.dispatchEvent(new CustomEvent("digits-rejected"));
+    } else {
+      delete input.dataset.rejected;
+    }
   };
   input.addEventListener("input", clean);
   input.addEventListener("compositionend", clean);

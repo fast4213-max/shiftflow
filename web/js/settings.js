@@ -1,5 +1,5 @@
 // 設定: 区所とカレンダーIDだけ。保存すると、そのまま接続テストをする。
-import { $, callFunction, copyText, isReady, requireLogin, supabase, toHalfWidth } from "./app.js?v=dev";
+import { $, AUTOFILL_HINT, callFunction, copyText, isReady, requireLogin, supabase, toHalfWidth } from "./app.js?v=dev";
 
 let session = null;
 let settings = null; // user_settings の行(無ければ null)
@@ -99,6 +99,12 @@ async function main() {
     } finally {
       $("save").disabled = false;
     }
+  });
+
+  // PINの欄に形の違う値が自動で入って消したとき(app.js の bindDigitsOnly)
+  ["pin-current", "pin-new", "pin-new2"].forEach((id) => {
+    $(id).addEventListener("digits-rejected", () => message("pin-result", AUTOFILL_HINT, "error"));
+    if ($(id).dataset.rejected) message("pin-result", AUTOFILL_HINT, "error");
   });
 
   $("pin-save").addEventListener("click", async () => {

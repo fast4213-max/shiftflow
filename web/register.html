@@ -14,8 +14,9 @@
   <main class="page narrow">
     <h1>新規登録</h1>
     <p class="muted">登録すると、そのまま使えます。</p>
+    <p id="load-wait" class="message hidden">読み込み中です。少し待ってから、もう一度押してください(しばらくたっても変わらないときは、ページを読み直してください)。</p>
     <p id="load-error" class="message error hidden">画面を読み込めませんでした。電波の良いところで、ページを読み直してください。広告ブロック(コンテンツブロッカー)を使っているときは、このサイトではオフにしてください。</p>
-    <form id="form" class="card" autocomplete="off" onsubmit="if (!window.shiftflowReady) document.getElementById('load-error').classList.remove('hidden'); return false;">
+    <form id="form" class="card" autocomplete="off" onsubmit="if (!window.shiftflowReady &amp;&amp; document.getElementById('load-error').classList.contains('hidden')) document.getElementById('load-wait').classList.remove('hidden'); return false;">
       <label for="employee-no">社員番号(7桁)</label>
       <input id="employee-no" data-digits name="username" inputmode="numeric" maxlength="7" autocomplete="username" placeholder="1234567" required>
       <div class="two">
@@ -41,6 +42,6 @@
     </form>
     <p class="muted center"><a href="index.html">ログインに戻る</a> ・ <a href="help.html">使い方</a></p>
   </main>
-  <script type="module" src="js/register.js?v=dev" onerror="document.getElementById('load-error').classList.remove('hidden')"></script>
+  <script type="module" src="js/register.js?v=dev" onerror="document.getElementById('load-wait').classList.add('hidden'); document.getElementById('load-error').classList.remove('hidden')"></script>
 </body>
 </html>
