@@ -67,6 +67,15 @@ const COLUMNS = {
 };
 const REQUIRED = ["番号", "種別", "平日出勤", "平日退勤", "休日出勤", "休日退勤"];
 
+// 番号の全角の英数字・記号(！〜～)と全角の空白を半角にそろえる(日本語の文字はそのまま)。
+// 全角と半角が混ざっても、手入力で一覧の番号と合うように、重複もそろえて見つけられるように
+export function normalizeCode(value) {
+  return String(value || "")
+    .replace(/[！-～]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .replace(/\u3000/g, " ")
+    .trim();
+}
+
 // マスタの CSV → replace_shift_master に渡す行の配列。列の順番は自由。
 // 番号だけ空の行も残す(checkMasterRows で「番号が空」にして、写し漏れに気づけるように)
 export function masterRowsFromCsv(text) {
@@ -83,6 +92,7 @@ export function masterRowsFromCsv(text) {
         const i = header.indexOf(ja);
         obj[en] = i === -1 ? "" : (r[i] || "").trim();
       });
+      obj.code = normalizeCode(obj.code);
       return obj;
     })
     .filter((r) => Object.values(r).some((v) => v !== ""));

@@ -246,14 +246,18 @@ export async function adminLogin(
       userId = created.data.user.id;
     }
     const { error } = await admin.from("profiles").insert({ user_id: userId, role: "admin" });
-    if (error) throw error;
+    // 同時に別のログインが先にプロフィールを作っていた(重複 23505)ときは、それを使う
+    if (error && (error as { code?: string }).code !== "23505") throw error;
   }
 
-  // ログインのたびに使い捨てのパスワードに変えて、そのパスワードでサインインする
-  const password = randomPassword();
-  const updated = await admin.auth.admin.updateUserById(userId, { password, email_confirm: true });
-  if (updated.error) throw updated.error;
-  const session = await signIn(anon, ADMIN_EMAIL, password);
-  if (!session) throw new Error("管理用ユーザーでログインできませんでした");
-  return session;
+  // ログインのたびに使い捨てのパスワードに変えて、そのパスワードでサインインする。
+  // 同時に別のログインがパスワードを変えると、自分のパスワードで入れないことがあるので、数回やり直す
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const password = randomPassword();
+    const updated = await admin.auth.admin.updateUserById(userId, { password, email_confirm: true });
+    if (updated.error) throw updated.error;
+    const session = await signIn(anon, ADMIN_EMAIL, password);
+    if (session) return session;
+  }
+  throw new AppError(503, "管理用ユーザーでログインできませんでした。もう一度お試しください。", "admin_busy");
 }

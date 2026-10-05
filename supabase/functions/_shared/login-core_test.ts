@@ -5,7 +5,7 @@ import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.117.2";
 import { adminLogin, changePin, loginWithPin, resetPin, sessionIdOf, signUp } from "./login-core.ts";
 import { AppError } from "./http.ts";
-import { emailFor, passwordFor, randomPin, toHalfWidth } from "./accounts.ts";
+import { ADMIN_EMAIL, emailFor, passwordFor, randomPin, toHalfWidth } from "./accounts.ts";
 
 type User = { id: string; email: string; password: string };
 type Profile = { user_id: string; employee_no: string | null; role: string; family_name?: string; given_name?: string };
@@ -25,6 +25,8 @@ function fakes(
     failRevoke?: boolean;
     busyPasswords?: string[];
     noSessionId?: boolean;
+    racingAdminInsert?: boolean; // 管理用プロフィールを作ろうとしたら、同時の別のログインが先に作っていた
+    adminPasswordLosses?: number; // 管理用ユーザーのサインインが、同時の別のログインにパスワードを変えられて、この回数だけ失敗する
   } = {},
 ) {
   const attempts = new Map<string, { count: number; lockedUntil: number | null }>();
@@ -34,6 +36,7 @@ function fakes(
   const sessions: { id: string; userId: string }[] = [];
   const shared = opts.sharedPassword === undefined ? "kyotsu-pass-1" : opts.sharedPassword;
   let seq = 0;
+  let adminLosses = opts.adminPasswordLosses ?? 0;
 
   const admin = {
     rpc(name: string, args: Record<string, unknown>) {
@@ -84,6 +87,10 @@ function fakes(
         },
         insert: (row: Profile) => {
           if (opts.failProfileInsert) return Promise.resolve({ error: new Error("insert failed") });
+          if (opts.racingAdminInsert && row.role === "admin" && !profiles.some((p) => p.role === "admin")) {
+            profiles.push(row);
+            return Promise.resolve({ error: Object.assign(new Error("duplicate key value"), { code: "23505" }) });
+          }
           profiles.push(row);
           return Promise.resolve({ error: null });
         },
@@ -122,6 +129,10 @@ function fakes(
       signInWithPassword({ email, password }: { email: string; password: string }) {
         if (opts.authStatus) {
           return Promise.resolve({ data: { session: null }, error: authError(opts.authStatus, "Request rate limit reached") });
+        }
+        if (email === ADMIN_EMAIL && adminLosses > 0) {
+          adminLosses--;
+          return Promise.resolve({ data: { session: null }, error: authError(400, "Invalid login credentials") });
         }
         if (opts.busyPasswords?.includes(password)) {
           return Promise.resolve({ data: { session: null }, error: authError(429, "Request rate limit reached") });
@@ -437,3 +448,18 @@ Deno.test("PINの変更: 新しいログインのセッションIDが分から�
   assertEquals(result.sessionsCleared, false);
   assertEquals(f.sessions.length, 3); // 前のログイン・確かめたとき・新しいログイン
 });
+
+Deno.test("管理者ログイン: 同時の別のログインに先にプロフィールを作られても(重複)、エラーにせず入れる", async () => {
+  const f = fakes({ racingAdminInsert: true });
+  const s = await adminLogin(f.deps, { password: "admin-password-123" }, "admin-password-123");
+  assert(s.access_token);
+  assertEquals(f.profiles.filter((p) => p.role === "admin").length, 1);
+});
+
+Deno.test("管理者ログイン: 同時の別のログインにパスワードを変えられて入れなくても、やり直して入れる。3回続けて失敗したら分かるエラー", async () => {
+  const f = fakes({ adminPasswordLosses: 2 });
+  assert((await adminLogin(f.deps, { password: "admin-password-123" }, "admin-password-123")).access_token);
+  const g = fakes({ adminPasswordLosses: 3 });
+  assertEquals(await code(() => adminLogin(g.deps, { password: "admin-password-123" }, "admin-password-123")), "admin_busy");
+});
+

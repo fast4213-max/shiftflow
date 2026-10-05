@@ -5,12 +5,14 @@ import { addDays, dateKey, dayTypeOf, daysInMonth, describe, dutyMemo, holidayYe
 const MANUAL = "__manual__";
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
-const today = new Date();
-const todayKey = dateKey(today.getFullYear(), today.getMonth() + 1, today.getDate());
-const firstMonth = { year: today.getFullYear(), month: today.getMonth() + 1 };
+// 今日・今月は、画面を開きっぱなしにして日付や月が変わっても合うよう、使うたびに調べる
+function nowParts() {
+  const t = new Date();
+  return { year: t.getFullYear(), month: t.getMonth() + 1, key: dateKey(t.getFullYear(), t.getMonth() + 1, t.getDate()) };
+}
 const state = {
-  year: firstMonth.year,
-  month: firstMonth.month,
+  year: nowParts().year,
+  month: nowParts().month,
   masterList: [],
   master: {},
   entries: {},       // { "yyyy-MM-dd": { code, memo } }  memo は手修正したときだけ
@@ -24,8 +26,10 @@ const state = {
   registering: false,
 };
 
+// 今月より前には戻れない(今月かそれ以前の月を見ているとき)
 function isFirstMonth() {
-  return state.year === firstMonth.year && state.month === firstMonth.month;
+  const now = nowParts();
+  return state.year * 12 + state.month <= now.year * 12 + now.month;
 }
 
 function setStatus(text, isError) {
@@ -148,7 +152,7 @@ function render() {
     const offduty = !!prevMaster;
 
     const tr = document.createElement("tr");
-    if (key === todayKey) tr.className = "today";
+    if (key === nowParts().key) tr.className = "today";
 
     const dayTd = document.createElement("td");
     dayTd.className = "day";

@@ -52,3 +52,9 @@ Deno.test("CSV: 番号が constructor・__proto__ でも重複を数えられる
   assertEquals(rows.map((r: { errors: string[] }) => r.errors), [["番号が重複"], ["番号が重複"], []]);
 });
 
+Deno.test("CSV: 番号の全角の英数字・記号は半角にそろえる(日本語はそのまま)。全角と半角の重複も見つかる", () => {
+  const rows = check(["１０１,泊,9:00,9:30,,,,,,,", "101,泊,9:00,9:30,,,,,,,", "変７ｄ,日勤,9:00,17:45,,,,,,,", "Ａ１　,日勤,9:00,17:45,,,,,,,", "公休,休日,,,,,,,,,"]);
+  assertEquals(rows.map((r: { code: string }) => r.code), ["101", "101", "変7d", "A1", "公休"]);
+  assertEquals(rows.map((r: { errors: string[] }) => r.errors), [["番号が重複"], ["番号が重複"], [], [], []]);
+});
+
