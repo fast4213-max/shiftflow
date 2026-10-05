@@ -359,7 +359,7 @@ $("register").addEventListener("click", async () => {
   state.registering = true;
   $("prev").disabled = true;
   $("next").disabled = true;
-  setStatus("登録中…(30秒ほどかかることがあります)");
+  setStatus("登録中…(30秒ほど、混んでいるときは2分ほどかかることがあります。そのままお待ちください)");
   const edits = state.edits;
   try {
     const result = await callFunction("register-month", {
