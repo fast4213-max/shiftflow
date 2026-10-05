@@ -1483,3 +1483,4 @@ WORKLOG.md(コードは変えていない)
 - 関数が本番でログインを消せるかは、次のどちらかで確かめる(どちらもデータは変えない)
   - 管理画面で、テスト用の利用者のPINを再設定し、ダイアログに「すべてログアウトしました」と出るか見る(「消せませんでした」なら権限が無い。PINの再設定そのものはできている)
   - Supabase の SQL Editor で `select has_table_privilege('postgres', 'auth.sessions', 'DELETE');` を実行して `true` か見る
+- 2026-10-05 確認済み: SQL Editor で `has_table_privilege('postgres', 'auth.sessions', 'DELETE')` が `true`(本番でログイン状態を消せる)
