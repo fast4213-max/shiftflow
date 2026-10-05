@@ -3,7 +3,7 @@
 
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
-import { adminLogin, loginWithPin, signUp } from "./login-core.ts";
+import { adminLogin, changePin, loginWithPin, resetPin, sessionIdOf, signUp } from "./login-core.ts";
 import { AppError } from "./http.ts";
 import { emailFor, passwordFor, randomPin, toHalfWidth } from "./accounts.ts";
 
@@ -13,12 +13,21 @@ type Profile = { user_id: string; employee_no: string | null; role: string; fami
 // 最小限の偽物: DB の関数(rpc)、profiles、Supabase Auth のユーザー
 // racingSignUp: 同じ社員番号の登録が同時に進んでいる(社員番号の確認の時点では、相手のプロフィールがまだ見えない)
 // authStatus: Supabase Auth のサインインが、この HTTP ステータスで失敗する(429 = 回数の制限、5xx = 障害)
+// failRevoke: ログイン状態(セッション)を消す DB の関数が失敗する
 function fakes(
-  opts: { sharedPassword?: string | null; failProfileInsert?: boolean; racingSignUp?: boolean; authStatus?: number } = {},
+  opts: {
+    sharedPassword?: string | null;
+    failProfileInsert?: boolean;
+    racingSignUp?: boolean;
+    authStatus?: number;
+    failRevoke?: boolean;
+  } = {},
 ) {
   const attempts = new Map<string, { count: number; lockedUntil: number | null }>();
   const users: User[] = [];
   const profiles: Profile[] = [];
+  // ログイン状態(Supabase Auth のセッション)
+  const sessions: { id: string; userId: string }[] = [];
   const shared = opts.sharedPassword === undefined ? "kyotsu-pass-1" : opts.sharedPassword;
   let seq = 0;
 
@@ -45,6 +54,14 @@ function fakes(
           return Promise.resolve({ data: null, error: null });
         case "check_signup_password":
           return Promise.resolve({ data: shared === null ? "not_set" : args.p_password === shared ? "ok" : "wrong", error: null });
+        case "revoke_user_sessions": {
+          if (opts.failRevoke) return Promise.resolve({ data: null, error: new Error("permission denied for table sessions") });
+          const before = sessions.length;
+          for (let i = sessions.length - 1; i >= 0; i--) {
+            if (sessions[i].userId === args.p_user_id && sessions[i].id !== args.p_keep_session) sessions.splice(i, 1);
+          }
+          return Promise.resolve({ data: before - sessions.length, error: null });
+        }
       }
       throw new Error("unexpected rpc " + name);
     },
@@ -103,11 +120,12 @@ function fakes(
           return Promise.resolve({ data: { session: null }, error: authError(opts.authStatus, "Request rate limit reached") });
         }
         const u = users.find((x) => x.email === email && x.password === password);
-        return Promise.resolve(
-          u
-            ? { data: { session: { access_token: `at-${u.id}`, refresh_token: `rt-${u.id}` } }, error: null }
-            : { data: { session: null }, error: authError(400, "Invalid login credentials") },
-        );
+        if (!u) return Promise.resolve({ data: { session: null }, error: authError(400, "Invalid login credentials") });
+        // 本物と同じく、アクセストークン(JWT)の中にセッションIDを入れる
+        const sid = `s-${++seq}`;
+        sessions.push({ id: sid, userId: u.id });
+        const payload = btoa(JSON.stringify({ sub: u.id, session_id: sid })).replace(/=+$/, "");
+        return Promise.resolve({ data: { session: { access_token: `at-${u.id}.${payload}.sig`, refresh_token: `rt-${u.id}` } }, error: null });
       },
     },
   };
@@ -117,6 +135,7 @@ function fakes(
     users,
     profiles,
     attempts,
+    sessions,
   };
 }
 
@@ -146,7 +165,7 @@ Deno.test("新規登録 → その社員番号+PINでログインできる", asy
   assertEquals(f.profiles[0].employee_no, "1234567");
   assertEquals(f.profiles[0].family_name, "山田");
   const session = await loginWithPin(f.deps, { employee_no: "1234567", pin: "4829" });
-  assertEquals(session.access_token, "at-id-1");
+  assert(session.access_token.startsWith("at-id-1."));
   // 全角でもログインできる
   await loginWithPin(f.deps, { employee_no: "１２３４５６７", pin: "４８２９" });
 });
@@ -311,6 +330,79 @@ Deno.test("管理者ログイン: 管理用ユーザーだけ残っていても�
   const secret = "admin-secret-1234";
   f.users.push({ id: "left-admin", email: "admin@admin.shiftflow.invalid", password: "old" });
   const s = await adminLogin(f.deps, { password: secret }, secret);
-  assertEquals(s.access_token, "at-left-admin");
+  assert(s.access_token.startsWith("at-left-admin."));
   assertEquals(f.profiles[0].user_id, "left-admin");
+});
+
+Deno.test("セッションID: アクセストークン(JWT)から取り出す。読めなければ null", () => {
+  const payload = btoa(JSON.stringify({ session_id: "abc-123" })).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+  assertEquals(sessionIdOf(`h.${payload}.s`), "abc-123");
+  assertEquals(sessionIdOf("not-a-jwt"), null);
+  assertEquals(sessionIdOf("h.@@@.s"), null);
+});
+
+Deno.test("PINの変更: 今のPINが正しければ変わり、新しいPINのログインだけが残る(ほかの端末・確かめたときのログインは消える)", async () => {
+  const f = fakes();
+  await signUp(f.deps, reg, "1.1.1.1");
+  const phone = await loginWithPin(f.deps, { employee_no: reg.employee_no, pin: reg.pin });
+  await loginWithPin(f.deps, { employee_no: reg.employee_no, pin: reg.pin }); // ほかの端末
+  const userId = f.users[0].id;
+  const result = await changePin(f.deps, { userId, employeeNo: reg.employee_no }, { current_pin: reg.pin, new_pin: "１１１１" });
+  assertEquals(result.sessionsCleared, true);
+  assertEquals(f.sessions.map((s) => s.id), [sessionIdOf(result.session.access_token)]);
+  assert(sessionIdOf(phone.access_token) !== sessionIdOf(result.session.access_token));
+  // 新しいPINで入れて、前のPINでは入れない
+  await loginWithPin(f.deps, { employee_no: reg.employee_no, pin: "1111" });
+  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: reg.employee_no, pin: reg.pin })), "bad_credentials");
+});
+
+Deno.test("PINの変更: 今のPINが違えば変えない・ログインも消さない。5回でロック", async () => {
+  const f = fakes();
+  await signUp(f.deps, reg, "1.1.1.1");
+  await loginWithPin(f.deps, { employee_no: reg.employee_no, pin: reg.pin });
+  const user = { userId: f.users[0].id, employeeNo: reg.employee_no };
+  assertEquals(await code(() => changePin(f.deps, user, { current_pin: "0000", new_pin: "1111" })), "bad_credentials");
+  assertEquals(f.sessions.length, 1);
+  assertEquals(f.users[0].password, passwordFor(reg.pin));
+  for (let i = 0; i < 3; i++) await code(() => changePin(f.deps, user, { current_pin: "0000", new_pin: "1111" }));
+  assertEquals(await code(() => changePin(f.deps, user, { current_pin: "0000", new_pin: "1111" })), "locked");
+});
+
+Deno.test("PINの再設定(管理者): 仮のPINで入れるようになり、その人のログインは全部消える。ほかの人のログインは残る", async () => {
+  const f = fakes();
+  await signUp(f.deps, reg, "1.1.1.1");
+  await signUp(f.deps, { ...reg, employee_no: "7654321" }, "1.1.1.1");
+  await loginWithPin(f.deps, { employee_no: reg.employee_no, pin: reg.pin });
+  await loginWithPin(f.deps, { employee_no: reg.employee_no, pin: reg.pin });
+  await loginWithPin(f.deps, { employee_no: "7654321", pin: reg.pin });
+  // 間違えてロック寸前の状態も消える
+  for (let i = 0; i < 4; i++) await code(() => loginWithPin(f.deps, { employee_no: reg.employee_no, pin: "0000" }));
+  const target = f.users.find((u) => u.email === emailFor(reg.employee_no))!;
+  const result = await resetPin(f.deps.admin, { user_id: target.id, employee_no: reg.employee_no });
+  assertEquals(result.sessionsCleared, true);
+  assert(/^\d{4}$/.test(result.pin));
+  assertEquals(f.sessions.filter((s) => s.userId === target.id).length, 0);
+  assertEquals(f.sessions.filter((s) => s.userId !== target.id).length, 1);
+  assertEquals(f.attempts.has(`emp:${reg.employee_no}`), false);
+  await loginWithPin(f.deps, { employee_no: reg.employee_no, pin: result.pin });
+});
+
+Deno.test("PINの再設定・変更: ログインを消せなかったときも、PINは変わる(画面で知らせる)", async () => {
+  const f = fakes({ failRevoke: true });
+  await signUp(f.deps, reg, "1.1.1.1");
+  await loginWithPin(f.deps, { employee_no: reg.employee_no, pin: reg.pin });
+  const target = f.users[0];
+  const reset = await resetPin(f.deps.admin, { user_id: target.id, employee_no: reg.employee_no });
+  assertEquals(reset.sessionsCleared, false);
+  await loginWithPin(f.deps, { employee_no: reg.employee_no, pin: reset.pin });
+  const changed = await changePin(f.deps, { userId: target.id, employeeNo: reg.employee_no }, { current_pin: reset.pin, new_pin: "2222" });
+  assertEquals(changed.sessionsCleared, false);
+  await loginWithPin(f.deps, { employee_no: reg.employee_no, pin: "2222" });
+});
+
+Deno.test("ログイン: PINが違うときの文に、保存した古いPINの案内が入る", async () => {
+  const f = fakes();
+  await signUp(f.deps, reg, "1.1.1.1");
+  const err = await assertRejects(() => loginWithPin(f.deps, { employee_no: reg.employee_no, pin: "0000" }), AppError);
+  assert(err.message.includes("古いPIN"));
 });

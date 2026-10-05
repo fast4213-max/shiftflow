@@ -161,6 +161,10 @@ async function resetPin(u) {
     const result = await callFunction("admin-users", { action: "reset-pin", user_id: u.user_id });
     $("pin-who").textContent = `${fullName(u)}(社員番号 ${u.employee_no})`;
     $("pin-value").textContent = result.pin;
+    // その人がログインしていた端末は、ログアウトさせた(スマホを落としたときなども、その端末から使えなくなる)
+    $("pin-sessions").textContent = result.sessionsCleared === true ? "この人がログインしていた端末は、すべてログアウトしました。"
+      : result.sessionsCleared === false ? "この人がログインしていた端末のログインは、消せませんでした(その端末からは、まだ使えます)。" : "";
+    $("pin-sessions").className = result.sessionsCleared === false ? "message error" : "muted";
     $("pin-dialog").showModal();
   } catch (err) {
     message(err.message, "error");

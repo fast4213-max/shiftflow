@@ -1,5 +1,5 @@
 // 設定: 区所とカレンダーIDだけ。保存すると、そのまま接続テストをする。
-import { $, AUTOFILL_HINT, callFunction, copyText, isReady, requireLogin, supabase, toHalfWidth } from "./app.js?v=dev";
+import { $, AUTOFILL_HINT, callFunction, copyText, isReady, requireLogin, startSession, supabase, toHalfWidth } from "./app.js?v=dev";
 
 let session = null;
 let settings = null; // user_settings の行(無ければ null)
@@ -114,9 +114,13 @@ async function main() {
     if (next !== toHalfWidth($("pin-new2").value)) return message("pin-result", "新しいPINが2回で一致しません。", "error");
     $("pin-save").disabled = true;
     try {
-      await callFunction("change-pin", { current_pin: current, new_pin: next });
+      const result = await callFunction("change-pin", { current_pin: current, new_pin: next });
+      // この端末は、新しいPINでのログインに入れ替える(前のログインは、ほかの端末の分と一緒に消されたため)
+      if (result.session) await startSession(result.session);
       ["pin-current", "pin-new", "pin-new2"].forEach((id) => ($(id).value = ""));
-      message("pin-result", "PINを変更しました。次のログインから新しいPINを使ってください。", "ok");
+      message("pin-result", "PINを変更しました。次のログインから新しいPINを使ってください。" +
+        (result.sessionsCleared === true ? "ほかの端末でログインしていた分は、ログアウトしました。"
+          : result.sessionsCleared === false ? "(ほかの端末のログインは消せませんでした。管理者に連絡してください)" : ""), "ok");
     } catch (err) {
       message("pin-result", err.message || String(err), "error");
     } finally {

@@ -7,6 +7,7 @@ import {
   emailFor,
   passwordFor,
   randomPassword,
+  randomPin,
   safeEqual,
   validateEmployeeNo,
   validateName,
@@ -45,6 +46,69 @@ async function findUserByEmail(admin: SupabaseClient, email: string): Promise<{ 
   return null;
 }
 
+// アクセストークン(JWT)から、そのログインのセッションIDを取り出す(読めなければ null)
+export function sessionIdOf(accessToken: string): string | null {
+  try {
+    const part = accessToken.split(".")[1] ?? "";
+    const json = atob(part.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(part.length / 4) * 4, "="));
+    const id = JSON.parse(json).session_id;
+    return typeof id === "string" && id ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+// その人のログイン状態(セッション)を消す。keepSessionId のセッションだけは残す。
+// 消せなかったときは false を返す(PINの再設定・変更そのものは止めない。画面で知らせる)
+export async function revokeSessions(admin: SupabaseClient, userId: string, keepSessionId: string | null): Promise<boolean> {
+  const { error } = await admin.rpc("revoke_user_sessions", { p_user_id: userId, p_keep_session: keepSessionId });
+  if (error) {
+    console.error("revoke_user_sessions failed", error.message);
+    return false;
+  }
+  return true;
+}
+
+// 自分のPINを変える(今のPINを確かめてから)。変えたら、新しいPINで入り直したログインを返し、
+// それ以外のログイン(ほかの端末・今のPINを確かめたときのもの・この端末の前のログイン)は消す
+export async function changePin(
+  { admin, anon }: Deps,
+  user: { userId: string; employeeNo: string },
+  body: Record<string, unknown>,
+): Promise<{ ok: true; session: Session; sessionsCleared: boolean }> {
+  const current = validatePin(body.current_pin, "今のPIN");
+  const next = validatePin(body.new_pin, "新しいPIN");
+  const email = emailFor(user.employeeNo);
+
+  const key = `emp:${user.employeeNo}`;
+  await assertNotLocked(admin, key);
+  if (!(await signIn(anon, email, passwordFor(current)))) {
+    await recordFailure(admin, key);
+    throw new AppError(401, "今のPINが違います。", "bad_credentials");
+  }
+  await clearFailures(admin, key);
+
+  const { error: updateError } = await admin.auth.admin.updateUserById(user.userId, { password: passwordFor(next) });
+  if (updateError) throw updateError;
+  const session = await signIn(anon, email, passwordFor(next));
+  if (!session) throw new Error("新しいPINでログインできませんでした");
+  const sessionsCleared = await revokeSessions(admin, user.userId, sessionIdOf(session.access_token));
+  return { ok: true, session, sessionsCleared };
+}
+
+// 管理者が、利用者に仮のPINを発行する。その人のロック(失敗回数)と、ログイン状態(全部の端末)も消す
+export async function resetPin(
+  admin: SupabaseClient,
+  target: { user_id: string; employee_no: string },
+): Promise<{ ok: true; pin: string; sessionsCleared: boolean }> {
+  const pin = randomPin();
+  const { error: updateError } = await admin.auth.admin.updateUserById(target.user_id, { password: passwordFor(pin) });
+  if (updateError) throw updateError;
+  await admin.rpc("auth_attempt_reset", { p_key: `emp:${target.employee_no}` });
+  const sessionsCleared = await revokeSessions(admin, target.user_id, null);
+  return { ok: true, pin, sessionsCleared };
+}
+
 // 社員番号 + PIN でログインする
 export async function loginWithPin({ admin, anon }: Deps, body: Record<string, unknown>): Promise<Session> {
   const employeeNo = validateEmployeeNo(body.employee_no);
@@ -55,7 +119,13 @@ export async function loginWithPin({ admin, anon }: Deps, body: Record<string, u
   const session = await signIn(anon, emailFor(employeeNo), passwordFor(pin));
   if (!session) {
     await recordFailure(admin, key);
-    throw new AppError(401, "社員番号かPINが違います。まだ登録していない場合は「新規登録」から登録してください。", "bad_credentials");
+    // PINを変えた・再設定したあとは、スマホに保存した古いPINが自動で入ることがある(4桁の数字なので画面では見分けられない)
+    throw new AppError(
+      401,
+      "社員番号かPINが違います。まだ登録していない場合は「新規登録」から登録してください。" +
+        "PINを変えた・再設定したあとは、スマホに保存した古いPINが自動で入ることがあるので、手で入力してください。",
+      "bad_credentials",
+    );
   }
   await clearFailures(admin, key);
   return session;

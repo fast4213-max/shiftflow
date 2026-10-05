@@ -25,9 +25,8 @@ $("form").addEventListener("input", (ev) => {
   if (!canSaveLogin()) return;
   $("submit").disabled = !!problem();
   // 社員番号・PINの欄に形の違う値が自動で入って消したとき(app.js の bindDigitsOnly)は、その案内を出す
-  // 共通パスワードに全角やかなが入ったときは、その場で知らせる(押せないままの理由が分かるように)
-  const message = ev.target.dataset && ev.target.dataset.rejected ? AUTOFILL_HINT
-    : ev.target.id === "shared" ? sharedPasswordProblem($("shared").value) : "";
+  // 共通パスワードに全角やかなが入っている間は、どの欄を触っても知らせたままにする(押せないままの理由が分かるように)
+  const message = ev.target.dataset && ev.target.dataset.rejected ? AUTOFILL_HINT : sharedPasswordProblem($("shared").value);
   setMessage(message, "error");
 });
 $("submit").disabled = true;

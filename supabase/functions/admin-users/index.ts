@@ -1,8 +1,8 @@
-// 管理者だけ: 利用者の削除と、PIN の再設定(仮のPINを発行)。
+// 管理者だけ: 利用者の削除と、PIN の再設定(仮のPINを発行。その人のログイン中の端末もログアウトさせる)。
 
 import { requireAdmin } from "../_shared/auth.ts";
-import { passwordFor, randomPin } from "../_shared/accounts.ts";
 import { AppError, readBody, serve } from "../_shared/http.ts";
+import { resetPin } from "../_shared/login-core.ts";
 
 serve(async (req) => {
   const ctx = await requireAdmin(req);
@@ -23,11 +23,7 @@ serve(async (req) => {
   }
 
   if (body.action === "reset-pin") {
-    const pin = randomPin();
-    const { error: updateError } = await ctx.admin.auth.admin.updateUserById(userId, { password: passwordFor(pin) });
-    if (updateError) throw updateError;
-    await ctx.admin.rpc("auth_attempt_reset", { p_key: `emp:${target.employee_no}` });
-    return { ok: true, pin };
+    return await resetPin(ctx.admin, target);
   }
 
   throw new AppError(400, "操作の指定が正しくありません。");

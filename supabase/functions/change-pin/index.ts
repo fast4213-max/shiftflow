@@ -1,28 +1,16 @@
 // 自分のPINを変える(今のPINを確かめてから)。管理者が仮のPINを発行したあとに使う。
+// 変えたら、ほかの端末のログインは消し、この端末には新しいPINでのログインを返す(画面が入れ替える)。
 
 import { anonClient, requireMember } from "../_shared/auth.ts";
-import { emailFor, passwordFor, validatePin } from "../_shared/accounts.ts";
-import { assertNotLocked, clearFailures, recordFailure } from "../_shared/attempts.ts";
 import { AppError, readBody, serve } from "../_shared/http.ts";
-import { signIn } from "../_shared/login-core.ts";
+import { changePin } from "../_shared/login-core.ts";
 
 serve(async (req) => {
   const ctx = await requireMember(req);
   if (!ctx.employeeNo) throw new AppError(400, "この操作は利用者だけができます。");
-  const body = await readBody(req);
-  const current = validatePin(body.current_pin, "今のPIN");
-  const next = validatePin(body.new_pin, "新しいPIN");
-
-  const key = `emp:${ctx.employeeNo}`;
-  await assertNotLocked(ctx.admin, key);
-  const session = await signIn(anonClient(), emailFor(ctx.employeeNo), passwordFor(current));
-  if (!session) {
-    await recordFailure(ctx.admin, key);
-    throw new AppError(401, "今のPINが違います。", "bad_credentials");
-  }
-  await clearFailures(ctx.admin, key);
-
-  const { error: updateError } = await ctx.admin.auth.admin.updateUserById(ctx.userId, { password: passwordFor(next) });
-  if (updateError) throw updateError;
-  return { ok: true };
+  return await changePin(
+    { admin: ctx.admin, anon: anonClient() },
+    { userId: ctx.userId, employeeNo: ctx.employeeNo },
+    await readBody(req),
+  );
 });

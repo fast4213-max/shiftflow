@@ -1453,3 +1453,30 @@ WORKLOG.md(コードは変えていない)
 WORKLOG.md(コードは変えていない)
 ### 次にやること
 - 1〜4 を直すかを決める(1 は DB の関数の追加と Edge Function の変更が要る。データは消えない。消えるのはログイン状態だけ)
+
+## 2026-10-05 修正: PINの再設定・変更でログイン中の端末をログアウト、古いPINの案内、共通パスワードの案内
+### 指示
+- 直前のデバッグの 1〜4 を全部直す。データに影響がないように
+### やったこと
+1. PINを再設定・変更したら、その人のログイン状態(セッション)を消すようにした
+   - DB の関数 `revoke_user_sessions(user_id, keep_session)` を追加(migration `20261005000000_revoke_user_sessions.sql`)。`auth.sessions` のその人の行だけを消す(ログインの更新に使う `refresh_tokens` も一緒に消える)。service_role だけが呼べる。反映のログに、関数が `auth.sessions` を消せる権限があるかを出す
+   - 管理者のPIN再設定(`admin-users` → `login-core.ts` の `resetPin`): 仮のPINにして、ロックを消し、その人のログインを全部消す。管理画面のダイアログに「ログインしていた端末は、すべてログアウトしました」(消せなかったときはその旨)を出す
+   - 本人のPIN変更(`change-pin` → `changePin`): 今のPINを確かめて変えたあと、新しいPINで入り直したログインを返し、それ以外(ほかの端末・確かめたときのログイン・この端末の前のログイン)を消す。設定画面は返ってきたログインに入れ替える
+   - ログインを消せなかったときも、PINの再設定・変更そのものは止めない(画面で知らせる)
+   - 管理画面の「最終ログイン」が変わらないよう、ログインして消す方法(Auth の signOut)は使わない
+2. ログインの「社員番号かPINが違います」の文に「PINを変えた・再設定したあとは、スマホに保存した古いPINが自動で入ることがあるので、手で入力してください」を足した。使い方・説明書PDFの「PINを忘れた」にも同じことと「ほかの端末のログインは消えます」を足した(説明書PDFは14ページのまま)
+3. PINの変更で今のPINを確かめたときのログインも、1 で一緒に消える
+4. 新規登録: 共通パスワードに全角・かなが入っている間は、どの欄を触っても案内を出したままにした
+### 確かめたこと
+- `deno lint` / `deno check` / `deno test`(72件)が通る。足したテスト: セッションIDの取り出し、PINの変更で新しいログインだけ残る、今のPINが違えば何も変えない(5回でロック)、管理者の再設定でその人のログインだけ全部消えて他の人は残る、ログインを消せなくてもPINは変わる、「違います」の文
+- 手元の PostgreSQL で migration を当て、残すセッション以外のその人のセッションと refresh_tokens だけが消えること、ユーザーや勤務の記録は消えないこと、anon / authenticated からは呼べないことを確認
+- Chromium: 新規登録の案内が他の欄を触っても残ること、各ページにスクリプトのエラーが出ないこと
+### データへの影響
+- 勤務の記録・設定・マスタ・アカウントには触らない。消えるのは、PINを再設定・変更した人のログイン状態だけ(その端末では、もう一度ログインが要る)
+- アクセストークンは期限(1時間ほど)まで使えるため、消したあともしばらくは画面が動くことがある。Edge Function の呼び出し(登録・リセットなど)は、ログインを確かめるときにセッションが無いので止まる
+### 変更したファイル
+- `supabase/migrations/20261005000000_revoke_user_sessions.sql`(新規)
+- `supabase/functions/_shared/login-core.ts` / `supabase/functions/_shared/login-core_test.ts` / `supabase/functions/change-pin/index.ts` / `supabase/functions/admin-users/index.ts`
+- `web/js/settings.js` / `web/js/admin.js` / `web/js/register.js` / `web/admin.html` / `web/help.html` / `docs/manual/manual.html` / `web/manual.pdf` / `WORKLOG.md`
+### 手動でやる作業の残り
+- 反映後、Actions の「Deploy Supabase」のログで `revoke_user_sessions: ... can delete auth.sessions = t` を確認する(f なら、ログインを消す部分だけ動かない。PINの変更はできる)
