@@ -2,7 +2,7 @@
 //   deno test supabase/functions --allow-read
 
 import { assertEquals } from "jsr:@std/assert@1";
-import { buildPlan, dayTypeOf, indexMaster } from "./plan.js";
+import { buildPlan, dayTypeOf, holidayYearsFor, indexMaster } from "./plan.js";
 
 // 架空のマスタ
 const master = indexMaster([
@@ -204,6 +204,21 @@ Deno.test("休日だけの番号(平日の時刻が空): 休日は休日の時�
     { date: "2026-10-03", calendar: "work", kind: "day", title: "5742", description: "8:15〜16:00" },
     { date: "2026-10-05", calendar: "work", kind: "day", title: "5742", description: "" },
   ]);
+});
+
+Deno.test("祝日の一覧が要る年: 年末年始にはみ出すだけの年は要らない(1月の登録が前の年を見ない)", () => {
+  // 1月の登録: 前月末(前の年の12/31)〜翌月2日
+  assertEquals(holidayYearsFor("2026-12-31", "2027-02-02"), [2027]);
+  // 12月の登録: 11月末〜翌月2日(翌年の1/1・1/2)
+  assertEquals(holidayYearsFor("2026-11-30", "2027-01-02"), [2026]);
+  // 画面(前月末〜翌月1日)
+  assertEquals(holidayYearsFor("2026-12-31", "2027-02-01"), [2027]);
+  assertEquals(holidayYearsFor("2026-11-30", "2027-01-01"), [2026]);
+  // 普通の月は、その年だけ。年をまたぐ範囲(12/29〜1/4)は両方
+  assertEquals(holidayYearsFor("2026-09-30", "2026-11-02"), [2026]);
+  assertEquals(holidayYearsFor("2026-12-29", "2027-01-04"), [2026, 2027]);
+  // 年末年始の中だけ(12/30〜1/3)なら、祝日の一覧は要らない
+  assertEquals(holidayYearsFor("2026-12-30", "2027-01-03"), []);
 });
 
 Deno.test("メモだけの日は記録に残すが予定は作らない", () => {

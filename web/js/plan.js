@@ -54,6 +54,17 @@ export function isYearEnd(key) {
   return (m === 12 && d >= 30) || (m === 1 && d <= 3);
 }
 
+// from〜to(両端を含む)の平休を調べるのに、祝日の一覧が要る年の配列。
+// 年末年始(12/30〜1/3)は一覧を見なくても休日と分かるので、その日だけが前の年・次の年にはみ出していても、その年は要らない
+// (1月の登録が前の年の12/31を見るために、前の年の祝日を取りに行かないように)
+export function holidayYearsFor(from, to) {
+  const years = new Set();
+  for (let key = from; key <= to; key = addDays(key, 1)) {
+    if (!isYearEnd(key)) years.add(Number(key.slice(0, 4)));
+  }
+  return [...years];
+}
+
 // holidays: 祝日の "yyyy-MM-dd" の配列または Set
 export function dayTypeOf(key, holidays) {
   const w = weekdayOf(key);

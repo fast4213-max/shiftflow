@@ -5,6 +5,7 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { listEvents } from "./google.ts";
 import { AppError } from "./http.ts";
+import { holidayYearsFor } from "./plan.js";
 
 const HOLIDAY_CALENDAR_ID = "ja.japanese.official#holiday@group.v.calendar.google.com";
 const REFRESH_MS = 30 * 24 * 60 * 60 * 1000;
@@ -71,8 +72,9 @@ export async function ensureHolidayYears(admin: SupabaseClient, years: number[])
 }
 
 // from〜to(両端を含む)の祝日を "yyyy-MM-dd" の配列で返す
+// 年末年始(12/30〜1/3)は一覧を見なくても休日なので、その日だけがはみ出す年の祝日は取りに行かない
 export async function loadHolidays(admin: SupabaseClient, from: string, to: string): Promise<string[]> {
-  await ensureHolidayYears(admin, [Number(from.slice(0, 4)), Number(to.slice(0, 4))]);
+  await ensureHolidayYears(admin, holidayYearsFor(from, to));
   const { data, error } = await admin.from("holidays").select("date").gte("date", from).lte("date", to);
   if (error) throw error;
   return (data || []).map((r) => r.date);

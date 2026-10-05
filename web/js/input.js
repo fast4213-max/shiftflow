@@ -1,6 +1,6 @@
 // 勤務入力画面
 import { $, callFunction, requireLogin, supabase } from "./app.js?v=dev";
-import { addDays, dateKey, dayTypeOf, daysInMonth, describe, dutyMemo, indexMaster, offdutyMemo, pad } from "./plan.js?v=dev";
+import { addDays, dateKey, dayTypeOf, daysInMonth, describe, dutyMemo, holidayYearsFor, indexMaster, offdutyMemo, pad } from "./plan.js?v=dev";
 
 const MANUAL = "__manual__";
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
@@ -36,7 +36,7 @@ function setStatus(text, isError) {
 // 祝日: キャッシュが無い年だけ Edge Function に取りに行かせる
 // first は前月末から(1日が非番のとき、泊の日の平休を見るため)。nextFirst は月末が泊のとき翌日の平休を見るため
 async function loadHolidays(first, nextFirst) {
-  const years = [...new Set([Number(first.slice(0, 4)), Number(nextFirst.slice(0, 4))])];
+  const years = holidayYearsFor(first, nextFirst); // 年末年始にはみ出すだけの年は要らない
   const { data: cached, error } = await supabase.from("holiday_years").select("year").in("year", years);
   if (error) throw error;
   if ((cached || []).length < years.length) {
