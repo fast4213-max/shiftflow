@@ -2,7 +2,7 @@
 // 両方とも書ければ検証済みにする。カレンダーIDは user_settings から読む(本文は見ない)。
 
 import { requireMember } from "../_shared/auth.ts";
-import { calendarAccessError, deleteEvent, insertAllDayEvent } from "../_shared/google.ts";
+import { calendarAccessError, clearsVerification, deleteEvent, insertAllDayEvent } from "../_shared/google.ts";
 import { AppError, serve } from "../_shared/http.ts";
 import { addDays } from "../_shared/plan.js";
 
@@ -72,9 +72,13 @@ serve(async (req) => {
       });
       await deleteEvent(id, ev.id);
     } catch (err) {
-      // 書けなくなったカレンダー(共有を外したなど)は、検証済みも外す(設定画面で「テスト済み」と出続けないように)
-      await ctx.admin.from("user_settings").update({ verified_at: null }).eq("user_id", ctx.userId);
-      throw calendarAccessError(err, label);
+      const failure = calendarAccessError(err, label);
+      // 書けなくなったカレンダー(共有を外したなど)は、検証済みも外す(設定画面で「テスト済み」と出続けないように)。
+      // 混雑・障害のときは、カレンダーの状態は分からないので外さない
+      if (clearsVerification(failure)) {
+        await ctx.admin.from("user_settings").update({ verified_at: null }).eq("user_id", ctx.userId);
+      }
+      throw failure;
     }
   }
 

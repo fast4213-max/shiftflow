@@ -22,6 +22,7 @@ function fakes(
     failProfileInsert?: boolean;
     racingSignUp?: boolean;
     authStatus?: number;
+    authCode?: string; // authStatus のエラーの code(Supabase Auth の error_code)
     failRevoke?: boolean;
     busyPasswords?: string[];
     noSessionId?: boolean;
@@ -123,22 +124,22 @@ function fakes(
   };
 
   // Supabase Auth のエラー(supabase-js の AuthApiError と同じく status を持つ)
-  const authError = (status: number, message: string) => Object.assign(new Error(message), { status });
+  const authError = (status: number, message: string, code?: string) => Object.assign(new Error(message), { status, code });
   const anon = {
     auth: {
       signInWithPassword({ email, password }: { email: string; password: string }) {
         if (opts.authStatus) {
-          return Promise.resolve({ data: { session: null }, error: authError(opts.authStatus, "Request rate limit reached") });
+          return Promise.resolve({ data: { session: null }, error: authError(opts.authStatus, "Request rate limit reached", opts.authCode) });
         }
         if (email === ADMIN_EMAIL && adminLosses > 0) {
           adminLosses--;
-          return Promise.resolve({ data: { session: null }, error: authError(400, "Invalid login credentials") });
+          return Promise.resolve({ data: { session: null }, error: authError(400, "Invalid login credentials", "invalid_credentials") });
         }
         if (opts.busyPasswords?.includes(password)) {
           return Promise.resolve({ data: { session: null }, error: authError(429, "Request rate limit reached") });
         }
         const u = users.find((x) => x.email === email && x.password === password);
-        if (!u) return Promise.resolve({ data: { session: null }, error: authError(400, "Invalid login credentials") });
+        if (!u) return Promise.resolve({ data: { session: null }, error: authError(400, "Invalid login credentials", "invalid_credentials") });
         // 本物と同じく、アクセストークン(JWT)の中にセッションIDを入れる
         const sid = `s-${++seq}`;
         sessions.push({ id: sid, userId: u.id });
@@ -296,6 +297,32 @@ Deno.test("ログイン: Supabase Auth の回数の制限・障害は、PINの�
     // Auth が戻れば、すぐ入れる
     await loginWithPin(f.deps, { employee_no: "1234567", pin: "4829" });
   }
+});
+
+Deno.test("ログイン: 401・422 など invalid_credentials 以外の 4xx は、PINの間違いとして数えない。code が無い古い Auth の 400(文面が一致)は間違い", async () => {
+  for (const [status, authCode] of [[401, "bad_jwt"], [422, "validation_failed"], [400, "email_not_confirmed"], [403, "user_banned"]] as const) {
+    const f = fakes();
+    await signUp(f.deps, reg, "ip");
+    const odd = fakes({ authStatus: status, authCode });
+    const deps = { admin: f.deps.admin, anon: odd.deps.anon };
+    for (let i = 0; i < 6; i++) {
+      assertEquals(await code(() => loginWithPin(deps, { employee_no: "1234567", pin: "4829" })), "auth_unavailable");
+    }
+    assertEquals(f.attempts.size, 0);
+  }
+  // code を返さない Auth の「Invalid login credentials」(400)は、これまでどおり間違いとして数える
+  const old = fakes();
+  await signUp(old.deps, reg, "ip");
+  const legacy = {
+    auth: {
+      signInWithPassword: () => Promise.resolve({
+        data: { session: null },
+        error: Object.assign(new Error("Invalid login credentials"), { status: 400 }),
+      }),
+    },
+  } as unknown as SupabaseClient;
+  assertEquals(await code(() => loginWithPin({ admin: old.deps.admin, anon: legacy }, { employee_no: "1234567", pin: "4829" })), "bad_credentials");
+  assertEquals(old.attempts.size, 1);
 });
 
 Deno.test("管理者ログイン: Supabase Auth が使えないときは、分かるエラーにする", async () => {

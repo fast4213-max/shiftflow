@@ -4,7 +4,7 @@
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
 import { createEvents, deleteAppEvents, eventsToRegister, parseTimeRange, isOffTitle, splitDayEvents, staleNextMonthRecords } from "./shift-calendar.ts";
 import { AppError } from "./http.ts";
-import { nextRetryDelay, retryPolicy, withRetryBudget } from "./google.ts";
+import { calendarAccessError, clearsVerification, GoogleError, nextRetryDelay, retryPolicy, withRetryBudget } from "./google.ts";
 import { buildPlan, indexMaster } from "./plan.js";
 
 // テスト用の使い捨て鍵でサービスアカウントを用意する
@@ -475,4 +475,24 @@ Deno.test("parseTimeRange: 区切りの「→」「から」も読む", () => {
     assertEquals(parseTimeRange(s), { start: 600, end: 1380 }, s);
   }
   assertEquals(parseTimeRange("10:00から"), { start: 600, end: null });
+});
+
+Deno.test("カレンダーのエラー: 回数制限は403でも「混んでいます」(502)、権限の403は「共有設定を確認」(400)", () => {
+  for (const reason of ["rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded"]) {
+    const e = calendarAccessError(new GoogleError(403, reason, "limit"), "勤務用カレンダー");
+    assertEquals([e.status, e.code], [502, "calendar_error"]);
+  }
+  for (const [status, reason] of [[403, "requiredAccessLevel"], [404, "notFound"], [401, "authError"]] as const) {
+    const e = calendarAccessError(new GoogleError(status, reason, "x"), "勤務用カレンダー");
+    assertEquals([e.status, e.code], [400, "calendar_access"]);
+  }
+  assertEquals(calendarAccessError(new GoogleError(429, "rateLimitExceeded", "x"), "x").code, "calendar_error");
+  assertEquals(calendarAccessError(new GoogleError(503, "", "x"), "x").code, "calendar_error");
+});
+
+Deno.test("接続テストの失敗: 検証済みを外すのは書けないとき(calendar_access)だけ。混雑・障害・通信エラーでは外さない", () => {
+  assertEquals(clearsVerification(calendarAccessError(new GoogleError(403, "requiredAccessLevel", "x"), "x")), true);
+  assertEquals(clearsVerification(calendarAccessError(new GoogleError(403, "rateLimitExceeded", "x"), "x")), false);
+  assertEquals(clearsVerification(calendarAccessError(new GoogleError(500, "", "x"), "x")), false);
+  assertEquals(clearsVerification(calendarAccessError(new TypeError("network"), "x")), false);
 });

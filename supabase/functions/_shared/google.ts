@@ -88,9 +88,13 @@ export class GoogleError extends Error {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// Google の回数制限(混雑)。403 の理由として返ってくることもあるので、権限がないときの 403 とは区別する
+function isRateLimited(status: number, reason: string): boolean {
+  return status === 429 || (status === 403 && /rateLimitExceeded|userRateLimitExceeded|quotaExceeded/.test(reason));
+}
+
 function isRetryable(status: number, reason: string): boolean {
-  return status === 429 || status >= 500 ||
-    (status === 403 && /rateLimitExceeded|userRateLimitExceeded|quotaExceeded/.test(reason));
+  return status >= 500 || isRateLimited(status, reason);
 }
 
 // 再試行の待ち時間。Google カレンダー API の回数の上限(1分600回、全員の合計)は1分たつと戻るので、
@@ -239,8 +243,9 @@ export async function listEvents(
 }
 
 // Google のエラーを、画面に出すメッセージに変える
+// 回数制限(403 でも)・障害・通信エラーは、共有設定のせいではないので「操作に失敗しました」(502)にする
 export function calendarAccessError(err: unknown, label: string): AppError {
-  if (err instanceof GoogleError && [400, 401, 403, 404].includes(err.status)) {
+  if (err instanceof GoogleError && [400, 401, 403, 404].includes(err.status) && !isRateLimited(err.status, err.reason)) {
     return new AppError(
       400,
       `${label}に書き込めません。共有設定(権限を「すべての予定の詳細の変更や表示ができます」にして共有しているか)とカレンダーIDを確認してください。`,
@@ -248,6 +253,12 @@ export function calendarAccessError(err: unknown, label: string): AppError {
     );
   }
   return new AppError(502, `${label}の操作に失敗しました。時間をおいてもう一度お試しください。`, "calendar_error");
+}
+
+// 接続テストが失敗したとき、検証済みを外してよいか。カレンダーに書けない(calendar_access)ときだけ外す。
+// 混雑・障害(calendar_error)では、カレンダーは変わっていないので外さない
+export function clearsVerification(err: AppError): boolean {
+  return err.code === "calendar_access";
 }
 
 // 同時に動かす数を絞って順に処理する。

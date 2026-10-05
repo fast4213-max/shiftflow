@@ -19,15 +19,20 @@ import { AppError } from "./http.ts";
 export type Session = { access_token: string; refresh_token: string };
 type Deps = { admin: SupabaseClient; anon: SupabaseClient };
 
-// パスワードでサインインする。社員番号・PINの間違い(Supabase Auth の 400 など)は null を返す。
-// 混雑(429)や Supabase 側の障害・通信エラーは、PINが正しくても入れないので、間違いとして数えずにエラーにする
+// パスワードでサインインする。社員番号・PINの間違い(Supabase Auth の invalid_credentials)は null を返す。
+// それ以外の失敗は、PINが正しくても入れないので、間違いとして数えずにエラーにする:
+// 混雑(429)・Supabase 側の障害・通信エラーのほか、401・422 など設定や形式の問題も同じ
 // (ログインは全員この関数から Supabase Auth を呼ぶので、Auth から見ると同じ接続元になり、回数の制限に一緒にかかる)
 export async function signIn(anon: SupabaseClient, email: string, password: string): Promise<Session | null> {
   const { data, error } = await anon.auth.signInWithPassword({ email, password });
   if (error) {
     const status = error.status ?? 0;
-    if (status >= 400 && status < 500 && status !== 429) return null;
-    console.error("signIn failed", status, error.message);
+    const code = (error as { code?: string }).code;
+    // code を返さない古い Auth でも全員が止まらないよう、code が無いときだけ 400 の文面で見分ける
+    const wrongCredentials = code === "invalid_credentials" ||
+      (code === undefined && status === 400 && /invalid login credentials/i.test(error.message));
+    if (wrongCredentials) return null;
+    console.error("signIn failed", status, code, error.message);
     throw new AppError(503, "ただいまログインできません。少し待ってからもう一度お試しください。", "auth_unavailable");
   }
   if (!data.session) return null;
