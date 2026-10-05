@@ -1,6 +1,7 @@
 // 新規登録: 社員番号・名字・名前・PIN・共通パスワード。登録したらそのままログインして設定画面へ
 import {
-  $, AUTOFILL_HINT, callFunction, canSaveLogin, configured, go, renderTopbar, startSession, STORAGE_HELP, toHalfWidth,
+  $, AUTOFILL_HINT, callFunction, canSaveLogin, configured, go, renderTopbar, sharedPasswordProblem, startSession, STORAGE_HELP,
+  toHalfWidth,
 } from "./app.js?v=dev";
 
 renderTopbar("register.html");
@@ -17,14 +18,17 @@ function problem() {
   if (!/^\d{4}$/.test(toHalfWidth($("pin").value))) return "PINは4桁の数字で入力してください。";
   if (toHalfWidth($("pin").value) !== toHalfWidth($("pin2").value)) return "PINが2回で一致しません。";
   if (!$("shared").value) return "共通パスワードを入力してください。";
-  return "";
+  return sharedPasswordProblem($("shared").value);
 }
 
 $("form").addEventListener("input", (ev) => {
   if (!canSaveLogin()) return;
   $("submit").disabled = !!problem();
   // 社員番号・PINの欄に形の違う値が自動で入って消したとき(app.js の bindDigitsOnly)は、その案内を出す
-  setMessage(ev.target.dataset && ev.target.dataset.rejected ? AUTOFILL_HINT : "", "error");
+  // 共通パスワードに全角やかなが入ったときは、その場で知らせる(押せないままの理由が分かるように)
+  const message = ev.target.dataset && ev.target.dataset.rejected ? AUTOFILL_HINT
+    : ev.target.id === "shared" ? sharedPasswordProblem($("shared").value) : "";
+  setMessage(message, "error");
 });
 $("submit").disabled = true;
 // ログインを保存できない(Safari の「すべてのCookieをブロック」など)と、登録してもそのまま使えないので先に知らせる

@@ -1,5 +1,5 @@
 // 管理画面(ダッシュボード)。管理者だけ。管理用パスワードでログインしたセッションで動く。
-import { $, callFunction, copyText, formatDateTime, requireLogin, supabase } from "./app.js?v=dev";
+import { $, callFunction, copyText, formatDateTime, requireLogin, sharedPasswordProblem, supabase } from "./app.js?v=dev";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, TOKEN_EXPIRES } from "./config.js?v=dev";
 import { checkMasterRows, masterRowsFromCsv, masterToCsv, readTextFile } from "./csv.js?v=dev";
 
@@ -402,6 +402,8 @@ function signupMessage(text, kind) {
 $("signup-save").addEventListener("click", async () => {
   const password = $("signup-pw").value;
   if (password.length < 8) return signupMessage("8文字以上にしてください。", "error");
+  // 利用者が半角でしか入れられないので、設定も半角だけにする
+  if (sharedPasswordProblem(password)) return signupMessage(sharedPasswordProblem(password), "error");
   $("signup-save").disabled = true;
   const { error } = await supabase.rpc("set_signup_password", { new_password: password });
   $("signup-save").disabled = false;

@@ -30,12 +30,12 @@
         </div>
       </div>
       <label for="pin">PIN(ログインに使う4桁の数字)</label>
-      <input id="pin" data-digits name="password" type="password" inputmode="numeric" maxlength="4" autocomplete="new-password" passwordrules="minlength: 4; maxlength: 4; required: digit;" required>
+      <input id="pin" data-digits name="password" type="password" inputmode="numeric" maxlength="4" autocomplete="new-password" required>
       <label for="pin2">PIN(もう一度)</label>
-      <input id="pin2" data-digits type="password" inputmode="numeric" maxlength="4" autocomplete="new-password" passwordrules="minlength: 4; maxlength: 4; required: digit;" required>
+      <input id="pin2" data-digits type="password" inputmode="numeric" maxlength="4" autocomplete="new-password" required>
       <p class="muted">PINは忘れないようにしてください。忘れたときは、管理者に再設定を頼みます。</p>
       <label for="shared">共通パスワード</label>
-      <input id="shared" class="secret" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+      <input id="shared" class="secret" type="text" inputmode="url" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" required>
       <p class="muted">管理者から教えてもらったパスワードです(登録のときだけ使います)。</p>
       <button id="submit" class="primary block" type="submit" disabled>登録する</button>
       <p id="message" class="message"></p>
