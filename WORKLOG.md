@@ -1519,3 +1519,9 @@ WORKLOG.md(コードは変えていない)
 - なし(画面と Edge Function だけ。DB の変更なし)
 ### 変更したファイル
 - `supabase/functions/_shared/login-core.ts` / `supabase/functions/_shared/login-core_test.ts` / `web/js/app.js` / `web/js/settings.js` / `WORKLOG.md`
+### 反映
+- main に push した。Test・Deploy Supabase(Edge Functions)・GitHub Pages とも成功
+- GitHub 側で同じ push が2回届き、どれも2回ずつ動いた。GitHub Pages は片方が取り消され(同時実行の制限)、もう片方が成功。Deploy Supabase は2回とも成功(同じ内容を入れ直しただけで問題なし)
+- これで「2026-10-05 デバッグ(PINの再設定・変更でのログアウトまわり)」の修正案 1〜4 は済み
+### 手動でやる作業の残り
+- なし(データ・DB の作業は不要)。ログインできないと言われたら、使い方の手順8「iPhone・Androidでログインできないとき」を案内する
