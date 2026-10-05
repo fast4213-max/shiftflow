@@ -57,6 +57,10 @@ label.check { display: flex; gap: 8px; align-items: flex-start; }
 label.check input { width: auto; margin-top: 4px; flex: none; }
 code, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; word-break: break-all; }
 .hidden { display: none !important; }
+/* 見えないが、パスワード保存の機能には読まれる欄(display: none だと読まれない) */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+/* 共通パスワード: パスワード欄にせず(端末に保存されないように)、表示だけ伏せ字にする */
+.secret { -webkit-text-security: disc; }
 
 /* ログイン */
 .login { text-align: center; padding-top: 40px; }

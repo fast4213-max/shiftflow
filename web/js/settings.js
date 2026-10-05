@@ -47,6 +47,7 @@ async function main() {
   session = ctx.session;
   settings = ctx.settings;
   $("who").textContent = `${ctx.profile.family_name} ${ctx.profile.given_name}(社員番号 ${ctx.profile.employee_no})`;
+  $("pin-user").value = ctx.profile.employee_no;
 
   if (settings) {
     $("work-id").value = settings.work_calendar_id || "";

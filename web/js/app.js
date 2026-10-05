@@ -3,7 +3,9 @@
 // ログインは Edge Function(login / admin-login)が返すセッションを、ここで受け取って保存する。
 // 利用者は社員番号+PIN、管理者は管理用パスワード。
 
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+// 版を固定する(「2 の最新」だと、新しい版が出たときに全員の画面が一度に変わってしまうため)。
+// 上げるときは、ここを書き換えて動作を確かめる
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm";
 import { APP_VERSION, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js?v=dev";
 
 export const configured = !SUPABASE_URL.includes("YOUR-PROJECT-REF");
@@ -13,6 +15,27 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 export const $ = (id) => document.getElementById(id);
+
+// 画面のプログラムが読み込めたしるし(HTML の onsubmit が見る。読み込めないときに、社員番号やPINを
+// URL に付けて送ってしまわないよう、フォームの送信は止めて、読み込めなかったことを知らせる)
+window.shiftflowReady = true;
+
+// この端末にログインを保存できるか。Safari の「すべてのCookieをブロック」がオンなどだと保存できず、
+// ログインしても次の画面でログイン画面に戻ってしまう(エラーも出ない)ので、先に確かめて知らせる
+export function canSaveLogin() {
+  try {
+    const key = "shiftflow-storage-test";
+    window.localStorage.setItem(key, "1");
+    window.localStorage.removeItem(key);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+export const STORAGE_HELP =
+  "この画面ではログインを保存できません。iPhoneは「設定」→「アプリ」→「Safari」(iOSによっては「設定」→「Safari」)の" +
+  "「すべてのCookieをブロック」をオフにしてから、開き直してください。プライベートブラウズのときは、通常のタブで開いてください。";
 
 // このページと同じフォルダの別ページの URL(GitHub Pages のサブパスでも動くように)
 export function pageUrl(name) {
@@ -206,11 +229,27 @@ export function toHalfWidth(value) {
 
 // data-digits の付いた入力欄(社員番号・PIN)は、半角の数字だけが入るようにする。
 // 全角の数字は半角に直し、それ以外の文字は入力できない。長さは maxlength まで。
+// ただし、1文字ずつ打ったのではなく(自動入力・貼り付け)、数字以外の文字(空白・ハイフンを除く)があるか
+// 桁が多すぎるときは、iPhone などが保存した別の値(名前や共通パスワードなど)が自動で入ったとみなす。
+// 切り詰めると違う社員番号・PINで送ってしまうので、空にして "digits-rejected" で知らせる
+function isTyping(ev) {
+  const type = ev && ev.inputType;
+  if (!type) return !ev || ev.type !== "input"; // 最初の1回・日本語入力の確定(compositionend)は打った扱い
+  if (type === "insertText") return (ev.data || "").length <= 1;
+  return type === "insertCompositionText" || type.startsWith("delete");
+}
+
 function bindDigitsOnly(input) {
-  const clean = () => {
+  const clean = (ev) => {
     const max = Number(input.getAttribute("maxlength")) || 0;
-    let value = toHalfWidth(input.value).replace(/\D/g, "");
-    if (max) value = value.slice(0, max);
+    const raw = toHalfWidth(input.value);
+    let value = raw.replace(/\D/g, "");
+    if (!isTyping(ev) && (/[^\d\s\-ー－]/.test(raw) || (max && value.length > max))) {
+      value = "";
+      input.dispatchEvent(new CustomEvent("digits-rejected"));
+    } else if (max) {
+      value = value.slice(0, max);
+    }
     if (value !== input.value) input.value = value;
   };
   input.addEventListener("input", clean);

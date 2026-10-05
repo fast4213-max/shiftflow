@@ -1,5 +1,5 @@
 // 新規登録: 社員番号・名字・名前・PIN・共通パスワード。登録したらそのままログインして設定画面へ
-import { $, callFunction, configured, go, renderTopbar, startSession, toHalfWidth } from "./app.js?v=dev";
+import { $, callFunction, canSaveLogin, configured, go, renderTopbar, startSession, STORAGE_HELP, toHalfWidth } from "./app.js?v=dev";
 
 renderTopbar("register.html");
 
@@ -19,10 +19,13 @@ function problem() {
 }
 
 $("form").addEventListener("input", () => {
+  if (!canSaveLogin()) return;
   $("submit").disabled = !!problem();
   setMessage("");
 });
 $("submit").disabled = true;
+// ログインを保存できない(Safari の「すべてのCookieをブロック」など)と、登録してもそのまま使えないので先に知らせる
+if (!canSaveLogin()) setMessage(STORAGE_HELP, "error");
 
 $("form").addEventListener("submit", async (ev) => {
   ev.preventDefault();

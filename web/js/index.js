@@ -1,6 +1,7 @@
 // 最初の画面: 利用者(社員番号+PIN)と管理(管理用パスワード)のタブ
 import {
-  $, callFunction, configured, currentSession, go, homePageFor, loadProfile, renderTopbar, startSession, supabase, toHalfWidth,
+  $, callFunction, canSaveLogin, configured, currentSession, go, homePageFor, loadProfile, renderTopbar, startSession, STORAGE_HELP,
+  supabase, toHalfWidth,
 } from "./app.js?v=dev";
 
 renderTopbar("index.html");
@@ -25,11 +26,22 @@ window.addEventListener("hashchange", () => showTab(location.hash === "#admin" ?
 $("tab-user").addEventListener("click", () => showTab("user"));
 $("tab-admin").addEventListener("click", () => showTab("admin"));
 
+// iPhone などが保存した値が自動で入って、社員番号・PINの形でなかったとき(app.js の bindDigitsOnly が空にする)
+const AUTOFILL_HINT = "自動で入った値が社員番号・PINの形ではなかったので消しました。手で入力してください" +
+  "(iPhoneなどに保存されたパスワードが、名前や共通パスワードになっていることがあります)。";
+["employee-no", "pin"].forEach((id) =>
+  $(id).addEventListener("digits-rejected", () => setMessage("user-message", AUTOFILL_HINT, "error"))
+);
+
 // ボタンは押せるままにして、押したときに入力を確かめる
 // (ブラウザが保存したパスワードを自動で入れたときは入力の合図が来ないことがあり、押せないままになるため)
 function userProblem() {
-  if (!/^\d{7}$/.test(toHalfWidth($("employee-no").value))) return "社員番号は7桁の数字で入力してください。";
-  if (!/^\d{4}$/.test(toHalfWidth($("pin").value))) return "PINは4桁の数字で入力してください。";
+  const employeeNo = toHalfWidth($("employee-no").value);
+  const pin = toHalfWidth($("pin").value);
+  // 入力の合図なしに自動で入った値(数字以外の文字がある)は、上と同じ案内にする
+  if (/[^\d\s]/.test(employeeNo + pin)) return AUTOFILL_HINT;
+  if (!/^\d{7}$/.test(employeeNo)) return "社員番号は7桁の数字で入力してください。";
+  if (!/^\d{4}$/.test(pin)) return "PINは4桁の数字で入力してください。";
   return "";
 }
 
@@ -67,6 +79,13 @@ async function main() {
     return;
   }
   if (location.hash === "#admin") showTab("admin");
+  // ログインを保存できない(Safari の「すべてのCookieをブロック」など)と、ログインしても
+  // 次の画面でここに戻ってしまう。入れないようにして、直し方を出す
+  if (!canSaveLogin()) {
+    setFormsBusy(true);
+    setMessage(location.hash === "#admin" ? "admin-message" : "user-message", STORAGE_HELP, "error");
+    return;
+  }
   // 前回のログインが残っていれば、そのまま先へ進む。
   // 確かめている間(通信が遅いと数秒かかる)は入力できないようにする。
   // 入力中に確認が終わって、勝手に先へ進んだように見えないように

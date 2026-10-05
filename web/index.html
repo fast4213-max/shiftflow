@@ -20,13 +20,15 @@
       <p class="muted">勤務を入力して、Googleカレンダーに登録します。</p>
     </div>
 
+    <p id="load-error" class="message error hidden">画面を読み込めませんでした。電波の良いところで、ページを読み直してください。広告ブロック(コンテンツブロッカー)を使っているときは、このサイトではオフにしてください。</p>
+
     <div class="tabs" role="tablist">
       <button id="tab-user" role="tab" aria-selected="true" class="tab active">利用者</button>
       <button id="tab-admin" role="tab" aria-selected="false" class="tab">管理</button>
     </div>
 
     <!-- 利用者 -->
-    <form id="user-form" class="card" autocomplete="on">
+    <form id="user-form" class="card" autocomplete="on" onsubmit="if (!window.shiftflowReady) document.getElementById('load-error').classList.remove('hidden'); return false;">
       <label for="employee-no">社員番号(7桁)</label>
       <input id="employee-no" data-digits name="username" inputmode="numeric" maxlength="7" autocomplete="username" placeholder="1234567" required>
       <label for="pin">PIN(4桁の数字)</label>
@@ -37,13 +39,14 @@
     </form>
 
     <!-- 管理 -->
-    <form id="admin-form" class="card hidden" autocomplete="on">
+    <form id="admin-form" class="card hidden" autocomplete="on" onsubmit="if (!window.shiftflowReady) document.getElementById('load-error').classList.remove('hidden'); return false;">
       <label for="admin-password">管理用パスワード</label>
       <input id="admin-password" name="password" type="password" autocomplete="current-password" required>
       <button id="admin-login" class="primary block" type="submit">管理画面に入る</button>
       <p id="admin-message" class="message"></p>
     </form>
   </main>
-  <script type="module" src="js/index.js?v=dev"></script>
+  <!-- 読み込めないとき(電波・広告ブロック)は、上の load-error を出す。フォームは onsubmit で送らない -->
+  <script type="module" src="js/index.js?v=dev" onerror="document.getElementById('load-error').classList.remove('hidden')"></script>
 </body>
 </html>

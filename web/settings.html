@@ -55,12 +55,14 @@
 
     <details class="card">
       <summary>PINを変える</summary>
+      <!-- iPhone などに保存したパスワードも新しいPINに変わるよう、社員番号をユーザー名として置く(見えない) -->
+      <input id="pin-user" class="sr-only" autocomplete="username" tabindex="-1" aria-hidden="true" readonly>
       <label for="pin-current">今のPIN</label>
       <input id="pin-current" data-digits type="password" inputmode="numeric" maxlength="4" autocomplete="current-password">
       <label for="pin-new">新しいPIN(4桁の数字)</label>
-      <input id="pin-new" data-digits type="password" inputmode="numeric" maxlength="4" autocomplete="new-password">
+      <input id="pin-new" data-digits type="password" inputmode="numeric" maxlength="4" autocomplete="new-password" passwordrules="minlength: 4; maxlength: 4; required: digit;">
       <label for="pin-new2">新しいPIN(もう一度)</label>
-      <input id="pin-new2" data-digits type="password" inputmode="numeric" maxlength="4" autocomplete="new-password">
+      <input id="pin-new2" data-digits type="password" inputmode="numeric" maxlength="4" autocomplete="new-password" passwordrules="minlength: 4; maxlength: 4; required: digit;">
       <button id="pin-save" class="block" type="button">PINを変更</button>
       <p id="pin-result" class="message"></p>
     </details>

@@ -14,9 +14,10 @@
   <main class="page narrow">
     <h1>新規登録</h1>
     <p class="muted">登録すると、そのまま使えます。</p>
-    <form id="form" class="card" autocomplete="off">
+    <p id="load-error" class="message error hidden">画面を読み込めませんでした。電波の良いところで、ページを読み直してください。広告ブロック(コンテンツブロッカー)を使っているときは、このサイトではオフにしてください。</p>
+    <form id="form" class="card" autocomplete="off" onsubmit="if (!window.shiftflowReady) document.getElementById('load-error').classList.remove('hidden'); return false;">
       <label for="employee-no">社員番号(7桁)</label>
-      <input id="employee-no" data-digits inputmode="numeric" maxlength="7" placeholder="1234567" required>
+      <input id="employee-no" data-digits name="username" inputmode="numeric" maxlength="7" autocomplete="username" placeholder="1234567" required>
       <div class="two">
         <div>
           <label for="family-name">名字</label>
@@ -28,18 +29,18 @@
         </div>
       </div>
       <label for="pin">PIN(ログインに使う4桁の数字)</label>
-      <input id="pin" data-digits type="password" inputmode="numeric" maxlength="4" autocomplete="new-password" required>
+      <input id="pin" data-digits name="password" type="password" inputmode="numeric" maxlength="4" autocomplete="new-password" passwordrules="minlength: 4; maxlength: 4; required: digit;" required>
       <label for="pin2">PIN(もう一度)</label>
-      <input id="pin2" data-digits type="password" inputmode="numeric" maxlength="4" autocomplete="new-password" required>
+      <input id="pin2" data-digits type="password" inputmode="numeric" maxlength="4" autocomplete="new-password" passwordrules="minlength: 4; maxlength: 4; required: digit;" required>
       <p class="muted">PINは忘れないようにしてください。忘れたときは、管理者に再設定を頼みます。</p>
       <label for="shared">共通パスワード</label>
-      <input id="shared" type="password" autocomplete="off" required>
+      <input id="shared" class="secret" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" required>
       <p class="muted">管理者から教えてもらったパスワードです(登録のときだけ使います)。</p>
       <button id="submit" class="primary block" type="submit" disabled>登録する</button>
       <p id="message" class="message"></p>
     </form>
     <p class="muted center"><a href="index.html">ログインに戻る</a> ・ <a href="help.html">使い方</a></p>
   </main>
-  <script type="module" src="js/register.js?v=dev"></script>
+  <script type="module" src="js/register.js?v=dev" onerror="document.getElementById('load-error').classList.remove('hidden')"></script>
 </body>
 </html>
