@@ -1400,3 +1400,17 @@ WORKLOG.md(コードは変えていない)
 - なし(画面の HTML・JS だけ)
 ### 変更したファイル
 - `web/js/app.js` / `web/js/index.js` / `web/js/register.js` / `web/js/settings.js` / `web/index.html` / `web/register.html` / `WORKLOG.md`
+
+## 2026-10-05 使い方・説明書PDFに Android と LINE のログインの案内を追加
+### やったこと
+- 使い方ページと説明書PDFの手順8の節を「iPhone・Androidでログインできないとき」にして、共通・iPhone・Android・LINE から開いたとき に分けた
+  - 共通: 手で入力する / 通常のタブで開く / 広告ブロックはこのサイトではオフ
+  - iPhone: 「すべてのCookieをブロック」をオフ / ホーム画面のアプリは Safari とログインが別
+  - Android: Chrome の「︙」→「設定」→「サイトの設定」でこのサイトの Cookie を許可 / ホーム画面のアプリは Chrome とログインが共通
+  - LINE から開いたとき: LINE の中のブラウザなのでログインが別。メニューの「Safariで開く」「ブラウザで開く」でいつものブラウザで開ける
+- 手順9「ログインできない」からの案内を「スマホの人は、手順8の…」にした
+- 説明書PDFを作り直した(14ページのまま。手順8のページの余白に入った)
+### データへの影響
+- なし(説明だけ)
+### 変更したファイル
+- `web/help.html` / `docs/manual/manual.html` / `web/manual.pdf` / `WORKLOG.md`
