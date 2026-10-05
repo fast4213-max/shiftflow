@@ -101,7 +101,26 @@ export function renderTopbar(current, { loggedIn = false, isAdmin = false } = {}
   document.body.prepend(bar);
 }
 
+// ログインが無くなった(PINの再設定・変更でほかの端末から消された・削除された)ときに、
+// この端末のログインを消してログイン画面へ移る。何度も呼ばれても1回だけ
+let leaving = false;
+export async function loginLost(message) {
+  if (leaving) return;
+  leaving = true;
+  await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+  if (message) alert(message);
+  go("index.html");
+}
+
+// ログインが必要な画面(勤務入力・設定・管理)を開いているときに、ライブラリがログインの更新に失敗して
+// ログインを消した(ほかの端末・ほかのタブでPINを変えたなど)ら、ログイン画面へ移る
+let loginRequired = false;
+supabase.auth.onAuthStateChange((event) => {
+  if (event === "SIGNED_OUT" && loginRequired) loginLost("ログインが切れました。もう一度ログインしてください。");
+});
+
 export async function logout() {
+  loginRequired = false; // 自分でログアウトしたときは「切れました」を出さない
   // 通信に失敗すると、この端末のログインが残ったままになる(次に開くと勝手に入る)。
   // そのときは、この端末のログインだけでも必ず消す
   const { error } = await supabase.auth.signOut().catch((err) => ({ error: err }));
@@ -125,6 +144,10 @@ export async function callFunction(name, body = {}) {
   } catch (_) { /* JSON でなければ既定のメッセージ */ }
   const err = new Error(message);
   err.code = code;
+  // ログインが無くなっていた(ほかの端末でPINを変えた・再設定された・削除された)ときは、ログイン画面へ
+  if (code === "unauthenticated" || code === "not_member") {
+    await loginLost("ログインが切れました。もう一度ログインしてください。");
+  }
   throw err;
 }
 
@@ -209,6 +232,7 @@ export async function requireLogin(current, { needVerified = false, needAdmin = 
     }
   }
   renderTopbar(current, { loggedIn: true, isAdmin });
+  loginRequired = true;
   return { session, profile, settings };
 }
 

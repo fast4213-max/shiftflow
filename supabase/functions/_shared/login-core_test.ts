@@ -14,6 +14,8 @@ type Profile = { user_id: string; employee_no: string | null; role: string; fami
 // racingSignUp: 同じ社員番号の登録が同時に進んでいる(社員番号の確認の時点では、相手のプロフィールがまだ見えない)
 // authStatus: Supabase Auth のサインインが、この HTTP ステータスで失敗する(429 = 回数の制限、5xx = 障害)
 // failRevoke: ログイン状態(セッション)を消す DB の関数が失敗する
+// busyPasswords: このパスワードでのサインインだけ、Supabase Auth が混雑(429)で失敗する
+// noSessionId: アクセストークンにセッションIDを入れない
 function fakes(
   opts: {
     sharedPassword?: string | null;
@@ -21,6 +23,8 @@ function fakes(
     racingSignUp?: boolean;
     authStatus?: number;
     failRevoke?: boolean;
+    busyPasswords?: string[];
+    noSessionId?: boolean;
   } = {},
 ) {
   const attempts = new Map<string, { count: number; lockedUntil: number | null }>();
@@ -119,12 +123,15 @@ function fakes(
         if (opts.authStatus) {
           return Promise.resolve({ data: { session: null }, error: authError(opts.authStatus, "Request rate limit reached") });
         }
+        if (opts.busyPasswords?.includes(password)) {
+          return Promise.resolve({ data: { session: null }, error: authError(429, "Request rate limit reached") });
+        }
         const u = users.find((x) => x.email === email && x.password === password);
         if (!u) return Promise.resolve({ data: { session: null }, error: authError(400, "Invalid login credentials") });
         // 本物と同じく、アクセストークン(JWT)の中にセッションIDを入れる
         const sid = `s-${++seq}`;
         sessions.push({ id: sid, userId: u.id });
-        const payload = btoa(JSON.stringify({ sub: u.id, session_id: sid })).replace(/=+$/, "");
+        const payload = btoa(JSON.stringify(opts.noSessionId ? { sub: u.id } : { sub: u.id, session_id: sid })).replace(/=+$/, "");
         return Promise.resolve({ data: { session: { access_token: `at-${u.id}.${payload}.sig`, refresh_token: `rt-${u.id}` } }, error: null });
       },
     },
@@ -349,6 +356,7 @@ Deno.test("PINの変更: 今のPINが正しければ変わり、新しいPINの�
   const userId = f.users[0].id;
   const result = await changePin(f.deps, { userId, employeeNo: reg.employee_no }, { current_pin: reg.pin, new_pin: "１１１１" });
   assertEquals(result.sessionsCleared, true);
+  assert(result.session);
   assertEquals(f.sessions.map((s) => s.id), [sessionIdOf(result.session.access_token)]);
   assert(sessionIdOf(phone.access_token) !== sessionIdOf(result.session.access_token));
   // 新しいPINで入れて、前のPINでは入れない
@@ -405,4 +413,27 @@ Deno.test("ログイン: PINが違うときの文に、保存した古いPINの�
   await signUp(f.deps, reg, "1.1.1.1");
   const err = await assertRejects(() => loginWithPin(f.deps, { employee_no: reg.employee_no, pin: "0000" }), AppError);
   assert(err.message.includes("古いPIN"));
+});
+
+Deno.test("PINの変更: 変えたあとに新しいPINで入り直せなくても(混雑)、エラーにせず、ログインを全部消して入り直してもらう", async () => {
+  const f = fakes({ busyPasswords: [passwordFor("9999")] });
+  await signUp(f.deps, reg, "1.1.1.1");
+  await loginWithPin(f.deps, { employee_no: reg.employee_no, pin: reg.pin });
+  const user = { userId: f.users[0].id, employeeNo: reg.employee_no };
+  const result = await changePin(f.deps, user, { current_pin: reg.pin, new_pin: "9999" });
+  assertEquals(result.session, null);
+  assertEquals(result.sessionsCleared, true);
+  assertEquals(f.sessions.length, 0);
+  assertEquals(f.users[0].password, passwordFor("9999")); // PINは変わっている
+});
+
+Deno.test("PINの変更: 新しいログインのセッションIDが分からないときは、ほかのログインを消さない(この端末まで出ないように)", async () => {
+  const f = fakes({ noSessionId: true });
+  await signUp(f.deps, reg, "1.1.1.1");
+  await loginWithPin(f.deps, { employee_no: reg.employee_no, pin: reg.pin });
+  const user = { userId: f.users[0].id, employeeNo: reg.employee_no };
+  const result = await changePin(f.deps, user, { current_pin: reg.pin, new_pin: "1111" });
+  assert(result.session);
+  assertEquals(result.sessionsCleared, false);
+  assertEquals(f.sessions.length, 3); // 前のログイン・確かめたとき・新しいログイン
 });

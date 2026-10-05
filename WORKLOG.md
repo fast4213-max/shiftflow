@@ -1503,3 +1503,19 @@ WORKLOG.md(コードは変えていない)
 WORKLOG.md(コードは変えていない)
 ### 次にやること
 - 1〜4 を直すかを決める(どれも画面と Edge Function だけで直せる。DB の変更は無い。データにも触らない)
+
+## 2026-10-05 修正: PINの変更が途中で失敗したとき・ログインが切れた端末の動き
+### 指示
+- 直前のデバッグの 1〜4 を全部直して main に push
+### やったこと
+1. PINの変更(`login-core.ts` の `changePin`): PINを変えたあとに新しいPINで入り直せなかったとき(Supabase Auth の混雑など)は、エラーにしない。その人のログインを全部消して `session: null` を返し、設定画面は「PINを変更しました。新しいPINで、もう一度ログインしてください」と出してログイン画面へ移る
+2. ログインが切れた端末: Edge Function が「ログインし直してください」(unauthenticated)・「このアカウントは利用できません」(not_member)を返したら、この端末のログインを消して「ログインが切れました。もう一度ログインしてください」と出し、ログイン画面へ移る(`app.js` の `callFunction` → `loginLost`)
+3. ログインが必要な画面(勤務入力・設定・管理)を開いているときに、ライブラリがログインの更新に失敗してログインを消したら(ほかの端末・ほかのタブでPINを変えたなど)、同じくログイン画面へ移る(`onAuthStateChange` の SIGNED_OUT。自分でログアウトしたときは出さない)
+4. PINの変更で、新しいログインのセッションIDが取り出せないときは、ほかのログインを消さず「消せませんでした」と同じ扱いにする(この端末まで出ないように)
+### 確かめたこと
+- `deno lint` / `deno check` / `deno test`(74件)が通る。足したテスト: 変えたあと入り直せなくてもエラーにせずログインを全部消す、セッションIDが分からないときは消さない
+- Chromium: Edge Function が unauthenticated を返すと「ログインが切れました」が出てログイン画面へ移る。ふつうのエラーでは移らない。各ページにスクリプトのエラーが出ない
+### データへの影響
+- なし(画面と Edge Function だけ。DB の変更なし)
+### 変更したファイル
+- `supabase/functions/_shared/login-core.ts` / `supabase/functions/_shared/login-core_test.ts` / `web/js/app.js` / `web/js/settings.js` / `WORKLOG.md`

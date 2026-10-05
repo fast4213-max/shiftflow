@@ -1,5 +1,7 @@
 // 設定: 区所とカレンダーIDだけ。保存すると、そのまま接続テストをする。
-import { $, AUTOFILL_HINT, callFunction, copyText, isReady, requireLogin, startSession, supabase, toHalfWidth } from "./app.js?v=dev";
+import {
+  $, AUTOFILL_HINT, callFunction, copyText, isReady, loginLost, requireLogin, startSession, supabase, toHalfWidth,
+} from "./app.js?v=dev";
 
 let session = null;
 let settings = null; // user_settings の行(無ければ null)
@@ -115,8 +117,13 @@ async function main() {
     $("pin-save").disabled = true;
     try {
       const result = await callFunction("change-pin", { current_pin: current, new_pin: next });
+      // PINは変わったが、新しいPINで入り直せなかった(混雑など)。この端末のログインも消されたので、ログインし直してもらう
+      if (!result.session) {
+        await loginLost("PINを変更しました。新しいPINで、もう一度ログインしてください。");
+        return;
+      }
       // この端末は、新しいPINでのログインに入れ替える(前のログインは、ほかの端末の分と一緒に消されたため)
-      if (result.session) await startSession(result.session);
+      await startSession(result.session);
       ["pin-current", "pin-new", "pin-new2"].forEach((id) => ($(id).value = ""));
       message("pin-result", "PINを変更しました。次のログインから新しいPINを使ってください。" +
         (result.sessionsCleared === true ? "ほかの端末でログインしていた分は、ログアウトしました。"

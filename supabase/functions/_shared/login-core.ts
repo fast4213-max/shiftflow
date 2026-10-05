@@ -70,12 +70,14 @@ export async function revokeSessions(admin: SupabaseClient, userId: string, keep
 }
 
 // 自分のPINを変える(今のPINを確かめてから)。変えたら、新しいPINで入り直したログインを返し、
-// それ以外のログイン(ほかの端末・今のPINを確かめたときのもの・この端末の前のログイン)は消す
+// それ以外のログイン(ほかの端末・今のPINを確かめたときのもの・この端末の前のログイン)は消す。
+// PINを変えたあとに入り直せなかったとき(Supabase Auth の混雑など)は、エラーにしない(PINはもう変わっているので)。
+// ログインを全部消して session: null を返し、画面は「新しいPINでログインし直してください」にする
 export async function changePin(
   { admin, anon }: Deps,
   user: { userId: string; employeeNo: string },
   body: Record<string, unknown>,
-): Promise<{ ok: true; session: Session; sessionsCleared: boolean }> {
+): Promise<{ ok: true; session: Session | null; sessionsCleared: boolean }> {
   const current = validatePin(body.current_pin, "今のPIN");
   const next = validatePin(body.new_pin, "新しいPIN");
   const email = emailFor(user.employeeNo);
@@ -90,10 +92,23 @@ export async function changePin(
 
   const { error: updateError } = await admin.auth.admin.updateUserById(user.userId, { password: passwordFor(next) });
   if (updateError) throw updateError;
-  const session = await signIn(anon, email, passwordFor(next));
-  if (!session) throw new Error("新しいPINでログインできませんでした");
-  const sessionsCleared = await revokeSessions(admin, user.userId, sessionIdOf(session.access_token));
-  return { ok: true, session, sessionsCleared };
+
+  let session: Session | null = null;
+  try {
+    session = await signIn(anon, email, passwordFor(next));
+  } catch (err) {
+    console.error("sign in with the new PIN failed", err instanceof Error ? err.message : err);
+  }
+  if (!session) {
+    return { ok: true, session: null, sessionsCleared: await revokeSessions(admin, user.userId, null) };
+  }
+  // 新しいログインのセッションIDが分からないときは、消すとこの端末まで出てしまうので消さない(画面で知らせる)
+  const keep = sessionIdOf(session.access_token);
+  if (!keep) {
+    console.error("session_id not found in the access token");
+    return { ok: true, session, sessionsCleared: false };
+  }
+  return { ok: true, session, sessionsCleared: await revokeSessions(admin, user.userId, keep) };
 }
 
 // 管理者が、利用者に仮のPINを発行する。その人のロック(失敗回数)と、ログイン状態(全部の端末)も消す
