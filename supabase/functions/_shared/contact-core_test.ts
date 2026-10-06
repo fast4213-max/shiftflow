@@ -353,6 +353,36 @@ Deno.test("画像つきで Discord に送れなければ、画像なしで送り
   assertEquals(db.inquiries[0].discord_status, "sent");
 });
 
+Deno.test("メールの1日の枠が少ないとき(GAS の最近の知らせで30通未満)は、受付メールを送らない。Discord には届く(F・I7)", async () => {
+  const low = setup();
+  low.db.status.gas = { value: { quota: 12 }, updated_at: new Date().toISOString() };
+  const res = await submitInquiry(low.deps, guest({ images: [{ data: JPEG }] }), { ip: "1.1.1.1", userId: null });
+  assertEquals(low.r.receipts.length, 0);
+  assertEquals(low.db.inquiries[0].receipt_status, "skipped");
+  assertEquals(low.d.posts[0].files.length, 1);
+  assertEquals(res.images, "ok"); // Discord に届いた
+  // 管理者の返事は送れる(枠を残してある)
+  await submitInquiry(low.deps, guest({ reply_via: "mail", email: "a@b.com" }), { ip: "1.1.1.2", userId: null });
+  await adminReply(low.deps, { id: 2, body: "x", via: "mail", request_key: key() });
+  assertEquals(low.r.replies.length, 1);
+  // メールを送るたびに返ってくる残りの数も使う(GAS の確認より新しければ、そちらを優先)
+  const viaSend = setup({ relay: { result: { ok: true, message_id: "m1", thread_id: "ff0123", quota: 9 } } });
+  viaSend.db.status.gas = { value: { quota: 90 }, updated_at: new Date(Date.now() - 5 * 60_000).toISOString() };
+  await submitInquiry(viaSend.deps, guest({ reply_via: "mail", email: "a@b.com" }), { ip: "1.1.1.1", userId: null });
+  await adminReply(viaSend.deps, { id: 1, body: "x", via: "mail", request_key: key() }); // 残り9通と分かる
+  await submitInquiry(viaSend.deps, guest({ images: [{ data: JPEG }] }), { ip: "1.1.1.9", userId: null });
+  assertEquals(viaSend.r.receipts.length, 0);
+  // 知らせが古い(1時間以上前)・まだ無いときは、送る。30通以上あっても送る
+  const old = setup();
+  old.db.status.gas = { value: { quota: 5 }, updated_at: new Date(Date.now() - 2 * 3600_000).toISOString() };
+  await submitInquiry(old.deps, guest({ images: [{ data: JPEG }] }), { ip: "1.1.1.1", userId: null });
+  assertEquals(old.r.receipts.length, 1);
+  const plenty = setup();
+  plenty.db.status.gas = { value: { quota: 80 }, updated_at: new Date().toISOString() };
+  await submitInquiry(plenty.deps, guest({ images: [{ data: JPEG }] }), { ip: "1.1.1.1", userId: null });
+  assertEquals(plenty.r.receipts.length, 1);
+});
+
 Deno.test("画像がどこにも届かなければ failed を返す(I5)。問い合わせ自体は保存されている", async () => {
   const { deps, db } = setup({
     discord: { failAll: true },

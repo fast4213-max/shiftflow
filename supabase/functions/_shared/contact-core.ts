@@ -120,6 +120,28 @@ export const LIMITS = {
   viewNo: [10, 60],
 } as const;
 
+// 1日の送信枠の残りがこれより少ないときは、受付メール(控え)を送らない(管理者の返事のために残す)
+export const RECEIPT_MIN_QUOTA = 30;
+
+// メールの1日の送信枠の残り(最近わかったもの。1時間より古いものは使わない)。
+// GAS の確認(gas)と、メールを送るたびに返ってくる数(mail_quota)の新しい方
+async function latestQuota(repo: Repo): Promise<number | null> {
+  const statuses = await repo.statuses();
+  let best: { quota: number; at: number } | null = null;
+  for (const key of ["gas", "mail_quota"]) {
+    const row = statuses[key];
+    const quota = Number(row?.value?.quota);
+    const at = row ? new Date(row.updated_at).getTime() : 0;
+    if (row && row.value?.quota != null && Number.isFinite(quota) && Date.now() - at < 60 * 60_000 && (!best || at > best.at)) best = { quota, at };
+  }
+  return best ? best.quota : null;
+}
+
+// メールを送れたときに GAS が返した、今日の残りの数を覚える(受付メールを送るか決めるため)。失敗しても何もしない
+async function rememberQuota(repo: Repo, res: RelayResult): Promise<void> {
+  if (res.ok && typeof res.quota === "number") await repo.setStatus("mail_quota", { quota: res.quota }).catch(() => {});
+}
+
 const BUSY = "短い時間に何度も送られたため、しばらく受け付けられません。1時間ほどたってから、もう一度お試しください。";
 
 async function limit(repo: Repo, key: string, [max, minutes]: readonly [number, number]) {
@@ -265,12 +287,22 @@ export async function sendReceipt(deps: Deps, inq: Inquiry, text: string, files:
       await repo.updateInquiry(inq.id, { receipt_status: "skipped" });
       return false;
     }
+    // メールの1日の送信枠(無料の Gmail は100通)が少ないときは、受付メール(控え)を送らない。
+    // 管理者の返事に使う枠を残すため(画像は Discord には届く。I7)。GAS が最近知らせてきた残りの数で見る
+    const known = await latestQuota(repo);
+    if (known !== null && known < RECEIPT_MIN_QUOTA) {
+      const quota = known;
+      console.error("receipt skipped: low mail quota", quota);
+      await repo.updateInquiry(inq.id, { receipt_status: "skipped" });
+      return false;
+    }
     const res = await relay.receipt({
       key: `receipt-${inq.request_key}`,
       subject: receiptSubject(inq),
       body: receiptMailText(inq, text),
       images: files.map((f) => ({ name: f.name, type: f.type, data: encodeBase64(f.bytes) })),
     });
+    await rememberQuota(repo, res);
     if (res.ok) {
       await repo.updateInquiry(inq.id, { receipt_status: "sent", receipt_message_id: res.message_id || null });
       return true;
@@ -445,6 +477,7 @@ async function sendReplyMail(deps: Deps, inq: Inquiry, msg: Message, messages: M
 }
 
 async function saveMailResult(repo: Repo, msg: Message, res: RelayResult, to: string): Promise<Message> {
+  await rememberQuota(repo, res);
   const patch: Partial<Message> = res.ok
     ? { mail_status: "sent", mail_error: null, gmail_message_id: res.message_id || null, gmail_thread_id: res.thread_id || null, from_email: to }
     : { mail_status: res.kind === "unknown" ? "unknown" : "failed", mail_error: truncate(res.error, 500), from_email: to };
