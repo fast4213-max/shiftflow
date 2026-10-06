@@ -4,7 +4,7 @@ name: Test
 on:
   push:
     branches: [main]
-    paths: ["supabase/functions/**", "web/js/plan.js", "web/js/csv.js", ".github/workflows/test.yml"]
+    paths: ["supabase/functions/**", "supabase/migrations/**", "docs/contact/test/db_*", "web/js/plan.js", "web/js/csv.js", ".github/workflows/test.yml"]
   workflow_dispatch:
 
 permissions:
@@ -23,3 +23,30 @@ jobs:
       - run: deno check */index.ts
         working-directory: supabase/functions
       - run: deno test --allow-read --allow-env supabase/functions
+
+  # migration を、空の PostgreSQL に全部当てて、権限・RLS・動きを確かめる(docs/contact/test/db_assert.sql)。
+  # 本物の Supabase の DB に反映する前に、migration の誤りや権限の外し忘れを見つける(pg_cron は無いので、そこは飛ばされる)
+  database:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v5
+      - run: psql -v ON_ERROR_STOP=1 -q -c "create database t"
+      - run: psql -v ON_ERROR_STOP=1 -q -d t -f docs/contact/test/db_stub.sql
+      - run: |
+          for f in supabase/migrations/*.sql; do
+            echo "== $f"
+            psql -v ON_ERROR_STOP=1 -q -d t -f "$f"
+          done
+      - run: psql -v ON_ERROR_STOP=1 -q -At -d t -f docs/contact/test/db_assert.sql

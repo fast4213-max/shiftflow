@@ -15,6 +15,7 @@ function world() {
   const hooks = [];
   let seq = 100;
   let quota = 100;
+  const locks = { n: 0 };
   let hookResponse = (p) => ({ ok: true, known: (p.mails || []).map((m) => m.id) });
   const mkLabel = (name) => labels.get(name) || (labels.set(name, { name }), labels.get(name));
   function mkThread() {
@@ -41,7 +42,7 @@ function world() {
       getProperties: () => Object.fromEntries(props) }) },
     Session: { getEffectiveUser: () => ({ getEmail: () => "Shiftflow.Kinmu@gmail.com" }) },
     ContentService: { MimeType: { JSON: "json" }, createTextOutput: (s) => ({ setMimeType: () => ({ body: JSON.parse(s) }) }) },
-    LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) },
+    LockService: { getScriptLock: () => { locks.n++; return { tryLock: () => true, releaseLock: () => {} }; } },
     CacheService: { getScriptCache: () => ({ get: (k) => cache.get(k) ?? null, put: (k, v) => cache.set(k, v),
       getAll: (ks) => Object.fromEntries(ks.filter((k) => cache.has(k)).map((k) => [k, cache.get(k)])) }) },
     MailApp: { getRemainingDailyQuota: () => quota },
@@ -62,7 +63,7 @@ function world() {
   };
   vm.createContext(ctx);
   vm.runInContext(code, ctx);
-  return { ctx, props, cache, labels, threads, sent, hooks, mkThread, mkMessage, setHook: (f) => (hookResponse = f), setQuota: (q) => (quota = q) };
+  return { ctx, props, cache, labels, threads, sent, hooks, locks, mkThread, mkMessage, setHook: (f) => (hookResponse = f), setQuota: (q) => (quota = q) };
 }
 
 const post = (w, body) => w.ctx.doPost({ postData: { contents: JSON.stringify({ secret: "s".repeat(32), ts: Date.now(), ...body }) } }).body;
@@ -193,6 +194,37 @@ const post = (w, body) => w.ctx.doPost({ postData: { contents: JSON.stringify({ 
   w2.mkMessage(t2, { from: "b@x.com", subject: "s", body: "b" });
   assert.throws(() => w2.ctx.pollInbox(), /Supabase/);
   console.log("ok pollInbox");
+}
+// 送信後のラベル付けが失敗しても、送信は成功扱い。送り直しで2通目を送らない
+{
+  const w = world();
+  const orig = w.ctx.GmailApp.getUserLabelByName;
+  w.ctx.GmailApp.createLabel = () => { throw new Error("label service down"); };
+  w.ctx.GmailApp.getUserLabelByName = () => null;
+  const a = post(w, { action: "reply", key: "reply-label001", to: "taro@gmail.com", subject: "【shiftflow 勤務登録】お問い合わせ #0001 への返事", body: "b" });
+  assert.equal(a.ok, true, JSON.stringify(a));
+  const b = post(w, { action: "reply", key: "reply-label001", to: "taro@gmail.com", subject: "【shiftflow 勤務登録】お問い合わせ #0001 への返事", body: "b" });
+  assert.equal(b.duplicate, true);
+  assert.equal(w.sent.length, 1);
+  void orig;
+  console.log("ok label failure");
+}
+// 受信の確認は、スクリプトのロックを使わない(返事の送信を待たせない)。前の回が動いているときは何もしない
+{
+  const w = world();
+  w.mkMessage(w.mkThread(), { from: "a@x.com", subject: "s", body: "b" });
+  w.ctx.pollInbox();
+  assert.equal(w.locks.n, 0);
+  assert.equal(w.props.has("polling_since"), false); // 終わったら消える
+  w.cache.clear();
+  w.props.set("polling_since", String(Date.now())); // 前の回が動いている
+  const n = w.hooks.length;
+  w.ctx.pollInbox();
+  assert.equal(w.hooks.length, n);
+  w.props.set("polling_since", String(Date.now() - 6 * 60 * 1000)); // 古い印(止まった回)は無視する
+  w.ctx.pollInbox();
+  assert.ok(w.hooks.length > n);
+  console.log("ok poll without lock");
 }
 // 1日1回の掃除: 最後のメールが90日より前のスレッドだけゴミ箱へ。送った記録の古いものを消す
 {

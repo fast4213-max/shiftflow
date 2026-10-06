@@ -91,3 +91,9 @@ dl.info dd { margin: 0; overflow-wrap: anywhere; }
 /* 横向きのノッチ付きの iPhone で、左右の端が隠れないように(K) */
 .dash-tabs { padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); }
 .dash { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+
+/* iPhone は、文字の大きさが16px未満の入力欄に触れると、画面が拡大される(検索欄) */
+.panel-head input[type="search"] { font-size: 16px; }
+/* 長い名前・件名・アドレスで、一覧が画面の幅からはみ出さないように */
+.contact-item, .contact-item > div { min-width: 0; overflow-wrap: anywhere; }
+.contact-item-head strong { min-width: 0; overflow-wrap: anywhere; }

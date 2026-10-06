@@ -22,7 +22,7 @@
   </div>
 
   <main class="dash">
-    <p id="message" class="message"></p>
+    <p id="message" class="message" aria-live="polite"></p>
 
     <!-- 概要 -->
     <section id="pane-overview" class="pane">
@@ -99,7 +99,7 @@
         <label for="csv-file">CSV ファイル(この区所のマスタを丸ごと入れ替えます)</label>
         <input type="file" id="csv-file" accept=".csv,text/csv">
         <p class="muted">1行目は <code>番号,種別,平日出勤,平日退勤,休日出勤,休日退勤,泊,平休出勤,平休退勤,休平出勤,休平退勤</code>(「泊」と、平休・休平の4列は無くてもよい)。種別は 泊 / 日勤 / 休日。平休は「平日に泊→翌日が休日」、休平は「休日に泊→翌日が平日」のときの泊の出勤・退勤(空なら今までどおり平日・休日の列を使う。泊の行だけに書く)。時刻の欄の「-」「×」など記号だけのものは空として扱います。番号の全角の英数字は半角にそろえて取り込みます。</p>
-        <p id="csv-message" class="message"></p>
+        <p id="csv-message" class="message" aria-live="polite"></p>
         <div id="csv-preview" class="hidden">
           <strong id="csv-summary"></strong>
           <p class="muted">取り込む内容です。時刻はそろえた形で表示しています。赤い行は直してから取り込んでください。</p>
@@ -129,11 +129,11 @@
             <button class="chip" data-filter="all">すべて</button>
             <button class="chip" data-filter="unmatched">受信メール<span id="count-unmatched"></span></button>
           </div>
-          <p id="contact-list-message" class="message"></p>
+          <p id="contact-list-message" class="message" aria-live="polite"></p>
           <div id="contact-list"></div>
         </div>
         <div class="panel contact-detail-panel">
-          <p id="contact-detail-message" class="message"></p>
+          <p id="contact-detail-message" class="message" aria-live="polite"></p>
           <div id="contact-detail"><p class="muted">左の一覧から選んでください。</p></div>
         </div>
       </div>
@@ -160,7 +160,7 @@
           <button id="notice-save" class="primary">保存して公開</button>
           <button id="notice-cancel" class="hidden">編集をやめる</button>
         </div>
-        <p id="notice-message" class="message"></p>
+        <p id="notice-message" class="message" aria-live="polite"></p>
         <p class="muted">ログイン画面(利用者タブ)には表示中のものが最大3件(重要が先、新しい順)、ログイン後の「お知らせ」には全部出ます。</p>
       </div>
       <div class="panel">
@@ -180,7 +180,7 @@
           <button id="signup-save" class="primary">設定する</button>
         </div>
         <p class="muted">利用者が新規登録するときに入力するパスワードです。変えても、すでに登録した人には影響しません。</p>
-        <p id="signup-message" class="message"></p>
+        <p id="signup-message" class="message" aria-live="polite"></p>
       </div>
       <div class="panel">
         <h2>カレンダーの登録用アドレス</h2>

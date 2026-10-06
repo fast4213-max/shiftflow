@@ -184,3 +184,5 @@ fieldset.reply-via label.check { font-weight: normal; margin: 8px 0; }
 /* 横向きのノッチ付きの iPhone で、左右の端が隠れないように(画面の端から安全な幅だけ内側へ。K) */
 .topbar { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
 .page { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+
+input[type="search"] { font: inherit; font-size: 16px; padding: 8px; border: 1px solid #bbb; border-radius: 6px; }

@@ -2,7 +2,7 @@
 //   deno test supabase/functions --allow-read --allow-env
 
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { createEvents, deleteAppEvents, eventsToRegister, parseTimeRange, isOffTitle, splitDayEvents, staleNextMonthRecords } from "./shift-calendar.ts";
+import { createEvents, deleteAppEvents, eventsToRegister, listAppEvents, parseTimeRange, isOffTitle, splitDayEvents, staleNextMonthRecords } from "./shift-calendar.ts";
 import { AppError } from "./http.ts";
 import { calendarAccessError, clearsVerification, GoogleError, isPrimaryCalendarId, nextRetryDelay, retryPolicy, withRetryBudget } from "./google.ts";
 import { buildPlan, indexMaster } from "./plan.js";
@@ -515,4 +515,39 @@ Deno.test("接続テストの失敗: 検証済みを外すのは書けないと�
 Deno.test("接続テスト: メインのカレンダー(メールアドレスの形)と primary は使えない。追加したカレンダーのIDは使える(P)", () => {
   for (const id of ["primary", "PRIMARY", " primary ", "taro@gmail.com", "Taro@Example.co.jp"]) assertEquals(isPrimaryCalendarId(id), true, id);
   for (const id of ["abc123@group.calendar.google.com", "ABC@group.calendar.google.com", "c_abc123", "primary2"]) assertEquals(isPrimaryCalendarId(id), false, id);
+});
+
+Deno.test("Google が応答しない・通信エラーのとき: 読む・消すは再試行し、作る(POST)は二重に作らないよう再試行しない", async () => {
+  const saved = { ...retryPolicy, baseMs: [...retryPolicy.baseMs] };
+  retryPolicy.baseMs = [1, 1, 1, 1, 1];
+  try {
+    for (const method of ["GET", "DELETE"]) {
+      let tries = 0;
+      globalThis.fetch = (input: string | URL | Request, _init?: RequestInit) => {
+        const url = new URL(String(input));
+        if (url.host === "oauth2.googleapis.com") return Promise.resolve(Response.json({ access_token: "token", expires_in: 3600 }));
+        tries++;
+        if (tries <= 2) return Promise.reject(new DOMException("signal timed out", "TimeoutError"));
+        return Promise.resolve(method === "GET" ? Response.json({ items: [] }) : new Response(null, { status: 204 }));
+      };
+      if (method === "GET") await listAppEvents({ work: "w", holiday: "" }, 2026, 10);
+      else await deleteAppEvents({ work: "w", holiday: "" }, 2026, 10, { existing: [{ calendarId: "w", eventId: "x", date: "2026-10-05", tag: "day" }] });
+      assertEquals(tries, 3, method);
+    }
+    // POST: 1回で失敗(二重に作らない)。画面には「操作に失敗しました」(502 calendar_error)
+    let posts = 0;
+    globalThis.fetch = (input: string | URL | Request, _init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.host === "oauth2.googleapis.com") return Promise.resolve(Response.json({ access_token: "token", expires_in: 3600 }));
+      posts++;
+      return Promise.reject(new DOMException("signal timed out", "TimeoutError"));
+    };
+    const err = await assertRejects(
+      () => createEvents({ work: "w", holiday: "" }, [{ date: "2026-10-01", calendar: "work", kind: "day", title: "201", description: "" }]),
+      AppError,
+    ) as AppError;
+    assertEquals([posts, err.code], [1, "calendar_error"]);
+  } finally {
+    retryPolicy.baseMs = saved.baseMs;
+  }
 });

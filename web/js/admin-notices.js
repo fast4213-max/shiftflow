@@ -102,7 +102,7 @@ async function save() {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startsOn) || (endsOn && !/^\d{4}-\d{2}-\d{2}$/.test(endsOn))) {
     return setMessage("日付の形が正しくありません。", "error");
   }
-  if (endsOn && endsOn < startsOn) return setMessage("終わりの日は、始まりの日より後にしてください。", "error");
+  if (endsOn && endsOn < startsOn) return setMessage("終わりの日は、始まりの日と同じか、それより後にしてください(終わりの日は、その日いっぱい表示されます)。", "error");
   $("notice-save").disabled = true;
   const row = { title, body, level, starts_on: startsOn, ends_on: endsOn };
   const { error } = editingId

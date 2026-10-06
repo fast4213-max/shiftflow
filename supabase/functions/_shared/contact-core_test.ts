@@ -569,8 +569,11 @@ Deno.test("受信メール: スレッドで問い合わせに当てはめ、引�
   assertEquals(d.posts.length, 1);
   assert(!JSON.stringify(d.posts[0].payload).includes("違う人")); // スレッドで当てはめたときは注意を出さない
 
+  // 返事を書いたら、「新着メール」の印が消える
+  assertEquals(db.inquiries[0].has_new_mail, true);
   // 次の返事は、相手のメールに返信する(M7)
   const r2 = await adminReply(deps, { id: 1, body: "了解です", via: "mail", request_key: key() });
+  assertEquals(db.inquiries[0].has_new_mail, false);
   assertEquals(r2.message!.mail_status, "sent");
 });
 

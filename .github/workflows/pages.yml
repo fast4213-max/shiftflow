@@ -46,7 +46,7 @@ jobs:
       # スマホのブラウザが古い JS をキャッシュから使い続け、新しい画面と合わずに止まるのを防ぐ。
       - run: |
           # 付け忘れ(同じフォルダの .js/.css を ?v=dev なしで読んでいる所)があれば止める
-          if grep -rnE '(from |src=|href=)"(\./)?(js/|css/)?[a-z]+\.(js|css)"' web --include='*.html' --include='*.js'; then
+          if grep -rnE '(from |src=|href=)"(\./)?(js/|css/)?[A-Za-z0-9_-]+\.(js|css)"' web --include='*.html' --include='*.js'; then
             echo "::error::上の行に ?v=dev を付けてください"; exit 1
           fi
           v="${GITHUB_SHA::8}"

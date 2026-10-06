@@ -32,6 +32,12 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 
 export const $ = (id) => document.getElementById(id);
 
+// 「戻る」「進む」で、前の画面が一時保存(bfcache)から復元されたときは、読み直す。
+// 復元された画面は、古い区所・お知らせ・ログイン状態のまま(ログアウトしたあとに「戻る」で、ログイン中の画面が見える)になるため
+window.addEventListener("pageshow", (ev) => {
+  if (ev.persisted) location.reload();
+});
+
 // 画面のプログラムが読み込めたしるし(HTML の onsubmit が見る。読み込めないときに、社員番号やPINを
 // URL に付けて送ってしまわないよう、フォームの送信は止めて、読み込めなかったことを知らせる)
 window.shiftflowReady = true;

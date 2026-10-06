@@ -4,7 +4,7 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert@1";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.117.2";
 import { isTransientAuthError, memberFromToken } from "./auth.ts";
-import { AppError } from "./http.ts";
+import { AppError, entriesFrom } from "./http.ts";
 
 function fakeAdmin(opts: {
   userError?: { status?: number; name?: string; message: string } | null;
@@ -73,4 +73,26 @@ Deno.test("ログイン中なら、利用者の情報を返す(管理者も見�
   const admin = await memberFromToken(fakeAdmin({ profile: { employee_no: null, role: "admin" } }), "t");
   assertEquals([admin.employeeNo, admin.isAdmin], [null, true]);
   assertEquals(isTransientAuthError(null), false);
+});
+
+Deno.test("登録の入力(entries): 無い・配列・文字は 400。空のオブジェクトと日付の対応は通す", () => {
+  for (const bad of [undefined, null, [], "x", 5, true]) {
+    let err: AppError | null = null;
+    try {
+      entriesFrom({ entries: bad });
+    } catch (e) {
+      err = e as AppError;
+    }
+    assertEquals([err?.status, err?.code], [400, "bad_entries"], String(bad));
+  }
+  assertEquals(entriesFrom({ entries: {} }), {});
+  assertEquals(entriesFrom({ entries: { "2026-10-01": { code: "101" } } }), { "2026-10-01": { code: "101" } });
+  const many = Object.fromEntries(Array.from({ length: 63 }, (_, i) => [String(i), {}]));
+  let tooMany: AppError | null = null;
+  try {
+    entriesFrom({ entries: many });
+  } catch (e) {
+    tooMany = e as AppError;
+  }
+  assertEquals(tooMany?.status, 400);
 });

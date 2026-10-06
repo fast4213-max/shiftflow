@@ -62,3 +62,14 @@ export function clientIp(req: Request): string {
   const forwarded = req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip") || "";
   return forwarded.split(",")[0].trim() || "unknown";
 }
+
+// register-month の入力(日付 → {code, memo} の対応)。無い・配列・文字などは 400 にする
+// (空のまま通すと、その月の入力を全部消して「空の月」を登録してしまうため)
+export function entriesFrom(body: Record<string, unknown>): Record<string, unknown> {
+  const v = body.entries;
+  if (!v || typeof v !== "object" || Array.isArray(v)) {
+    throw new AppError(400, "入力の形が正しくありません。ページを読み直して、もう一度お試しください。", "bad_entries");
+  }
+  if (Object.keys(v).length > 62) throw new AppError(400, "入力が多すぎます。");
+  return v as Record<string, unknown>;
+}

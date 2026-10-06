@@ -3,12 +3,14 @@
 // holiday_years.source が 'manual'(手で取り込んだ年)は取り直さない。
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.117.2";
-import { listEvents } from "./google.ts";
+import { listEvents, withRetryBudget } from "./google.ts";
 import { AppError } from "./http.ts";
 import { holidayYearsFor } from "./plan.js";
 
 const HOLIDAY_CALENDAR_ID = "ja.japanese.official#holiday@group.v.calendar.google.com";
 const REFRESH_MS = 30 * 24 * 60 * 60 * 1000;
+export const STALE_REFRESH_BUDGET_MS = 3_000;
+export const FIRST_FETCH_BUDGET_MS = 20_000;
 
 function currentYearJst(): number {
   return new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCFullYear();
@@ -45,7 +47,9 @@ export async function ensureHolidayYears(admin: SupabaseClient, years: number[])
 
     let holidays: { date: string; name: string }[] = [];
     try {
-      holidays = await fetchYear(year);
+      // Google が混んでいるときの再試行で、登録の全体の時間枠(120秒)を使い込まないよう、ここで待つ時間を区切る。
+      // 取り直し(前回の分がある)は失敗しても困らないので短く、初めて取る年は少し長く待つ
+      holidays = await withRetryBudget(row ? STALE_REFRESH_BUDGET_MS : FIRST_FETCH_BUDGET_MS, () => fetchYear(year));
     } catch (err) {
       console.error("holiday fetch failed", year, err);
     }

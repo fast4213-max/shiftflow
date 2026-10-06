@@ -3,7 +3,7 @@
 
 import { requireMember } from "../_shared/auth.ts";
 import { loadHolidays } from "../_shared/holidays.ts";
-import { AppError, readBody, serve, yearMonthOf } from "../_shared/http.ts";
+import { AppError, entriesFrom, readBody, serve, yearMonthOf } from "../_shared/http.ts";
 import { addDays, buildPlan, codeOf, dateKey, daysInMonth, indexMaster } from "../_shared/plan.js";
 import {
   createEvents,
@@ -21,8 +21,7 @@ serve(async (req) => {
   const ctx = await requireMember(req);
   const body = await readBody(req);
   const { year, month } = yearMonthOf(body);
-  const entries = body.entries && typeof body.entries === "object" ? body.entries as Record<string, unknown> : {};
-  if (Object.keys(entries).length > 62) throw new AppError(400, "入力が多すぎます。");
+  const entries = entriesFrom(body);
 
   const calendars = await loadVerifiedCalendars(ctx);
   if (!calendars.officeId) throw new AppError(400, "設定画面で区所を選んでください。", "no_office");

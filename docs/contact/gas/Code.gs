@@ -161,8 +161,13 @@ function sendReply_(req) {
     }
     sent = GmailApp.createDraft(to, subject, body, { name: SENDER_NAME }).send();
   }
-  addLabels_(sent.getThread(), LABEL_REPLY);
+  // 先に「送った」と覚える。ラベルを付けるのに失敗しても、送り直しで2通目を送らないように(失敗しても送信は成功扱い)
   const rec = rememberSent_(req.key, sent);
+  try {
+    addLabels_(sent.getThread(), LABEL_REPLY);
+  } catch (err) {
+    console.error("ラベルを付けられませんでした: " + err);
+  }
   return { ok: true, message_id: rec.message_id, thread_id: rec.thread_id, quota: quota_() };
 }
 
@@ -186,8 +191,12 @@ function sendReceipt_(req) {
     name: SENDER_NAME,
     attachments: blobs,
   }).send();
-  addLabels_(sent.getThread(), LABEL_RECEIPT);
-  const rec = rememberSent_(req.key, sent);
+  const rec = rememberSent_(req.key, sent); // 先に覚える(ラベルの失敗で、送り直しが2通目にならないように)
+  try {
+    addLabels_(sent.getThread(), LABEL_RECEIPT);
+  } catch (err) {
+    console.error("ラベルを付けられませんでした: " + err);
+  }
   return { ok: true, message_id: rec.message_id, thread_id: rec.thread_id, quota: quota_() };
 }
 
@@ -250,8 +259,12 @@ function plainBody_(m) {
 // 5分ごと: 受信トレイ(迷惑メールは除く)の、まだ渡していないメールを Supabase へ。
 // 渡せたもの(known)は6時間覚えて、次からは送らない。Supabase も同じメールは二重に入れない(R1・R2)
 function pollInbox() {
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(1000)) return; // 前の回がまだ動いている
+  // 前の回がまだ動いているときは、何もしない。
+  // スクリプトのロック(LockService)は使わない: 返事の送信(doPost)が同じロックを待つので、取り込みが長引くと送信が失敗してしまう。
+  // 同じメールを二重に取り込んでも、Supabase が Gmail のメッセージIDで二重を防ぐ
+  const running = Number(props_().getProperty("polling_since") || 0);
+  if (Date.now() - running < 4 * 60 * 1000) return;
+  props_().setProperty("polling_since", String(Date.now()));
   try {
     const cache = CacheService.getScriptCache();
     const self = self_();
@@ -304,7 +317,7 @@ function pollInbox() {
     });
     cache.put("heartbeat", "1", 600);
   } finally {
-    lock.releaseLock();
+    props_().deleteProperty("polling_since");
   }
 }
 

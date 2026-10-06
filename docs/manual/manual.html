@@ -38,8 +38,8 @@
   table.t th, table.t td { border: 1px solid #dadce0; padding: 1.5mm 2mm; text-align: left; vertical-align: top; }
   table.t th { background: #f1f3f4; }
   .mono { font-family: "IPAGothic", monospace; background: #f1f3f4; padding: 0 1mm; border-radius: 1mm; }
-  .qa dt { font-weight: bold; margin-top: 3mm; }
-  .qa dd { margin: 0 0 1mm 0; }
+  .qa dt { font-weight: bold; margin-top: 2.2mm; }
+  .qa dd { margin: 0 0 0.5mm 0; font-size: 9.6pt; line-height: 1.5; }
   .mock { width: 44mm; border: 1px solid #dadce0; border-radius: 2mm; padding: 1.5mm; margin: 2mm 0; background: #fafafa; }
   .mock .mockday { font-size: 9pt; font-weight: bold; text-align: center; }
   .mock .pill { background: #7b9cf2; color: #fff; border-radius: 1mm; font-size: 8pt; padding: 0 1.5mm; margin-top: 0.8mm; }
@@ -57,7 +57,6 @@
   <div class="sub">使い方(利用者向け)</div>
   <div class="url">https://fast4213-max.github.io/shiftflow/</div>
   <p>勤務の番号を入れて「登録」を押すと、<br>あなたの Googleカレンダーに予定が入ります。</p>
-  <p class="ver">2026.10.05修正版</p>
 </div>
 
 <!-- 0. 全体の流れ -->
@@ -355,6 +354,10 @@
   <dl class="qa">
     <dt>ログインできない</dt>
     <dd>社員番号(7桁)とPIN(4桁)が合っているか確認します。まだ登録していない人は「新規登録」から登録します。「続けて間違えたため…」と出たときは、15分ほど待ってからやり直します。スマホの人は、手順8の「iPhone・Androidでログインできないとき」も確認します。</dd>
+    <dt>それでも解決しない・ほかに困ったことがある</dt>
+    <dd>「お問い合わせ」から管理者に送れます(ログイン前でも使えます。ログイン後は上のメニューの「お問い合わせ」)。返事は、画面(受付番号と確認コード)かメールで受け取れます。メールのときは、<b>shiftflow.kinmu@gmail.com</b> から届くので、迷惑メールフォルダも見てください。画像は3枚まで付けられます(iPhoneは「写真ライブラリ」から選びます)。PINは書かないでください。</dd>
+    <dt>お知らせはどこで見られますか?</dt>
+    <dd>ログイン画面の入力欄の上と、ログイン後の上のメニューの「お知らせ」で見られます。新しいお知らせがあると、メニューに赤い点が付きます。</dd>
     <dt>PINを忘れた</dt>
     <dd>管理者に再設定を頼みます。仮のPINで入って、設定画面の「PINを変える」から好きなPINに変えます。再設定・変更のあとは、スマホに保存した古いPINが自動で入ることがあるので、手で入力します(ほかの端末のログインは消えます)。</dd>
     <dt>登録するのに共通パスワードが必要と言われた</dt>
@@ -370,9 +373,9 @@
     <dt>使うのをやめたい / 共有を止めたい</dt>
     <dd>Googleカレンダーの「設定と共有」→「共有する相手」で、登録用アドレスの横の削除(×)を押します。これだけで、アプリはあなたのカレンダーに書き込めなくなります。登録済みの予定は残るので、不要なら先に「リセット」で消します。</dd>
     <dt>個人のデータはどうなりますか?</dt>
-    <dd>社員番号・名前・区所・カレンダーID・入力した勤務の番号とメモは、このアプリのデータベースに保存されます。PINは暗号化した形で保存され、管理者にも分かりません。管理者には、社員番号・名前・区所・最終ログイン日時・最後に登録した日・記録の日数が見えます(勤務の中身とカレンダーIDは見えません)。アプリは、あなたが共有したカレンダーにだけ書き込めます。</dd>
+    <dd>社員番号・名前・区所・カレンダーID・入力した勤務の番号とメモは、このアプリのデータベースに保存されます。お問い合わせの内容とメールアドレスは、最後のやり取りから90日で自動で消えます(付けた画像はデータベースには保存せず、管理者の Discord と Gmail に届き、90日で消えます)。PINは暗号化した形で保存され、管理者にも分かりません。管理者には、社員番号・名前・区所・最終ログイン日時・最後に登録した日・記録の日数が見えます(勤務の中身とカレンダーIDは見えません)。アプリは、あなたが共有したカレンダーにだけ書き込めます。</dd>
   </dl>
-  <p class="foot">この説明書は、アプリの「使い方」ページと同じ内容です。Google・Apple の画面の名前は、2026年9月に各社の公式ヘルプで確認しました。画面は変わることがあるので、名前が違うときは、近い名前の項目を探してください。<br>2026.10.05修正版</p>
+  <p class="foot">この説明書は、アプリの「使い方」ページと同じ内容です。Google・Apple の画面の名前は、2026年9月に各社の公式ヘルプで確認しました。画面は変わることがあるので、名前が違うときは、近い名前の項目を探してください。</p>
 </section>
 
 </body>

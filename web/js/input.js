@@ -103,7 +103,7 @@ async function loadMonth(id) {
   scrollToToday();
   $("register").disabled = false;
   $("reset").disabled = false;
-  setStatus(state.masterList.length ? "" : "この区所の勤務コードのマスタが空です。管理者に登録を頼んでください。", !state.masterList.length);
+  setStatus(state.masterList.length ? "" : "この区所の勤務の番号の一覧(マスタ)が空です。管理者に登録を頼んでください。", !state.masterList.length);
 }
 
 // 手入力した番号が一覧にあれば、一覧の番号を返す(無ければ "")。

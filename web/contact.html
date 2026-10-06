@@ -14,8 +14,8 @@
   <main class="page narrow">
     <h1>お問い合わせ</h1>
     <p id="intro" class="muted">ログインできない・使い方がわからないときは、ここから送ってください。管理者に届きます。</p>
-    <p id="load-wait" class="message">読み込み中です…</p>
-    <p id="load-error" class="message error hidden">画面を読み込めませんでした。電波の良いところで、ページを読み直してください。広告ブロック(コンテンツブロッカー)を使っているときは、このサイトではオフにしてください。</p>
+    <p id="load-wait" class="message" aria-live="polite">読み込み中です…</p>
+    <p id="load-error" class="message error hidden" aria-live="polite">画面を読み込めませんでした。電波の良いところで、ページを読み直してください。広告ブロック(コンテンツブロッカー)を使っているときは、このサイトではオフにしてください。</p>
     <p id="admin-note" class="note hidden">管理者は、<a href="admin.html#contact">管理画面の「お問い合わせ」</a>で見てください。</p>
 
     <!-- 送る -->
@@ -58,7 +58,7 @@
       <p class="muted small">写真・スクリーンショットを付けられます。送る前に小さくし、撮った場所などの情報は消します。</p>
       <p class="note-warn small">iPhoneは「<b>写真ライブラリ</b>」から選んでください。「<b>ファイル</b>」から選ぶと、送れないことがあります(そのときはスクリーンショットにして付けてください)。</p>
       <p class="note-danger small">PINや、ほかの人の名前・勤務が写った画像は送らないでください。</p>
-      <p id="image-message" class="message"></p>
+      <p id="image-message" class="message" aria-live="polite"></p>
 
       <fieldset class="reply-via">
         <legend>返事の受け取り方</legend>
@@ -81,7 +81,7 @@
       </div>
 
       <button id="submit" class="primary block" type="submit">送信する</button>
-      <p id="message" class="message"></p>
+      <p id="message" class="message" aria-live="polite"></p>
     </form>
 
     <!-- 送ったあと -->
@@ -100,7 +100,7 @@
         <p class="note-warn small">⚠️ 迷惑メールに入ることがあります。差出人「shiftflow 勤務登録」(<span class="mono contact-email"></span>)を受け取れるようにしておいてください。数日たっても届かないときは、もう一度送ってください。</p>
       </div>
       <p id="sent-member" class="hidden">返事は、下の「これまでのお問い合わせ」に出ます。</p>
-      <p id="sent-images" class="message"></p>
+      <p id="sent-images" class="message" aria-live="polite"></p>
       <button id="again" type="button" class="block">別のお問い合わせを送る</button>
     </div>
 
@@ -114,7 +114,7 @@
           <div><label for="view-code">確認コード</label><input id="view-code" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="ABCD-2345"></div>
         </div>
         <button id="view-button" type="button" class="block">返事を見る</button>
-        <p id="view-message" class="message"></p>
+        <p id="view-message" class="message" aria-live="polite"></p>
         <div id="view-result"></div>
       </div>
     </section>
@@ -122,7 +122,7 @@
     <!-- ログイン後: これまでのお問い合わせ -->
     <section id="mine-section" class="hidden">
       <h2>これまでのお問い合わせ</h2>
-      <p id="mine-message" class="message"></p>
+      <p id="mine-message" class="message" aria-live="polite"></p>
       <div id="mine"></div>
     </section>
   </main>

@@ -48,7 +48,7 @@
       <label class="check"><input id="split-day" type="checkbox"> 出勤を2件で登録する(Googleカレンダーだけで見る人向け)</label>
       <p class="muted">チェックを入れると、出勤の日に予定が2つ入ります。上が終日の「番号」(例: <b>25</b>。メモの時間は今のまま)、下が出勤の「時間」(例: <b>10:00〜18:30</b>)です。<b>次に登録する分から</b>変わり、すでに登録した予定は変わりません。非番は変わりません。</p>
       <button id="save" class="primary block" type="button">保存して接続テスト</button>
-      <p id="result" class="message"></p>
+      <p id="result" class="message" aria-live="polite"></p>
       <p id="go-input" class="hidden"><a href="input.html">勤務入力へ進む →</a></p>
       <p class="muted">うまくいかないときは <a href="help.html#test">使い方の「接続テスト」</a> の対処を見てください。</p>
     </div>
@@ -64,7 +64,7 @@
       <label for="pin-new2">新しいPIN(もう一度)</label>
       <input id="pin-new2" data-digits type="password" inputmode="numeric" maxlength="4" autocomplete="new-password">
       <button id="pin-save" class="block" type="button">PINを変更</button>
-      <p id="pin-result" class="message"></p>
+      <p id="pin-result" class="message" aria-live="polite"></p>
     </details>
   </main>
   <script type="module" src="js/settings.js?v=dev" onerror="var e=document.getElementById('result'); e.textContent='画面を読み込めませんでした。電波の良いところで、ページを読み直してください。広告ブロック(コンテンツブロッカー)を使っているときは、このサイトではオフにしてください。'; e.className='message error'"></script>

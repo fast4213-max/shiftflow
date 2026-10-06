@@ -78,6 +78,7 @@ async function accessToken(): Promise<string> {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }),
+    signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) {
     console.error("token error", res.status, await res.text());
@@ -98,6 +99,9 @@ export class GoogleError extends Error {
     this.reason = reason;
   }
 }
+
+// Google への1回の通信を待つ時間の上限
+const REQUEST_TIMEOUT_MS = 20_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -148,14 +152,26 @@ async function call(method: string, path: string, body?: unknown, query?: Record
   if (query) Object.entries(query).forEach(([k, v]) => url.searchParams.set(k, v));
   const deadline = budgetStore?.getStore()?.deadline ?? Date.now() + DEFAULT_RETRY_MS;
   for (let i = 0; ; i++) {
-    const res = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${await accessToken()}`,
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method,
+        headers: {
+          Authorization: `Bearer ${await accessToken()}`,
+          ...(body ? { "Content-Type": "application/json" } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        // Google が応答しないとき、いつまでも待たない(待つと、二重実行防止のロックを持ったまま固まる)
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (err) {
+      // 通信エラー・時間切れ。読む・消すは何度やっても同じなので、混雑のときと同じように待って再試行する。
+      // 作る(POST)は、実は作れていたかもしれず、やり直すと同じ予定が2つできるので、再試行せずに失敗にする
+      const wait = method === "GET" || method === "DELETE" ? nextRetryDelay(i, Date.now(), deadline) : null;
+      if (wait === null) throw err;
+      await sleep(wait);
+      continue;
+    }
     if (res.ok) return res.status === 204 ? null : await res.json();
 
     const text = await res.text();

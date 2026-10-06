@@ -20,8 +20,8 @@
       <p class="muted">勤務を入力して、Googleカレンダーに登録します。</p>
     </div>
 
-    <p id="load-wait" class="message hidden">読み込み中です。少し待ってから、もう一度押してください(しばらくたっても変わらないときは、ページを読み直してください)。</p>
-    <p id="load-error" class="message error hidden">画面を読み込めませんでした。電波の良いところで、ページを読み直してください。広告ブロック(コンテンツブロッカー)を使っているときは、このサイトではオフにしてください。</p>
+    <p id="load-wait" class="message hidden" aria-live="polite">読み込み中です。少し待ってから、もう一度押してください(しばらくたっても変わらないときは、ページを読み直してください)。</p>
+    <p id="load-error" class="message error hidden" aria-live="polite">画面を読み込めませんでした。電波の良いところで、ページを読み直してください。広告ブロック(コンテンツブロッカー)を使っているときは、このサイトではオフにしてください。</p>
 
     <div class="tabs" role="tablist">
       <button id="tab-user" role="tab" aria-selected="true" class="tab active">利用者</button>
@@ -37,7 +37,7 @@
       <label for="pin">PIN(4桁の数字)</label>
       <input id="pin" data-digits name="password" type="password" inputmode="numeric" maxlength="4" autocomplete="current-password" placeholder="••••" required>
       <button id="user-login" class="primary block" type="submit">ログイン</button>
-      <p id="user-message" class="message"></p>
+      <p id="user-message" class="message" aria-live="polite"></p>
       <p class="muted center">はじめての方は <a href="register.html">新規登録</a> ・ <a href="help.html">使い方</a></p>
       <p class="muted center">ログインできないときは <a href="contact.html">お問い合わせ</a></p>
     </form>
@@ -47,7 +47,7 @@
       <label for="admin-password">管理用パスワード</label>
       <input id="admin-password" name="password" type="password" autocomplete="current-password" required>
       <button id="admin-login" class="primary block" type="submit">管理画面に入る</button>
-      <p id="admin-message" class="message"></p>
+      <p id="admin-message" class="message" aria-live="polite"></p>
     </form>
   </main>
   <!-- 読み込めないとき(電波・広告ブロック)は、上の load-error を出す。読み込み中に押したときは load-wait。フォームは onsubmit で送らない -->

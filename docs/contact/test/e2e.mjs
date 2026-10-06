@@ -95,7 +95,7 @@ function backend(opts = {}) {
       if (body.action === "list") {
         if (body.filter === "unmatched") return json({ filter: "unmatched", inquiries: [], unmatched_mails: [{ id: 90, inquiry_id: null, sender: "mail", channel: "mail", body: "質問です", body_full: null, from_email: "x@example.com", subject: "質問", attachment_names: null, bounce: false, gmail_message_id: "abc", gmail_thread_id: "def", mail_status: null, created_at: new Date().toISOString() }], counts: { todo: 2, unmatched: 1 }, statuses: {}, config: { discord: true, relay: true } });
         return json({ filter: body.filter, inquiries: [
-          { id: 12, logged_in: false, employee_no: "1234567", name: "山田 太郎", office_name: "A区所", kind: "login", reply_via: "mail", email: "taro@gmail.com", status: "open", has_new_mail: true, image_count: 2, last_activity_at: new Date().toISOString(), created_at: new Date().toISOString() },
+          { id: 12, logged_in: false, employee_no: "1234567", name: opts.longName ? "とても長い名前".repeat(12) + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" : "山田 太郎", office_name: "A区所", kind: "login", reply_via: "mail", email: "taro@gmail.com", status: "open", has_new_mail: true, image_count: 2, last_activity_at: new Date().toISOString(), created_at: new Date().toISOString() },
           { id: 13, logged_in: true, employee_no: "7654321", name: "佐藤 花子", office_name: "B区所", kind: "bug", reply_via: "screen", email: null, status: "open", has_new_mail: false, image_count: 0, last_activity_at: new Date().toISOString(), created_at: new Date().toISOString() },
         ], unmatched_mails: [], counts: { todo: 2, unmatched: 1 },
         statuses: { gas: { value: { quota: 97 }, updated_at: new Date(Date.now() - 45 * 60e3).toISOString() } }, config: { discord: true, relay: true } });
@@ -498,7 +498,7 @@ await check("管理画面: お知らせを出す・直す・消す。期間の�
   await page.check('input[name="notice-level"][value="important"]');
   await page.fill("#notice-end", "2000-01-01");
   await page.click("#notice-save");
-  assert.ok((await page.textContent("#notice-message")).includes("始まりの日より後"));
+  assert.ok((await page.textContent("#notice-message")).includes("始まりの日と同じか、それより後"));
   await page.fill("#notice-end", "");
   await page.click("#notice-save");
   await page.waitForSelector("#notice-message.ok");
@@ -622,6 +622,16 @@ await check("古い HTML(版 OLD)と新しい JS(版 NEW)が混ざったら、1�
 });
 
 // ---------- 狭い画面 ----------
+await check("幅320px: 管理画面のお問い合わせ一覧が、長い名前でもはみ出さない", async () => {
+  const { page, ctx } = await open("admin.html#contact", {
+    userId: "a1", opts: { profile: ADMIN, longName: true }, viewport: { width: 320, height: 640 },
+  });
+  await page.waitForSelector(".contact-item");
+  const [sw, iw] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+  assert.ok(sw <= iw, `${sw} > ${iw}`);
+  await ctx.close();
+});
+
 await check("幅320px: 横にはみ出さない(N9)", async () => {
   for (const [path, userId, profile] of [["index.html"], ["contact.html"], ["contact.html", "u1", USER], ["notices.html", "u1", USER]]) {
     const { page, ctx } = await open(path, { userId, opts: { profile }, viewport: { width: 320, height: 640 } });
