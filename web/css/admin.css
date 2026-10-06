@@ -87,3 +87,5 @@ dl.info dd { margin: 0; overflow-wrap: anywhere; }
 .unmatched textarea { margin: 4px 0; }
 .notice-admin-row { border-bottom: 1px solid var(--line); padding: 10px 0; }
 .notice-admin-row .row { margin-bottom: 4px; }
+/* やり取りの中のリンク(「全文を見る」「Gmailで開く」)が並んでくっつかないように */
+.bubble .link-button, .bubble .gmail-link { margin-right: 14px; }
