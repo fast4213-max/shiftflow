@@ -70,11 +70,12 @@ export function riskyEmail(email: string): boolean {
   return local.includes("..") || local.startsWith(".") || local.endsWith(".");
 }
 
-// "山田 <a@b.c>" や "a@b.c" からアドレスだけを取り出す
+// "山田 <a@b.c>" や "a@b.c" からアドレスだけを取り出す。
+// 表示名の中に別のアドレス("本人 <victim@x>" <attacker@y>)を入れられるので、本物のアドレスはいちばん後ろの <…>(C)
 export function extractEmail(v: unknown): string | null {
   const s = String(v ?? "");
-  const m = s.match(/<([^<>]+)>/);
-  return normalizeEmail(m ? m[1] : s);
+  const all = [...s.matchAll(/<([^<>]+)>/g)];
+  return normalizeEmail(all.length ? all[all.length - 1][1] : s);
 }
 
 // ---------- 受付番号・確認コード ----------

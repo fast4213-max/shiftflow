@@ -24,9 +24,9 @@ function world() {
     threads.push(t);
     return t;
   }
-  function mkMessage(thread, { from, to, subject, body, date = new Date(), attachments = [] }) {
+  function mkMessage(thread, { from, to, subject, body, date = new Date(), attachments = [], replyTo = "" }) {
     const m = { id: "m" + (++seq).toString(16), from, to, subject, body, date, thread,
-      getId: () => m.id, getFrom: () => from, getSubject: () => subject, getPlainBody: () => body, getBody: () => body,
+      getId: () => m.id, getFrom: () => from, getReplyTo: () => replyTo, getSubject: () => subject, getPlainBody: () => body, getBody: () => body,
       getDate: () => date, getThread: () => thread, isInTrash: () => false,
       getAttachments: () => attachments.map((n) => ({ getName: () => n })),
       createDraftReply: (b, opts) => ({ send: () => { quota--; const r = mkMessage(thread, { from: `${opts.name} <${SELF}>`, to: address(from), subject: "Re: " + subject, body: b }); sent.push(r); return r; } }) };
@@ -116,6 +116,28 @@ const post = (w, body) => w.ctx.doPost({ postData: { contents: JSON.stringify({ 
   const goneUnmatched = post(w, { action: "reply", key: "reply-hhhhhhhh", to: "taro@gmail.com", subject: "Re: 質問", body: "b", reply_to_message_id: "deadbeef" });
   assert.ok(!goneUnmatched.ok && goneUnmatched.error.includes("見つかりません"));
   console.log("ok reply thread");
+}
+// 送信元の偽装(C): 表示名に別のアドレスを入れても、本物(最後の <…>)で判断する。Reply-To が別なら返信せず、新しく送る
+{
+  const w = world();
+  const t = w.mkThread();
+  const spoof = w.mkMessage(t, { from: '"本人 <victim@gmail.com>" <attacker@evil.example>', subject: "Re: お問い合わせ #0001", body: "hi" });
+  const wrong = post(w, { action: "reply", key: "reply-spoof001", to: "victim@gmail.com", subject: "【shiftflow 勤務登録】x", body: "b", reply_to_message_id: spoof.id });
+  assert.ok(!wrong.ok && wrong.error.includes("違います"), JSON.stringify(wrong));
+  assert.equal(w.sent.length, 0);
+  const t2 = w.mkThread();
+  const tricky = w.mkMessage(t2, { from: "山田 <taro@gmail.com>", subject: "Re: お問い合わせ #0001", body: "hi", replyTo: "Evil <attacker@evil.example>" });
+  const r = post(w, { action: "reply", key: "reply-spoof002", to: "taro@gmail.com", subject: "【shiftflow 勤務登録】お問い合わせ #0001 への返事", body: "b", reply_to_message_id: tricky.id });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(w.sent[0].to, "taro@gmail.com"); // Reply-To の attacker ではなく、確かめた宛先へ(新しいメール)
+  assert.notEqual(r.thread_id, t2.id);
+  // 受信の取り込みでも、自分を装った送信元("<自分>" <attacker>)を自分のメールとして飛ばさない
+  const w2 = world();
+  const t3 = w2.mkThread();
+  const fake = w2.mkMessage(t3, { from: '"<shiftflow.kinmu@gmail.com>" <attacker@evil.example>', subject: "お問い合わせ #0001", body: "x" });
+  w2.ctx.pollInbox();
+  assert.deepEqual(w2.hooks.at(-1).mails.map((m) => m.id), [fake.id]);
+  console.log("ok spoofed sender");
 }
 // 受付メール(画像つき): 自分宛て・ラベル・二重送信の防止
 {

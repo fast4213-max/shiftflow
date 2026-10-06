@@ -46,11 +46,12 @@ function addLabels_(thread, sub) {
   if (sub) thread.addLabel(label_(sub));
 }
 
-// "山田 <A@B.com>" → "a@b.com"
+// "山田 <A@B.com>" → "a@b.com"。
+// 表示名の中に別のアドレスを入れられる("本人 <victim@x>" <attacker@y>)ので、本物はいちばん後ろの <…>
 function address_(from) {
   const s = String(from || "");
-  const m = s.match(/<([^<>]+)>/);
-  return (m ? m[1] : s).trim().toLowerCase();
+  const all = s.match(/<[^<>]+>/g);
+  return (all ? all[all.length - 1].slice(1, -1) : s).trim().toLowerCase();
 }
 
 function validEmail_(s) {
@@ -143,9 +144,14 @@ function sendReply_(req) {
       original = null; // Gmail で消した(ゴミ箱から完全に消えた)など
     }
   }
-  let sent;
+  // Reply-To(返信先)が差出人と別のアドレスだと、返信がそちらへ飛ぶ。そのメールには返信せず、宛先を確かめた新しいメールで送る(C)
   if (original) {
     if (address_(original.getFrom()) !== to) throw new Error("返信するメールの差出人と宛先が違います");
+    const replyTo = String(original.getReplyTo() || "");
+    if (replyTo && address_(replyTo) !== to) original = null;
+  }
+  let sent;
+  if (original) {
     sent = original.createDraftReply(body, { name: SENDER_NAME }).send();
   } else {
     // 返信するメールが無いときは、shiftflow の件名でだけ新しく送る

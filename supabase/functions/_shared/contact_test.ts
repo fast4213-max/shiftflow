@@ -65,6 +65,10 @@ Deno.test("メールアドレス: 全角・空白・大文字をそろえ、形�
   assertEquals(extractEmail("山田 太郎 <Taro@Example.com>"), "taro@example.com");
   assertEquals(extractEmail("taro@example.com"), "taro@example.com");
   assertEquals(extractEmail("名前だけ"), null);
+  // 表示名の中に別のアドレスを入れた送信元は、本物(いちばん後ろの <…>)を取る(C)
+  assertEquals(extractEmail('"本人 <victim@gmail.com>" <attacker@evil.example>'), "attacker@evil.example");
+  assertEquals(extractEmail("victim@gmail.com <attacker@evil.example>"), "attacker@evil.example");
+  assertEquals(extractEmail("<a@b.com> <c@d.com>"), "c@d.com");
 });
 
 Deno.test("受付番号・確認コード: 全角・ハイフン・小文字を許す(C11)", async () => {
