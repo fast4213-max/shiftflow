@@ -176,8 +176,15 @@ export async function createEvents(
 // 登録する予定を決める。翌月1日の非番(月末が泊)は必ず作る。
 // 翌月1日の記録の予定(月末が泊でないとき)は、翌月1日にアプリの予定があるときだけ作り直す
 // (泊から戻したときに翌月1日が空にならないように。ただし翌月をリセットした人の翌月1日に、勝手に予定を作らない)。
-export function eventsToRegister(planned: PlannedEvent[], existing: AppEvent[], nextFirst: string): PlannedEvent[] {
-  const nextFirstHasApp = existing.some((e) => e.date === nextFirst);
+// retryNextFirst: 前の登録が途中で失敗して、翌月1日のアプリの予定を消したまま(作り直せていない)とき。
+// このときは、翌月1日にアプリの予定が残っていなくても作り直す(user_settings.next_first_pending の印。register-month が読む)
+export function eventsToRegister(
+  planned: PlannedEvent[],
+  existing: AppEvent[],
+  nextFirst: string,
+  retryNextFirst = false,
+): PlannedEvent[] {
+  const nextFirstHasApp = retryNextFirst || existing.some((e) => e.date === nextFirst);
   return planned.filter((e) => e.date !== nextFirst || e.kind === "offduty" || nextFirstHasApp);
 }
 

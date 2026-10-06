@@ -70,18 +70,28 @@ serve(async (req) => {
     }));
 
     const existing = await listAppEvents(calendars, year, month);
-    const registered = eventsToRegister(plan.events, existing, nextFirst);
+    // 前の登録が途中で失敗して、翌月1日の予定を消したままになっていないか(印が今回の翌月1日なら、作り直す)
+    const pendingRes = await ctx.admin.from("user_settings").select("next_first_pending").eq("user_id", ctx.userId).maybeSingle();
+    if (pendingRes.error) throw pendingRes.error;
+    const retryNextFirst = pendingRes.data?.next_first_pending === nextFirst;
+    const registered = eventsToRegister(plan.events, existing, nextFirst, retryNextFirst);
     // 出勤を終日2件(番号・時間)に分ける設定の人は、次回の登録から時間の予定も作る
     const events = calendars.splitDayEvents ? splitDayEvents(registered, master) : registered;
     // 翌月1日の予定(月末が泊なら非番、泊でなければ翌月1日の記録の予定)を作るときは、
     // 翌月1日にあるアプリの予定を全部消してから作り直す(重ならないように)。
     // 翌月1日が非番なら翌月2日は非番にならないので、翌月2日に残った非番(翌月1日が泊だったとき)も消す
     const clearNextFirst = events.some((e) => e.date === nextFirst);
+    // 翌月1日のアプリの予定を消す前に印を残す(消したあとで作り直しに失敗しても、やり直したときに作り直せる)
+    if (existing.some((e) => e.date === nextFirst)) {
+      const marked = await ctx.admin.from("user_settings").update({ next_first_pending: nextFirst }).eq("user_id", ctx.userId);
+      if (marked.error) throw marked.error;
+    }
     await deleteAppEvents(calendars, year, month, { clearNextFirst, clearNextSecondOffduty: nextFirstOffduty, existing });
     const { created, skipped } = await createEvents(calendars, events);
 
+    // 作り直せたので、印は消す(印が今回の翌月1日のときだけ)
     await ctx.admin.from("user_settings")
-      .update({ last_registered_at: new Date().toISOString() })
+      .update({ last_registered_at: new Date().toISOString(), ...(retryNextFirst || events.some((e) => e.date === nextFirst) ? { next_first_pending: null } : {}) })
       .eq("user_id", ctx.userId);
 
     // skipped: 休日用のカレンダーを設定していない人の「休日」の予定(登録していない)

@@ -35,6 +35,12 @@ serve(async (req) => {
       }));
     }
 
+    // 登録の途中で止まったときの「翌月1日を作り直す」印も消す(リセットしたのに、次の登録で翌月1日の予定が勝手に作られないように)。
+    // この月の中・翌月1日の印が対象(別の月の印は消さない)
+    const cleared = await ctx.admin.from("user_settings").update({ next_first_pending: null })
+      .eq("user_id", ctx.userId).gte("next_first_pending", dateKey(year, month, 1)).lte("next_first_pending", addDays(last, 1));
+    if (cleared.error) throw cleared.error;
+
     // 入力内容も消す(空の入力で1か月分を入れ替える)。画面を開き直しても残らないように
     const saved = await ctx.db.rpc("save_month_records", { p_year: year, p_month: month, p_entries: {} });
     if (saved.error) throw saved.error;

@@ -341,6 +341,9 @@ Deno.test("eventsToRegister: 翌月1日の非番は必ず作り、翌月1日の�
   assertEquals(eventsToRegister(planned, onNextFirst, "2026-11-01"), planned);
   // 翌月をリセットした・まだ登録していない(翌月1日にアプリの予定が無い) → 作らない
   assertEquals(eventsToRegister(planned, [], "2026-11-01"), [planned[0]]);
+  // 前の登録が途中で失敗して、翌月1日の予定を消したまま(印あり)→ 残っていなくても作り直す
+  assertEquals(eventsToRegister(planned, [], "2026-11-01", true), planned);
+  assertEquals(eventsToRegister(planned, [], "2026-11-01", false), [planned[0]]);
   // 月末が泊 → 非番は必ず作る
   assertEquals(eventsToRegister(offduty, [], "2026-11-01"), offduty);
 });
