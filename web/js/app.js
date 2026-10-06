@@ -115,7 +115,7 @@ export function renderTopbar(current, { loggedIn = false, isAdmin = false } = {}
   // まだ見ていないお知らせがあれば、メニューの「お知らせ」に赤い点を付ける(失敗しても何もしない)
   if (loggedIn && !isAdmin && current !== "notices.html") {
     fetchNotices().then((list) => {
-      if (unseenNotices(list).length) $("nav-notices")?.classList.add("has-dot");
+      if (list && unseenNotices(list).length) $("nav-notices")?.classList.add("has-dot");
     }).catch(() => {});
   }
 }
@@ -128,16 +128,17 @@ function noticeKey(n) {
   return `${n.id}:${n.updated_at}`;
 }
 
-// いま表示するお知らせ(重要が先、新しい順)。読めない・遅い(6秒)ときは空にする(ログインなどの動きを止めない)
+// いま表示するお知らせ(重要が先、新しい順)。読めない・遅い(6秒)ときは null(ログインなどの動きを止めない。
+// 「お知らせが0件」と「読めなかった」を区別して、読めなかったときに「見た記録」を空で上書きしないため)
 export async function fetchNotices() {
-  if (!configured) return [];
+  if (!configured) return null;
   const timeout = new Promise((resolve) => setTimeout(() => resolve({ data: null, error: new Error("timeout") }), 6000));
   try {
     const { data, error } = await Promise.race([supabase.rpc("current_notices"), timeout]);
-    if (error || !Array.isArray(data)) return [];
+    if (error || !Array.isArray(data)) return null;
     return data.filter((n) => n && typeof n.title === "string");
   } catch (_) {
-    return [];
+    return null;
   }
 }
 
@@ -252,11 +253,31 @@ export async function logout() {
   go("index.html");
 }
 
+// 通信エラー(ブラウザの英語のメッセージ)を日本語にする。直接の読み書き(supabase-js)のエラーが、そのまま画面に出ないように
+export function friendlyText(text) {
+  const t = String(text || "");
+  if (/Failed to fetch|Load failed|NetworkError|Network request failed|fetch failed|Network error/i.test(t)) {
+    return "通信に失敗しました。電波の良いところで、もう一度お試しください。";
+  }
+  return t;
+}
+
 // Edge Function を呼ぶ。失敗したら、画面に出せるメッセージ付きの Error を投げる
 // stayOnLoss: ログインが切れていても、ログイン画面へ移らない(未ログインでも読める使い方ページ用)
-export async function callFunction(name, body = {}, { stayOnLoss = false } = {}) {
-  const { data, error } = await supabase.functions.invoke(name, { body });
+// timeoutMs: 返事を待つ時間(電波が悪いと、いつまでも「読み込み中」のままにならないように。既定30秒。
+//   登録・削除は Google の混雑の再試行で2分近くかかることがあるので長くする)。時間切れになっても、サーバー側の処理は続くことがある
+export async function callFunction(name, body = {}, { stayOnLoss = false, timeoutMs = 30000 } = {}) {
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ data: null, error: { timedOut: true } }), timeoutMs);
+  });
+  const { data, error } = await Promise.race([supabase.functions.invoke(name, { body }), timeout]).finally(() => clearTimeout(timer));
   if (!error) return data;
+  if (error.timedOut) {
+    const err = new Error("通信に時間がかかっています。電波の良いところで、もう一度お試しください(処理が続いていることもあるので、結果を確かめてください)。");
+    err.code = "timeout";
+    throw err;
+  }
   let message = "通信に失敗しました。電波の良いところでもう一度お試しください。";
   let code = "";
   try {

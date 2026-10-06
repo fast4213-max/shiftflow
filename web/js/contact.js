@@ -3,7 +3,7 @@
 //   ログイン後: 社員番号・名前・所属は表示だけ(送るときはサーバーが DB から取る)。返事は「これまでのお問い合わせ」か「メールでも」
 // 予想されるバグの番号(C1 など)は docs/contact/DESIGN.md。
 import {
-  $, callFunction, configured, currentSession, loadProfile, loadSettings, newRequestKey, renderTopbar, supabase, toHalfWidth,
+  friendlyText, $, callFunction, configured, currentSession, loadProfile, loadSettings, newRequestKey, renderTopbar, supabase, toHalfWidth,
 } from "./app.js?v=dev";
 import { CONTACT_EMAIL } from "./config.js?v=dev";
 
@@ -20,9 +20,10 @@ let code = ""; // ログイン前で「画面で見る」のときの確認コ�
 let images = []; // { id, name, base64, url, before, after }
 let preparing = 0; // 準備中の画像の数(I10)
 let sending = false;
+let pendingOffice = ""; // 下書きの所属(区所の一覧がまだ読めていなくても、読めたら選び直す)
 
 function setMessage(id, text, kind) {
-  $(id).textContent = text || "";
+  $(id).textContent = friendlyText(text) || "";
   $(id).className = "message" + (kind ? " " + kind : "");
 }
 
@@ -89,7 +90,8 @@ function applyDraft(d) {
   if (mode === "guest") {
     $("employee-no").value = toHalfWidth(d.employeeNo || "").replace(/\D/g, "").slice(0, 7);
     $("name").value = d.name || "";
-    if ([...$("office").options].some((o) => o.value === d.office)) $("office").value = d.office;
+    pendingOffice = d.office || "";
+    if ([...$("office").options].some((o) => o.value === pendingOffice)) $("office").value = pendingOffice;
   }
 }
 
@@ -308,7 +310,7 @@ $("contact-form").addEventListener("submit", async (ev) => {
     if (via === "screen") payload.code = code;
   }
   try {
-    const res = await callFunction("contact", payload, { stayOnLoss: true });
+    const res = await callFunction("contact", payload, { stayOnLoss: true, timeoutMs: 60000 });
     showSent(res, via, via === "mail" ? normalizeEmail($("email").value) : null);
   } catch (err) {
     if (err.code === "unauthenticated" || err.code === "not_member") {
@@ -439,13 +441,10 @@ $("view-button").addEventListener("click", async () => {
 
 // ---------- はじめ ----------
 
-async function loadOffices() {
+// 所属の選択肢。区所の一覧を読む前でも「わからない」で送れるように、先に最小の選択肢を作る(I・C14)
+function setOfficeOptions(names) {
   const select = $("office");
-  let names = [];
-  try {
-    const { data, error } = await supabase.rpc("contact_offices");
-    if (!error && Array.isArray(data)) names = data.filter((n) => typeof n === "string");
-  } catch (_) { /* 読めなくても「わからない」で送れる(C14) */ }
+  const keep = select.value || pendingOffice;
   select.innerHTML = "";
   [["", "選んでください"], ...names.map((n) => [n, n]), ["わからない", "わからない"]].forEach(([value, label]) => {
     const opt = document.createElement("option");
@@ -453,6 +452,16 @@ async function loadOffices() {
     opt.textContent = label;
     select.appendChild(opt);
   });
+  if (keep && [...select.options].some((o) => o.value === keep)) select.value = keep;
+}
+
+// 区所の一覧を読む(6秒で諦める)。読めなくても、フォームは先に出してある
+async function loadOffices() {
+  const timeout = new Promise((resolve) => setTimeout(() => resolve({ data: null, error: new Error("timeout") }), 6000));
+  try {
+    const { data, error } = await Promise.race([supabase.rpc("contact_offices"), timeout]);
+    if (!error && Array.isArray(data)) setOfficeOptions(data.filter((n) => typeof n === "string"));
+  } catch (_) { /* 読めなくても「わからない」で送れる */ }
 }
 
 async function memberOfficeName(session) {
@@ -483,7 +492,9 @@ async function main() {
     $("member-fields").classList.remove("hidden");
     $("member-no").textContent = profile.employee_no;
     $("member-name").textContent = `${profile.family_name} ${profile.given_name}`;
-    $("member-office").textContent = await memberOfficeName(session);
+    // 所属の表示は、読めてから入れる(読み込みが遅くても、先にフォームを出す)
+    $("member-office").textContent = "読み込み中…";
+    memberOfficeName(session).then((name) => ($("member-office").textContent = name)).catch(() => ($("member-office").textContent = "未設定"));
     $("screen-help").textContent = "下の「これまでのお問い合わせ」に出ます";
     $("mail-label").textContent = "メールでも受け取る";
     $("mail-help").textContent = "画面にも残ります";
@@ -495,7 +506,7 @@ async function main() {
     $("screen-help").textContent = "送ったあとに出る受付番号と確認コードで見ます";
     $("mail-help").textContent = "入れたアドレスに届きます";
     $("view-section").classList.remove("hidden");
-    await loadOffices();
+    setOfficeOptions([]);
   }
   startNew();
   applyDraft(loadDraft());
@@ -503,6 +514,7 @@ async function main() {
   updateCount();
   renderThumbs();
   $("contact-form").classList.remove("hidden");
+  if (mode === "guest") loadOffices(); // フォームを出したあとに読む(遅くても、フォームが出ない画面にならない)
 }
 
 main().catch((err) => {

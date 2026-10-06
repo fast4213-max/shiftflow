@@ -1,10 +1,10 @@
 // 管理画面の「お知らせ」タブ: お知らせを出す・直す・消す(管理者だけ。DB の RLS で守られている)
-import { $, noticeElement, supabase } from "./app.js?v=dev";
+import { friendlyText, $, noticeElement, supabase } from "./app.js?v=dev";
 
 let editingId = null;
 
 function setMessage(text, kind) {
-  $("notice-message").textContent = text || "";
+  $("notice-message").textContent = friendlyText(text) || "";
   $("notice-message").className = "message" + (kind ? " " + kind : "");
 }
 

@@ -1,13 +1,13 @@
 // 設定: 区所とカレンダーIDだけ。保存すると、そのまま接続テストをする。
 import {
-  $, AUTOFILL_HINT, callFunction, copyText, isReady, loginLost, requireLogin, startSession, supabase, toHalfWidth,
+  friendlyText, $, AUTOFILL_HINT, callFunction, copyText, isReady, loginLost, requireLogin, startSession, supabase, toHalfWidth,
 } from "./app.js?v=dev";
 
 let session = null;
 let settings = null; // user_settings の行(無ければ null)
 
 function message(id, text, kind) {
-  $(id).textContent = text || "";
+  $(id).textContent = friendlyText(text) || "";
   $(id).className = "message" + (kind ? " " + kind : "");
 }
 
@@ -92,7 +92,7 @@ async function main() {
       message("result", "保存しています…");
       await saveSettings(values);
       message("result", "接続テスト中です(10秒ほどかかることがあります)…");
-      await callFunction("verify-calendar");
+      await callFunction("verify-calendar", {}, { timeoutMs: 90000 });
       settings.verified_at = new Date().toISOString();
       message("result", "接続できました。勤務入力に進めます。", "ok");
       updateGoInput();

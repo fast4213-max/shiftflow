@@ -1,5 +1,5 @@
 // 勤務入力画面
-import { $, callFunction, requireLogin, supabase } from "./app.js?v=dev";
+import { friendlyText, $, callFunction, requireLogin, supabase } from "./app.js?v=dev";
 import { addDays, dateKey, dayTypeOf, daysInMonth, describe, dutyMemo, holidayYearsFor, indexMaster, offdutyMemo, pad } from "./plan.js?v=dev";
 
 const MANUAL = "__manual__";
@@ -33,7 +33,7 @@ function isFirstMonth() {
 }
 
 function setStatus(text, isError) {
-  $("status").textContent = text;
+  $("status").textContent = friendlyText(text);
   $("status").className = isError ? "error" : "";
 }
 
@@ -44,7 +44,7 @@ async function loadHolidays(first, nextFirst) {
   const { data: cached, error } = await supabase.from("holiday_years").select("year").in("year", years);
   if (error) throw error;
   if ((cached || []).length < years.length) {
-    const result = await callFunction("sync-holidays", { years });
+    const result = await callFunction("sync-holidays", { years }, { timeoutMs: 60000 });
     return result.holidays.filter((d) => d >= first && d <= nextFirst);
   }
   const { data, error: e2 } = await supabase.from("holidays").select("date").gte("date", first).lte("date", nextFirst);
@@ -366,7 +366,7 @@ $("register").addEventListener("click", async () => {
       year: state.year,
       month: state.month,
       entries: state.entries,
-    });
+    }, { timeoutMs: 150000 });
     // 登録中に書き換えた分は送っていないので、未登録のままにする(月の移動などで確認が出るように)
     const editedMeanwhile = state.edits !== edits;
     if (!editedMeanwhile) state.dirty = false;
@@ -408,7 +408,7 @@ $("reset-run").addEventListener("click", async () => {
   $("reset").disabled = true;
   setStatus("削除中…");
   try {
-    const result = await callFunction("delete-month", { year, month });
+    const result = await callFunction("delete-month", { year, month }, { timeoutMs: 150000 });
     const message = year + "年" + month + "月の予定を" + result.count + "件削除し、入力内容を空にしました。";
     // 表示中の月を消したときと、前の月を消したとき(1日の非番が変わる)は、画面を読み直す。
     // 前の月のときは、表示中の月に登録していない変更があれば消さないよう読み直さない

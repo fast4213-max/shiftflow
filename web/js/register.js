@@ -1,13 +1,13 @@
 // 新規登録: 社員番号・名字・名前・PIN・共通パスワード。登録したらそのままログインして設定画面へ
 import {
-  $, AUTOFILL_HINT, callFunction, canSaveLogin, configured, go, renderTopbar, sharedPasswordProblem, startSession, STORAGE_HELP,
+  friendlyText, $, AUTOFILL_HINT, callFunction, canSaveLogin, configured, go, renderTopbar, sharedPasswordProblem, startSession, STORAGE_HELP,
   toHalfWidth,
 } from "./app.js?v=dev";
 
 renderTopbar("register.html");
 
 function setMessage(text, kind) {
-  $("message").textContent = text || "";
+  $("message").textContent = friendlyText(text) || "";
   $("message").className = "message" + (kind ? " " + kind : "");
 }
 

@@ -57,10 +57,15 @@ function backend(opts = {}) {
       if (opts.noticesDelay) await new Promise((r) => setTimeout(r, opts.noticesDelay));
       return json(st.notices);
     }
-    if (path === "/rest/v1/rpc/contact_offices") return opts.officesFail ? json({ message: "x" }, 500) : json(["A区所", "B区所"]);
+    if (path === "/rest/v1/rpc/contact_offices") {
+      if (opts.officesDelay) await new Promise((r) => setTimeout(r, opts.officesDelay));
+      return opts.officesFail ? json({ message: "x" }, 500) : json(["A区所", "B区所"]);
+    }
     if (path === "/rest/v1/profiles") return json(opts.profile ? [opts.profile] : []);
     if (path === "/rest/v1/user_settings") return json([{ office_id: 1, work_calendar_id: "w", holiday_calendar_id: null, verified_at: "2026-10-01", split_day_events: false }]);
     if (path === "/rest/v1/offices") return json([{ name: "A区所" }]);
+    if (path === "/rest/v1/rpc/admin_stats" && opts.statsAbort) return route.abort("failed");
+    if (path === "/rest/v1/rpc/admin_stats" && opts.statsFail) return json({ message: "statement timeout" }, 500);
     if (path === "/rest/v1/rpc/admin_stats") return json({ users: 1, verified: 1, active_30d: 1, signups_7d: 0, signup_password_set: true, offices: [{ id: 1, name: "A区所", master_count: 1, user_count: 1 }], no_office: 0, users_list: [] });
     if (path === "/rest/v1/shift_master") return json([]);
     if (path === "/rest/v1/notices") {
@@ -508,6 +513,75 @@ await check("管理画面: お知らせを出す・直す・消す。期間の�
   await page.screenshot({ path: OUT + "admin-notices.png", fullPage: true });
   assert.deepEqual(errors, []);
   page.on("dialog", (d) => d.accept());
+  await ctx.close();
+});
+
+// ---------- 通信まわり(G・H・I・J) ----------
+await check("管理画面: URL に #users が付いていても、読み込み失敗の理由が消えない。英語の通信エラーは日本語にする(G・J)", async () => {
+  const a = await open("admin.html#users", { userId: "a1", opts: { profile: ADMIN, statsFail: true }, viewport: { width: 1200, height: 900 } });
+  await a.page.waitForFunction(() => document.getElementById("message").textContent.includes("statement timeout"));
+  assert.ok((await a.page.textContent("#message")).includes("statement timeout"));
+  assert.ok((await a.page.getAttribute("#message", "class")).includes("error"));
+  await a.ctx.close();
+  const b = await open("admin.html#users", { userId: "a1", opts: { profile: ADMIN, statsAbort: true }, viewport: { width: 1200, height: 900 } });
+  await b.page.waitForFunction(() => document.getElementById("message").textContent.includes("通信に失敗しました"));
+  assert.ok(!(await b.page.textContent("#message")).includes("Failed to fetch"));
+  await b.ctx.close();
+});
+
+await check("お知らせのページ: 読めなかったときは「見た記録」を触らない。赤い点も出さない(H)", async () => {
+  const { page, ctx } = await open("notices.html", {
+    userId: "u1",
+    opts: { profile: USER, noticesFail: true },
+    beforeLoad: (pg) => pg.addInitScript(() => { if (!localStorage.getItem("__seeded")) { localStorage.setItem("shiftflow-notices-seen", JSON.stringify(["1:2026-10-06T00:00:00Z"])); localStorage.setItem("__seeded", "1"); } }),
+  });
+  await page.waitForFunction(() => document.getElementById("message").textContent.includes("読み込めませんでした"));
+  assert.equal(await page.evaluate(() => localStorage.getItem("shiftflow-notices-seen")), JSON.stringify(["1:2026-10-06T00:00:00Z"]));
+  assert.equal(await page.locator("#notices .card").count(), 0);
+  assert.equal(await page.locator("#nav-notices.has-dot").count(), 0);
+  await ctx.close();
+});
+
+await check("お問い合わせ: 区所の取得が遅くても、フォームはすぐ出て「わからない」で送れる(I)", async () => {
+  const { page, ctx, be } = await open("contact.html", { opts: { officesDelay: 20000 } });
+  await page.waitForSelector("#contact-form:not(.hidden)", { timeout: 3000 });
+  assert.deepEqual(await page.$$eval("#office option", (o) => o.map((x) => x.value)), ["", "わからない"]);
+  await page.fill("#employee-no", "1234567");
+  await page.fill("#name", "山田");
+  await page.selectOption("#office", "わからない");
+  await page.selectOption("#kind", "bug");
+  await page.fill("#body", "遅いとき");
+  await page.click("#submit");
+  await page.waitForSelector("#sent:not(.hidden)");
+  assert.equal(be.st.calls.find((c) => c.body?.action === "submit").body.office, "わからない");
+  await ctx.close();
+});
+
+await check("お問い合わせ: 区所の一覧が読めたら、選択肢が増え、選んでいた所属は変わらない(I)", async () => {
+  const { page, ctx } = await open("contact.html", { opts: { officesDelay: 1500 } });
+  await page.waitForSelector("#contact-form:not(.hidden)");
+  await page.selectOption("#office", "わからない");
+  await page.waitForFunction(() => document.querySelectorAll("#office option").length === 4, null, { timeout: 8000 });
+  assert.equal(await page.inputValue("#office"), "わからない");
+  await ctx.close();
+});
+
+await check("通信の時間切れ: 返事が来ないときは、決めた時間で日本語のエラーになる(J)", async () => {
+  const { page, ctx } = await open("contact.html", { opts: { contactDelay: 3000 } });
+  await page.waitForSelector("#contact-form:not(.hidden)");
+  const result = await page.evaluate(async () => {
+    const m = await import("/js/app.js?v=dev");
+    const t0 = Date.now();
+    try {
+      await m.callFunction("contact", { action: "mine" }, { stayOnLoss: true, timeoutMs: 400 });
+      return { ok: true };
+    } catch (e) {
+      return { code: e.code, message: e.message, ms: Date.now() - t0 };
+    }
+  });
+  assert.equal(result.code, "timeout");
+  assert.ok(result.message.includes("通信に時間がかかっています"));
+  assert.ok(result.ms < 2000, String(result.ms));
   await ctx.close();
 });
 

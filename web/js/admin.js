@@ -1,5 +1,5 @@
 // 管理画面(ダッシュボード)。管理者だけ。管理用パスワードでログインしたセッションで動く。
-import { $, callFunction, copyText, formatDateTime, requireLogin, sharedPasswordProblem, supabase } from "./app.js?v=dev";
+import { friendlyText, $, callFunction, copyText, formatDateTime, requireLogin, sharedPasswordProblem, supabase } from "./app.js?v=dev";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, TOKEN_EXPIRES } from "./config.js?v=dev";
 import { checkMasterRows, masterRowsFromCsv, masterToCsv, readTextFile } from "./csv.js?v=dev";
 import { initContactAdmin } from "./admin-contact.js?v=dev";
@@ -24,7 +24,7 @@ let currentMaster = [];
 let pendingRows = null;
 
 function message(text, kind) {
-  $("message").textContent = text || "";
+  $("message").textContent = friendlyText(text) || "";
   $("message").className = "message" + (kind ? " " + kind : "");
 }
 
@@ -51,10 +51,10 @@ function fullName(u) {
 
 // ---------- タブ ----------
 
-function showTab(name) {
+function showTab(name, { keepMessage = false } = {}) {
   document.querySelectorAll(".dtab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
   document.querySelectorAll(".pane").forEach((p) => p.classList.toggle("hidden", p.id !== "pane-" + name));
-  message("");
+  if (!keepMessage) message("");
   history.replaceState(null, "", "#" + name);
 }
 document.querySelectorAll(".dtab").forEach((t) => t.addEventListener("click", () => showTab(t.dataset.tab)));
@@ -401,7 +401,7 @@ $("csv-apply").addEventListener("click", async () => {
 // ---------- 設定 ----------
 
 function signupMessage(text, kind) {
-  $("signup-message").textContent = text || "";
+  $("signup-message").textContent = friendlyText(text) || "";
   $("signup-message").className = "message" + (kind ? " " + kind : "");
 }
 
@@ -464,6 +464,7 @@ requireLogin("admin.html", { needAdmin: true })
     }
     await refresh();
     const tab = location.hash.replace("#", "");
-    if (document.getElementById("pane-" + tab)) showTab(tab);
+    // 読み込みに失敗したときのメッセージ(refresh が出したもの)を、最初の showTab で消さない(G)
+    if (document.getElementById("pane-" + tab)) showTab(tab, { keepMessage: true });
   })
   .catch((err) => message(err.message || String(err), "error"));

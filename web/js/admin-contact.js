@@ -1,7 +1,7 @@
 // 管理画面の「お問い合わせ」タブ: 一覧・やり取り・返事(画面 / メール)・送り直し・対応済み・受信メール。
 // 文字はすべて textContent で入れる(受信メールの本文などを HTML として読まない。R15)。
 // 予想されるバグの番号は docs/contact/DESIGN.md。
-import { $, callFunction, newRequestKey } from "./app.js?v=dev";
+import { friendlyText, $, callFunction, newRequestKey } from "./app.js?v=dev";
 import { CONTACT_EMAIL } from "./config.js?v=dev";
 
 const KIND_LABELS = { login: "ログインできない", howto: "使い方・質問", bug: "不具合", other: "その他" };
@@ -15,7 +15,7 @@ let loadSeq = 0;
 const drafts = new Map();
 
 function setMessage(id, text, kind) {
-  $(id).textContent = text || "";
+  $(id).textContent = friendlyText(text) || "";
   $(id).className = "message" + (kind ? " " + kind : "");
 }
 
