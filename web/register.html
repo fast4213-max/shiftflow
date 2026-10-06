@@ -37,10 +37,11 @@
       <label for="shared">共通パスワード</label>
       <input id="shared" class="secret" type="text" inputmode="url" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" required>
       <p class="muted">管理者から教えてもらったパスワードです(登録のときだけ使います)。</p>
+      <p class="muted">登録すると、<a href="terms.html" target="_blank" rel="noopener">利用上の注意とプライバシー</a>に同意したものとみなします。</p>
       <button id="submit" class="primary block" type="submit" disabled>登録する</button>
       <p id="message" class="message" aria-live="polite"></p>
     </form>
-    <p class="muted center"><a href="index.html">ログインに戻る</a> ・ <a href="help.html">使い方</a></p>
+    <p class="muted center"><a href="index.html">ログインに戻る</a> ・ <a href="help.html">使い方</a> ・ <a href="terms.html">利用上の注意</a></p>
   </main>
   <script type="module" src="js/register.js?v=dev" onerror="document.getElementById('load-wait').classList.add('hidden'); document.getElementById('load-error').classList.remove('hidden')"></script>
 </body>
