@@ -3,8 +3,15 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.117.2";
 import type { Inquiry, Message, NewMessage, Repo } from "./contact-core.ts";
 
+// DB のエラーは、そのまま投げない。PostgREST のエラーの details には、失敗した行の中身(社員番号・氏名・メールアドレス)が
+// 入っていて、Edge Function のログにそのまま出てしまうため。コードと、中身を含まない message の先頭だけにする(O)
+export function sanitizeDbError(error: unknown): Error {
+  const e = (error ?? {}) as { code?: string; message?: string };
+  return new Error(`DB error ${e.code ?? ""}: ${String(e.message ?? "").split("\n")[0].slice(0, 150)}`);
+}
+
 function check<T>(res: { data: T; error: unknown }): T {
-  if (res.error) throw res.error;
+  if (res.error) throw sanitizeDbError(res.error);
   return res.data;
 }
 
@@ -49,7 +56,7 @@ export function supabaseRepo(db: SupabaseClient): Repo {
     },
     async countTodo() {
       const res = await db.from("inquiries").select("id", { count: "exact", head: true }).eq("status", "open");
-      if (res.error) throw res.error;
+      if (res.error) throw sanitizeDbError(res.error);
       return res.count ?? 0;
     },
     async myInquiries(userId, limit) {
@@ -64,7 +71,7 @@ export function supabaseRepo(db: SupabaseClient): Repo {
       const res = await db.from("inquiry_messages").insert(row).select("*").single();
       if (res.error) {
         if ((res.error as { code?: string }).code === "23505") return null; // 同じ request_key / gmail_message_id
-        throw res.error;
+        throw sanitizeDbError(res.error);
       }
       return res.data as Message;
     },
@@ -97,7 +104,7 @@ export function supabaseRepo(db: SupabaseClient): Repo {
       const since = new Date(Date.now() - 7 * 86400_000).toISOString();
       const res = await db.from("inquiry_messages").select("id", { count: "exact", head: true })
         .is("inquiry_id", null).eq("sender", "mail").eq("bounce", false).gte("created_at", since);
-      if (res.error) throw res.error;
+      if (res.error) throw sanitizeDbError(res.error);
       return res.count ?? 0;
     },
     async profileByEmployeeNo(no) {

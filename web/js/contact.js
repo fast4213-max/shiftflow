@@ -81,7 +81,7 @@ function applyDraft(d) {
   // 同じ送り方(ログイン前・後)の下書きのときだけ、前のキーとコードを使う(送り直しで同じ受付番号になるように)
   if (d.mode === mode && /^[0-9a-f-]{36}$/i.test(d.requestKey || "")) requestKey = d.requestKey;
   if (d.mode === mode && /^[A-Z2-9]{8}$/.test(d.code || "")) code = d.code;
-  if (KIND_LABELS[d.kind]) $("kind").value = d.kind;
+  if (Object.hasOwn(KIND_LABELS, d.kind)) $("kind").value = d.kind;
   $("body").value = String(d.body || "").slice(0, MAX_BODY);
   const radio = document.querySelector(`input[name="reply-via"][value="${d.replyVia === "mail" ? "mail" : "screen"}"]`);
   if (radio) radio.checked = true;

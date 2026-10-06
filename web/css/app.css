@@ -180,3 +180,7 @@ fieldset.reply-via label.check { font-weight: normal; margin: 8px 0; }
 .bubble-who { font-size: 0.8rem; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .bubble.from-admin .bubble-who { color: var(--accent); }
 .bubble-text { white-space: pre-wrap; margin-top: 2px; }
+
+/* 横向きのノッチ付きの iPhone で、左右の端が隠れないように(画面の端から安全な幅だけ内側へ。K) */
+.topbar { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+.page { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }

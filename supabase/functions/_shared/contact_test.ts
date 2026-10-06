@@ -30,6 +30,7 @@ import {
   validateImages,
 } from "./contact.ts";
 import { AppError } from "./http.ts";
+import { sanitizeDbError } from "./contact-repo.ts";
 import { validWebhookUrl } from "./discord.ts";
 import { validRelayUrl } from "./mail-relay.ts";
 
@@ -194,6 +195,12 @@ Deno.test("受信メール: いろいろな書き方の引用を取り除く(R5)
     ["はい\n\n差出人: shiftflow 勤務登録\n送信日時: 2026年10月6日 9:30\n宛先: 山田", "はい"],
     ["はい\n\nFrom: shiftflow\n[mailto:x@gmail.com]\nSent: Monday", "はい"],
     ["はい\n――――――\nお問い合わせ #0012(10/06 08:12)", "はい"],
+    // 日付で始まって「：」で終わる普通の文は、引用の始まりではない。下の本文を消さない(N)
+    ["2026年10月6日の勤務は次のとおりです：\n201\n202", "2026年10月6日の勤務は次のとおりです：\n201\n202"],
+    ["確認です。\n2026年10月6日(火)の勤務は、次のとおりでよいですか：\n201\n202", "確認です。\n2026年10月6日(火)の勤務は、次のとおりでよいですか：\n201\n202"],
+    ["2026/10/06 の予定は次のメール:\nA\nB", "2026/10/06 の予定は次のメール:\nA\nB"],
+    // Apple メール(日本語)の見出しは引用の始まり
+    ["了解\n\n2026/10/06 9:30、山田 <taro@gmail.com> のメッセージ:\n\n本文", "了解"],
     // 本文に「差出人:」と書いただけ(次の行が日時などでない)は残す
     ["差出人: 私です\n明日行きます", "差出人: 私です\n明日行きます"],
     // 引用だけのメール(上に何も書いていない)は全文を出す
@@ -212,4 +219,16 @@ Deno.test("Webhook・GAS の URL の形を確かめる(打ち間違いで別の�
   assert(validRelayUrl("https://script.google.com/macros/s/AKfycb-x_y/exec"));
   assertEquals(validRelayUrl("https://script.google.com/macros/s/AKfycb/dev"), null);
   assertEquals(validRelayUrl("https://evil.example/macros/s/x/exec"), null);
+});
+
+Deno.test("DB のエラーのログに、失敗した行の中身(社員番号・氏名・メールアドレス)を出さない(O)", () => {
+  const e = sanitizeDbError({
+    code: "23514",
+    message: 'new row for relation "inquiries" violates check constraint "inquiries_kind_check"',
+    details: "Failing row contains (3, aaaa, null, f, 7654321, 佐藤 花子, x, hack, mail, taro@gmail.com)",
+  });
+  assertEquals(e.message, 'DB error 23514: new row for relation "inquiries" violates check constraint "inquiries_kind_check"');
+  assert(!e.message.includes("7654321") && !e.message.includes("taro@gmail.com") && !e.message.includes("佐藤"));
+  assertEquals(sanitizeDbError(null).message, "DB error : ");
+  assertEquals(sanitizeDbError({ code: "X", message: "a\nFailing row 1234567" }).message, "DB error X: a");
 });

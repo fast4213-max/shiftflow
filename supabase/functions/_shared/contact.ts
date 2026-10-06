@@ -351,10 +351,15 @@ export function stripQuoted(body: string): string {
     const after = (lines[i + 2] ?? "").trim();
     if (/^>/.test(line)) return true;
     if (/^On .+ wrote:$/i.test(line) || (/^On /i.test(line) && /wrote:$/i.test(next))) return true;
-    // Gmail(日本語): 2026年10月6日(月) 9:30 shiftflow 勤務登録 <...>:(2行に分かれることがある)
-    if (/^\d{4}年\d{1,2}月\d{1,2}日/.test(line) && (/[:：]$/.test(line) || /[:：]$/.test(next))) return true;
-    // iPhone(日本語): 2026/10/06 9:30、shiftflow 勤務登録 <...>のメール:
-    if (/^\d{4}\/\d{1,2}\/\d{1,2}/.test(line) && (/(のメール|wrote|書きました)[:：]$/.test(line) || /(のメール|wrote|書きました)[:：]$/.test(next))) return true;
+    // 日付で始まる「引用の見出し」は、メールアドレス(<…@…>)を含み、「：」で終わるものだけ(N)。
+    // 「2026年10月6日の勤務は次のとおりです：」のような普通の文を、引用の始まりと間違えて、下の本文を消さないため。
+    // アドレスは次の行に分かれることがある(Gmail: "… <" の次の行に "shiftflow.kinmu@gmail.com>:")
+    const heading = /[:：]$/.test(line) ? line : `${line} ${next}`.trim();
+    const hasAddress = /<[^<>\s]*@[^<>\s]*>?/.test(heading) || /@/.test(heading);
+    // Gmail(日本語): 2026年10月6日(火) 12:23 shiftflow 勤務登録 <shiftflow.kinmu@gmail.com>:
+    if (/^\d{4}年\d{1,2}月\d{1,2}日/.test(line) && hasAddress && /[:：]$/.test(heading)) return true;
+    // iPhone・Apple メール(日本語): 2026/10/06 9:30、shiftflow 勤務登録 <shiftflow.kinmu@gmail.com>のメール:
+    if (/^\d{4}\/\d{1,2}\/\d{1,2}/.test(line) && hasAddress && /(のメール|のメッセージ|wrote|書きました)[:：]$/.test(heading)) return true;
     if (/^-{2,}\s*(original message|元のメッセージ|forwarded message|転送メッセージ)/i.test(line)) return true;
     if (/^_{8,}$/.test(line)) return true;
     // Outlook・携帯: 差出人: / From: のあとに 送信日時: / Sent: / 日付: などが続く

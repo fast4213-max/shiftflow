@@ -87,3 +87,7 @@ dl.info dd { margin: 0; overflow-wrap: anywhere; }
 .notice-admin-row .row { margin-bottom: 4px; }
 /* やり取りの中のリンク(「全文を見る」「Gmailで開く」)が並んでくっつかないように */
 .bubble .link-button, .bubble .gmail-link { margin-right: 14px; }
+
+/* 横向きのノッチ付きの iPhone で、左右の端が隠れないように(K) */
+.dash-tabs { padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); }
+.dash { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }

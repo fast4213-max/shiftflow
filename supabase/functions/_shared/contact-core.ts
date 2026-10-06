@@ -163,7 +163,8 @@ export async function submitInquiry(
   if (!isUuid(body.request_key)) throw new AppError(400, "画面を読み直してから、もう一度送ってください。", "bad_input");
   const requestKey = String(body.request_key).toLowerCase();
   const kind = String(body.kind ?? "");
-  if (!KINDS[kind]) throw new AppError(400, "種類を選んでください。", "bad_input");
+  // Object.hasOwn: "constructor" や "toString" のような名前を、種類として通さない(O。通すと DB の制限で 500 になる)
+  if (!Object.hasOwn(KINDS, kind)) throw new AppError(400, "種類を選んでください。", "bad_input");
   const text = requireText(body.body, "内容", MAX_BODY);
   const replyVia = body.reply_via === "mail" ? "mail" : body.reply_via === "screen" ? "screen" : null;
   if (!replyVia) throw new AppError(400, "返事の受け取り方を選んでください。", "bad_input");

@@ -266,6 +266,10 @@ Deno.test("入力の検査: 種類・内容・受け取り方・メール・社�
   const ctx = { ip: "1.1.1.1", userId: null };
   await assertRejects(() => submitInquiry(deps, guest({ request_key: "x" }), ctx), AppError, "読み直して");
   await assertRejects(() => submitInquiry(deps, guest({ kind: "hack" }), ctx), AppError, "種類");
+  // "constructor" などの名前は種類として通さない(O。通すと DB の制限で 500)
+  for (const kind of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+    await assertRejects(() => submitInquiry(deps, guest({ kind }), ctx), AppError, "種類");
+  }
   await assertRejects(() => submitInquiry(deps, guest({ body: " " }), ctx), AppError, "内容を入力");
   await assertRejects(() => submitInquiry(deps, guest({ body: "あ".repeat(1001) }), ctx), AppError, "1000文字以内");
   await assertRejects(() => submitInquiry(deps, guest({ reply_via: "fax" }), ctx), AppError, "受け取り方");

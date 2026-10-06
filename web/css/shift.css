@@ -67,3 +67,8 @@ html, body { overscroll-behavior-y: none; }
 #status.error { color: var(--danger); }
 #reset-dialog input { font-size: 1rem; padding: 6px; width: 100%; }
 #reset-run { background: var(--danger); color: #fff; border: none; }
+
+/* 横向きのノッチ付きの iPhone で、左右の端(月の切り替えの◀▶や、左下の「登録」ボタン)が隠れないように(K) */
+.month-header { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+.shift { padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); }
+.shift-footer { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
