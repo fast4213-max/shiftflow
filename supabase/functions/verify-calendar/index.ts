@@ -2,14 +2,9 @@
 // 両方とも書ければ検証済みにする。カレンダーIDは user_settings から読む(本文は見ない)。
 
 import { requireMember } from "../_shared/auth.ts";
-import { calendarAccessError, clearsVerification, deleteEvent, insertAllDayEvent } from "../_shared/google.ts";
+import { calendarAccessError, clearsVerification, deleteEvent, insertAllDayEvent, isPrimaryCalendarId } from "../_shared/google.ts";
 import { AppError, serve } from "../_shared/http.ts";
 import { addDays } from "../_shared/plan.js";
-
-// メインのカレンダーのID(メールアドレスの形。"xxx@group.calendar.google.com" などの追加カレンダーではないもの)
-function isPrimaryCalendarId(id: string): boolean {
-  return id.includes("@") && !/\.calendar\.google\.com$/i.test(id);
-}
 
 serve(async (req) => {
   const ctx = await requireMember(req);
@@ -33,7 +28,7 @@ serve(async (req) => {
     if (id && isPrimaryCalendarId(id)) {
       throw new AppError(
         400,
-        `${name}カレンダーIDがメールアドレスの形です。メインのカレンダーは使えません。このアプリ用に新しく作ったカレンダーのIDを入れてください。`,
+        `${name}カレンダーIDが、メインのカレンダー(メールアドレスの形、または primary)です。使えません。このアプリ用に新しく作ったカレンダーのIDを入れてください。`,
         "primary_calendar",
       );
     }

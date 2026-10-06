@@ -4,7 +4,7 @@
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
 import { createEvents, deleteAppEvents, eventsToRegister, parseTimeRange, isOffTitle, splitDayEvents, staleNextMonthRecords } from "./shift-calendar.ts";
 import { AppError } from "./http.ts";
-import { calendarAccessError, clearsVerification, GoogleError, nextRetryDelay, retryPolicy, withRetryBudget } from "./google.ts";
+import { calendarAccessError, clearsVerification, GoogleError, isPrimaryCalendarId, nextRetryDelay, retryPolicy, withRetryBudget } from "./google.ts";
 import { buildPlan, indexMaster } from "./plan.js";
 
 // テスト用の使い捨て鍵でサービスアカウントを用意する
@@ -485,9 +485,21 @@ Deno.test("カレンダーのエラー: 回数制限は403でも「混んでい�
     const e = calendarAccessError(new GoogleError(403, reason, "limit"), "勤務用カレンダー");
     assertEquals([e.status, e.code], [502, "calendar_error"]);
   }
-  for (const [status, reason] of [[403, "requiredAccessLevel"], [404, "notFound"], [401, "authError"]] as const) {
+  for (const [status, reason] of [[403, "requiredAccessLevel"], [404, "notFound"], [403, "forbidden"]] as const) {
     const e = calendarAccessError(new GoogleError(status, reason, "x"), "勤務用カレンダー");
     assertEquals([e.status, e.code], [400, "calendar_access"]);
+  }
+  // Google 側の設定の不備(API が無効・サービスアカウントの停止や鍵の失効)は、利用者の共有設定のせいにしない(L)
+  for (const [status, reason, message] of [
+    [403, "accessNotConfigured", "Google Calendar API has not been used in project 123 before or it is disabled"],
+    [403, "forbidden", "Google Calendar API has not been used in project 1 before"],
+    [403, "SERVICE_DISABLED", "x"],
+    [401, "authError", "Invalid Credentials"],
+  ] as const) {
+    const e = calendarAccessError(new GoogleError(status, reason, message), "勤務用カレンダー");
+    assertEquals([e.status, e.code], [503, "calendar_setup"], `${status} ${reason}`);
+    assert(!e.message.includes("共有設定"));
+    assertEquals(clearsVerification(e), false); // 検証済みは外さない
   }
   assertEquals(calendarAccessError(new GoogleError(429, "rateLimitExceeded", "x"), "x").code, "calendar_error");
   assertEquals(calendarAccessError(new GoogleError(503, "", "x"), "x").code, "calendar_error");
@@ -498,4 +510,9 @@ Deno.test("接続テストの失敗: 検証済みを外すのは書けないと�
   assertEquals(clearsVerification(calendarAccessError(new GoogleError(403, "rateLimitExceeded", "x"), "x")), false);
   assertEquals(clearsVerification(calendarAccessError(new GoogleError(500, "", "x"), "x")), false);
   assertEquals(clearsVerification(calendarAccessError(new TypeError("network"), "x")), false);
+});
+
+Deno.test("接続テスト: メインのカレンダー(メールアドレスの形)と primary は使えない。追加したカレンダーのIDは使える(P)", () => {
+  for (const id of ["primary", "PRIMARY", " primary ", "taro@gmail.com", "Taro@Example.co.jp"]) assertEquals(isPrimaryCalendarId(id), true, id);
+  for (const id of ["abc123@group.calendar.google.com", "ABC@group.calendar.google.com", "c_abc123", "primary2"]) assertEquals(isPrimaryCalendarId(id), false, id);
 });

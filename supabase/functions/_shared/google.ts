@@ -16,9 +16,21 @@ let cachedToken: { token: string; expires: number } | null = null;
 export function serviceAccount(): ServiceAccount {
   if (cachedAccount) return cachedAccount;
   const raw = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_JSON");
-  if (!raw) throw new Error("シークレット GOOGLE_SERVICE_ACCOUNT_JSON がありません");
-  const json = JSON.parse(raw);
-  if (!json.client_email || !json.private_key) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON の形式が違います");
+  if (!raw) {
+    console.error("シークレット GOOGLE_SERVICE_ACCOUNT_JSON がありません");
+    throw setupProblem();
+  }
+  let json;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    console.error("GOOGLE_SERVICE_ACCOUNT_JSON を JSON として読めません");
+    throw setupProblem();
+  }
+  if (!json.client_email || !json.private_key) {
+    console.error("GOOGLE_SERVICE_ACCOUNT_JSON の形式が違います");
+    throw setupProblem();
+  }
   cachedAccount = json;
   return json;
 }
@@ -69,7 +81,8 @@ async function accessToken(): Promise<string> {
   });
   if (!res.ok) {
     console.error("token error", res.status, await res.text());
-    throw new Error("サービスアカウントの認証に失敗しました");
+    // 鍵の失効・サービスアカウントの停止など(サーバーの持ち主が直す)。混雑などの一時的なものは 5xx
+    throw res.status >= 500 || res.status === 429 ? new Error("サービスアカウントの認証を一時的にできません") : setupProblem();
   }
   const data = await res.json();
   cachedToken = { token: data.access_token, expires: now + Number(data.expires_in || 3600) };
@@ -242,10 +255,28 @@ export async function listEvents(
   return items;
 }
 
+// Google 側の設定の不備(サーバーの持ち主が直すもの): API が無効・プロジェクトの設定・サービスアカウントの停止や鍵の失効(401)。
+// 利用者の共有設定のせいではないので、「共有設定を確認」とは言わない(言うと全員がそう案内され、接続テストの検証済みも外れる)
+function isGoogleSetupProblem(status: number, reason: string, message: string): boolean {
+  if (status === 401) return true;
+  return status === 403 &&
+    (/accessNotConfigured|SERVICE_DISABLED|projectNotLinked|billingNotEnabled|ACCESS_TOKEN_SCOPE_INSUFFICIENT|dailyLimitExceededUnreg/i.test(reason) ||
+      /has not been used in project|API has not been used|is disabled|enable it by visiting/i.test(message));
+}
+
+export function setupProblem(): AppError {
+  return new AppError(503, "サーバー側(Google カレンダーとの接続)の設定に問題があります。管理者に連絡してください。", "calendar_setup");
+}
+
 // Google のエラーを、画面に出すメッセージに変える
-// 回数制限(403 でも)・障害・通信エラーは、共有設定のせいではないので「操作に失敗しました」(502)にする
+// 回数制限(403 でも)・障害・通信エラーは、共有設定のせいではないので「操作に失敗しました」(502)にする。
+// Google 側の設定の不備は「管理者に連絡」(503 calendar_setup)にして、原因(状態と理由。個人情報は含まない)をログに残す
 export function calendarAccessError(err: unknown, label: string): AppError {
-  if (err instanceof GoogleError && [400, 401, 403, 404].includes(err.status) && !isRateLimited(err.status, err.reason)) {
+  if (err instanceof GoogleError && isGoogleSetupProblem(err.status, err.reason, err.message)) {
+    console.error("google setup problem", err.status, err.reason);
+    return setupProblem();
+  }
+  if (err instanceof GoogleError && [400, 403, 404].includes(err.status) && !isRateLimited(err.status, err.reason)) {
     return new AppError(
       400,
       `${label}に書き込めません。共有設定(権限を「すべての予定の詳細の変更や表示ができます」にして共有しているか)とカレンダーIDを確認してください。`,
@@ -253,6 +284,13 @@ export function calendarAccessError(err: unknown, label: string): AppError {
     );
   }
   return new AppError(502, `${label}の操作に失敗しました。時間をおいてもう一度お試しください。`, "calendar_error");
+}
+
+// 接続テストで使えないカレンダーID: メインのカレンダー(メールアドレスの形。"xxx@group.calendar.google.com" などの
+// 追加カレンダーではないもの)と、"primary"(サービスアカウント自身のカレンダーを指す。登録しても本人には見えない。P)
+export function isPrimaryCalendarId(id: string): boolean {
+  const v = id.trim().toLowerCase();
+  return v === "primary" || (v.includes("@") && !/\.calendar\.google\.com$/.test(v));
 }
 
 // 接続テストが失敗したとき、検証済みを外してよいか。カレンダーに書けない(calendar_access)ときだけ外す。
