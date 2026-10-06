@@ -422,6 +422,31 @@ Deno.test("メールの返事が時間切れ: 送れたか分からない(unknow
   assertEquals(r.replies[0].key, r.replies[1].key);
 });
 
+Deno.test("メールの返事: 1回目は元の内容の引用つき、2回目以降は短い文面。届かなかった返事は数えない", async () => {
+  const { deps, r } = setup();
+  await submitInquiry(deps, guest({ reply_via: "mail", email: "taro@gmail.com" }), { ip: "1.1.1.1", userId: null });
+  await adminReply(deps, { id: 1, body: "1回目", via: "mail", request_key: key() });
+  await adminReply(deps, { id: 1, body: "2回目", via: "mail", request_key: key() });
+  await adminReply(deps, { id: 1, body: "3回目", via: "mail", request_key: key() });
+  assert(r.replies[0].body.includes("お問い合わせありがとうございます") && r.replies[0].body.includes("> PINを忘れました"));
+  for (const i of [1, 2]) {
+    assert(!r.replies[i].body.includes("ありがとうございます") && !r.replies[i].body.includes("> "), r.replies[i].body);
+    assert(r.replies[i].body.includes("のつづきです"));
+  }
+  // 1回目が送れなかった(failed)人には、まだ1回目の文面を送る
+  const s2 = setup({ relay: { result: { ok: false, kind: "failed", error: "上限" } } });
+  await submitInquiry(s2.deps, guest({ reply_via: "mail", email: "taro@gmail.com" }), { ip: "1.1.1.1", userId: null });
+  await adminReply(s2.deps, { id: 1, body: "a", via: "mail", request_key: key() });
+  await adminReply(s2.deps, { id: 1, body: "b", via: "mail", request_key: key() });
+  assert(s2.r.replies[1].body.includes("お問い合わせありがとうございます"));
+  // 画面だけの返事のあとにメールで送るときも、メールとしては1回目
+  const s3 = setup();
+  await submitInquiry(s3.deps, guest({ reply_via: "mail", email: "taro@gmail.com" }), { ip: "1.1.1.1", userId: null });
+  await adminReply(s3.deps, { id: 1, body: "画面", via: "screen", request_key: key() });
+  await adminReply(s3.deps, { id: 1, body: "メール", via: "mail", request_key: key() });
+  assert(s3.r.replies[0].body.includes("お問い合わせありがとうございます"));
+});
+
 Deno.test("メールで返事: GAS 未設定・宛先なしはエラーにして、何も保存しない", async () => {
   const { deps, db } = setup({ relay: { configured: false } });
   await submitInquiry(deps, guest(), { ip: "1.1.1.1", userId: null });

@@ -372,7 +372,7 @@ await check("ログイン後: メニューに お知らせ(未読の赤い点)�
   const { page, ctx, be, errors } = await open("contact.html", { userId: "u1", opts: { profile: USER } });
   await page.waitForSelector("#contact-form:not(.hidden)");
   const nav = await page.$$eval(".topbar a", (a) => a.map((x) => x.textContent));
-  assert.deepEqual(nav, ["shiftflow2026.10.06お問い合わせ追加版", "勤務入力", "設定", "お知らせ", "お問い合わせ", "使い方", "ログアウト"]);
+  assert.deepEqual(nav, ["shiftflow", "勤務入力", "設定", "お知らせ", "お問い合わせ", "使い方", "ログアウト"]);
   await page.waitForSelector("#nav-notices.has-dot");
   assert.equal(await page.textContent("#member-no"), "1234567");
   assert.equal(await page.textContent("#member-name"), "山田 太郎");

@@ -6,7 +6,7 @@
 // 版を固定する(「2 の最新」だと、新しい版が出たときに全員の画面が一度に変わってしまうため)。
 // 上げるときは、ここを書き換えて動作を確かめる
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm";
-import { APP_VERSION, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js?v=dev";
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js?v=dev";
 
 export const configured = !SUPABASE_URL.includes("YOUR-PROJECT-REF");
 
@@ -74,10 +74,6 @@ export function renderTopbar(current, { loggedIn = false, isAdmin = false } = {}
   brand.className = "brand";
   brand.href = !loggedIn ? "index.html" : isAdmin ? "admin.html" : "input.html";
   brand.textContent = "shiftflow";
-  const ver = document.createElement("span");
-  ver.className = "version";
-  ver.textContent = APP_VERSION;
-  brand.appendChild(ver);
   bar.appendChild(brand);
 
   links.forEach(([href, label]) => {

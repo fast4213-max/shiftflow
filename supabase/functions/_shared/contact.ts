@@ -267,11 +267,25 @@ export function replySubject(id: number): string {
   return `【shiftflow 勤務登録】お問い合わせ ${formatNo(id)} への返事`;
 }
 
+// 返事のメールの文面。1回目は、あいさつと元の内容の引用を付ける。
+// 2回目以降(followUp: 同じ問い合わせで、すでにメールで返事を送ってある)は、名前と返事と番号だけの短い文面にする
 export function replyMailText(
   inq: { id: number; name: string; kind: string; created_at: string },
   reply: string,
   firstMessage: string,
+  followUp = false,
 ): string {
+  if (followUp) {
+    return [
+      `${inq.name} 様`,
+      "",
+      reply,
+      "",
+      "――――――",
+      `お問い合わせ ${formatNo(inq.id)} のつづきです。`,
+      "このメールに返信していただいても届きます。",
+    ].join("\n");
+  }
   const quoted = truncate(firstMessage, 500).split("\n").map((l) => "> " + l).join("\n");
   return [
     `${inq.name} 様`,

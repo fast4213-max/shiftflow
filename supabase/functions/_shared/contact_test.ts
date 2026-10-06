@@ -154,6 +154,20 @@ Deno.test("返事のメール: 宛名・返事・最初の内容の引用・返�
   assert(!/https?:\/\//.test(text)); // URL は入れない(M11)
 });
 
+Deno.test("返事のメール(2回目以降): あいさつと元の内容の引用を付けない短い文面", () => {
+  const text = replyMailText(INQ, "了解しました。お待ちしています。", "PINを忘れました。", true);
+  assertEquals(text, [
+    "山田 *太郎* 様",
+    "",
+    "了解しました。お待ちしています。",
+    "",
+    "――――――",
+    "お問い合わせ #0012 のつづきです。",
+    "このメールに返信していただいても届きます。",
+  ].join("\n"));
+  assert(!text.includes("管理者です") && !text.includes("ありがとうございます") && !text.includes("> "));
+});
+
 Deno.test("受信メール: 件名の番号・届かなかった知らせを見分ける", () => {
   assertEquals(findInquiryNo("Re: 【shiftflow 勤務登録】お問い合わせ #0012 への返事"), 12);
   assertEquals(findInquiryNo("RE: お問い合わせ ＃１２"), 12);

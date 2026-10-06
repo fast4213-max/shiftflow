@@ -17,7 +17,7 @@
 - テスト: Deno 87件・lint・型チェックが緑。`web/js/plan.js` と `supabase/functions/_shared/plan.js` は同じ内容に保つ(テストで確認)
 - ブランチ: 作業は main に直接。今回の確認作業は `ccr-9cc46a85-vp9h39`
 - お問い合わせ・お知らせ: **main に反映済み(2026-10-06。Test・Deploy Supabase・Pages とも成功)。GAS・Discord のセットアップ待ち**。設計・予想されるバグ91件と状態は [`docs/contact/DESIGN.md`](docs/contact/DESIGN.md)(4章の表・8章の本番でしか確かめられないこと)、セットアップは [`docs/contact/SETUP.md`](docs/contact/SETUP.md)、確かめ方は [`docs/contact/test/README.md`](docs/contact/test/README.md)
-- テスト: Deno 132件(お問い合わせの分 +45)・lint・型チェック、PostgreSQL 16 で migration と権限、Chromium で画面14項目、GAS の偽物で7項目が通る
+- テスト: Deno 134件(お問い合わせの分 +47)・lint・型チェック、PostgreSQL 16 で migration と権限、Chromium で画面14項目、GAS の偽物で7項目が通る
 
 ## 2. 決めたこと(変えるときは理由を読む)
 
@@ -97,6 +97,7 @@ N1〜N4 の案
 
 ## 6. 履歴(新しいものを上に1〜3行で足す)
 
+- 2026-10-06 メールの返事は、2回目以降を短い文面にした(名前・返事・受付番号だけ。1回目はあいさつと元の内容の引用つき)。左上の版の表示(APP_VERSION)をやめた。テスト Deno 134件
 - 2026-10-06 本番のテスト(本人): Discord に画像つきの通知(D8)と、管理画面からの返事メールが受信トレイに届くこと(M3・M8)を確認。その後、返信メールの取り込み(約4分)・引用の除去(Gmail)・画像つきの受付メールも確認。管理画面からの返事が相手のメールへの返信として届くこと(M7)も確認。iPhone の画像は実機がなく未確認(DESIGN.md 8章)
 - 2026-10-06 main に反映。本番で、未ログインから問い合わせの表が読めないこと・mail-inbound にログインなしで届くこと(X3)を確認
 - 2026-10-06 お問い合わせ・お知らせを実装(DB・Edge Functions 3つ・GAS・画面)。テスト中に見つけた不具合 F1〜F7 を直した(DESIGN.md 7章)。予想されるバグは 確認済 / 対策済 / 本番で確認 に分けた

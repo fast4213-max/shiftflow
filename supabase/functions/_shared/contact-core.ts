@@ -424,12 +424,14 @@ export async function adminReply(deps: Deps, body: Record<string, unknown>) {
 
 async function sendReplyMail(deps: Deps, inq: Inquiry, msg: Message, messages: Message[], to: string): Promise<Message> {
   const first = messages.find((m) => m.sender === "user")?.body ?? "";
+  // すでにメールで返事を送ってある(届かなかったものは数えない)なら、2回目以降の短い文面にする
+  const followUp = messages.some((m) => m.sender === "admin" && m.channel === "mail" && m.mail_status !== "failed");
   const target = replyToMessage(messages, to);
   const res: RelayResult = await deps.relay.reply({
     key: `reply-${msg.request_key ?? msg.id}`,
     to,
     subject: replySubject(inq.id),
-    body: replyMailText(inq, msg.body, first),
+    body: replyMailText(inq, msg.body, first, followUp),
     reply_to_message_id: target?.gmail_message_id ?? null,
   });
   return await saveMailResult(deps.repo, msg, res, to);
