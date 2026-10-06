@@ -1,6 +1,6 @@
 # お問い合わせ・お知らせ 設計書
 
-状態: **実装済み・本番の確認はこれから**(2026-10-06。セットアップは [`SETUP.md`](SETUP.md)。確かめ方は [`test/README.md`](test/README.md))
+状態: **実装済み・main に反映済み・GAS と Discord のセットアップ待ち**(2026-10-06。セットアップは [`SETUP.md`](SETUP.md)。確かめ方は [`test/README.md`](test/README.md))
 
 見本の画像は `img/`。画像は `draw.py`(共通の部品とログイン画面など)・`v2.py`・`v3.py`・`v4.py` で作った(Pillow。`python3 v3.py` などで作り直せる)。
 
@@ -84,7 +84,7 @@ admin.html     タブを追加: 「お問い合わせ」(未対応の数)・「�
 |---|---|---|---|---|
 | X1 | 新しいテーブルを `revoke` していないと、Supabase の初期設定で anon / authenticated に権限が付き、RLS を付け忘れると問い合わせ(社員番号・氏名・メール)がだれでも読める | 高 | 3つのテーブルとも RLS を有効にして `revoke all`、必要なものだけ付ける。未ログインのキーで直接読めないことをテストする | 確認済 |
 | X2 | 新しい関数に、自動で実行権限が付く(init の `revoke` は当時の関数だけに効く) | 高 | migration ごとに `revoke execute ... from public, anon, authenticated` → 必要なものだけ `grant`(既存の書き方どおり) | 確認済 |
-| X3 | `config.toml` に新しい関数の `verify_jwt = false` を書き忘れると、GAS(JWT なし)からの `mail-inbound` や未ログインの `contact` が 401 になる | 中 | 3つとも追記。認証は関数の中で行う(既存と同じ) | 対策済・本番で確認 |
+| X3 | `config.toml` に新しい関数の `verify_jwt = false` を書き忘れると、GAS(JWT なし)からの `mail-inbound` や未ログインの `contact` が 401 になる | 中 | 3つとも追記。認証は関数の中で行う(既存と同じ) | 確認済 |
 | X4 | 新しい HTML・JS で `?v=dev` を付け忘れると、Pages の反映が止まる(pages.yml のチェック)。付けても古いキャッシュの画面と新しい JS が混ざる | 低 | 全部に `?v=dev`。新しい関数を呼ぶ画面は、関数が無いとき(404)にも落ちずに案内を出す | 確認済 |
 | X5 | DB(migration)より先に画面が反映されると、お知らせの関数が無くてログイン画面でエラー | 中 | お知らせの読み込みは失敗しても何も出さない(4-2 N1) | 確認済 |
 | X6 | シークレット未設定(Webhook・GAS)で関数が 500 になり、問い合わせ自体が送れない | 中 | 先に DB に保存し、通知・メールは未設定なら「未設定」として記録だけ。管理画面に未設定を出す | 確認済 |
@@ -248,7 +248,7 @@ admin.html     タブを追加: 「お問い合わせ」(未対応の数)・「�
 
 ## 8. 本番でしか確かめられないこと(デバッグのときに見る)
 
-- `config.toml` の `verify_jwt = false` が効いて、GAS(ログインなし)から `mail-inbound` を呼べるか(X3)
+- ~~`verify_jwt = false` で GAS(ログインなし)から `mail-inbound` を呼べるか(X3)~~ → 2026-10-06 本番で確認済み(合言葉なしで呼ぶと「MAIL_RELAY_SECRET が設定されていません」)
 - Discord に画像つきの通知が出るか(D8)。Embed の見た目
 - GAS のウェブアプリへの呼び出し(リダイレクト)と、Gmail のスレッドへの返信(M3・M8)
 - iPhone(写真ライブラリ・ファイルアプリ・Live Photo)・Android からの画像(I1・I2)
