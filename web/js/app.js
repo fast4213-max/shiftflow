@@ -3,9 +3,9 @@
 // ログインは Edge Function(login / admin-login)が返すセッションを、ここで受け取って保存する。
 // 利用者は社員番号+PIN、管理者は管理用パスワード。
 
-// 版を固定する(「2 の最新」だと、新しい版が出たときに全員の画面が一度に変わってしまうため)。
-// 上げるときは、ここを書き換えて動作を確かめる
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm";
+// supabase-js は CDN から借りず、このリポジトリに置いたファイルを使う(CDN の障害や取り下げで全員の画面が止まらないように)。
+// 版はファイル名のとおり 2.117.2 で固定。上げるときは vendor/README.md の手順でファイルを作り直し、ここを書き換えて動作を確かめる
+import { createClient } from "./vendor/supabase-js.2.117.2.min.js";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js?v=dev";
 
 export const configured = !SUPABASE_URL.includes("YOUR-PROJECT-REF");

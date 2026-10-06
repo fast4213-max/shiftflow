@@ -4,15 +4,6 @@ import { chromium } from "playwright";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-
-// CDN(supabase-js)は、テストの環境ではブラウザから直接届かないので、curl で取ってきて渡す(1回だけ)
-const cdnCache = new Map();
-async function cdnRoute(route) {
-  const url = route.request().url();
-  if (!cdnCache.has(url)) cdnCache.set(url, execFileSync("curl", ["-fsSL", url]));
-  await route.fulfill({ status: 200, contentType: "application/javascript; charset=utf-8", headers: { "access-control-allow-origin": "*" }, body: cdnCache.get(url) });
-}
 
 const DIR = new URL("./fixtures/", import.meta.url).pathname;
 const WEB = new URL("../../../web/", import.meta.url).pathname;
@@ -135,7 +126,6 @@ async function open(path, { opts = {}, userId = null, viewport = { width: 390, h
   page.setDefaultTimeout(8000);
   const be = backend(opts);
   await page.route(SB + "/**", be.handler);
-  await page.route("https://cdn.jsdelivr.net/**", cdnRoute);
   const errors = [];
   page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
   page.on("console", (m) => { if (m.type() === "error" && !/Failed to load resource/.test(m.text())) errors.push("console: " + m.text()); });
@@ -592,7 +582,6 @@ await check("古い HTML(版 OLD)と新しい JS(版 NEW)が混ざったら、1�
   page.setDefaultTimeout(8000);
   const be = backend({});
   await page.route(SB + "/**", be.handler);
-  await page.route("https://cdn.jsdelivr.net/**", cdnRoute);
   let navs = 0;
   page.on("framenavigated", (f) => { if (f === page.mainFrame()) navs++; });
   const errors = [];
