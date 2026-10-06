@@ -14,10 +14,10 @@
 
 - 動いているもの: 社員番号+PIN ログイン、新規登録(共通パスワード)、管理画面(区所・マスタ CSV・利用者・PIN 再設定)、勤務入力、Google カレンダーへの登録・リセット、祝日の取得、cron-job.org の停止対策、古い記録の自動削除(pg_cron)
 - 自動デプロイ: main に push → GitHub Actions(Test → Deploy Supabase / GitHub Pages)。テストが赤いと Supabase へは反映されない
-- テスト: Deno 87件・lint・型チェックが緑。`web/js/plan.js` と `supabase/functions/_shared/plan.js` は同じ内容に保つ(テストで確認)
-- ブランチ: 作業は main に直接。今回の確認作業は `ccr-9cc46a85-vp9h39`
+- `web/js/plan.js` と `supabase/functions/_shared/plan.js` は同じ内容に保つ(テストで確認)
+- ブランチ: 作業は main に直接(クラウドの作業セッションでは、指定されたブランチ `claude/…` に push する)
 - お問い合わせ・お知らせ: **main に反映済み(2026-10-06。Test・Deploy Supabase・Pages とも成功)。GAS・Discord のセットアップ待ち**。設計・予想されるバグ91件と状態は [`docs/contact/DESIGN.md`](docs/contact/DESIGN.md)(4章の表・8章の本番でしか確かめられないこと)、セットアップは [`docs/contact/SETUP.md`](docs/contact/SETUP.md)、確かめ方は [`docs/contact/test/README.md`](docs/contact/test/README.md)
-- テスト: Deno 134件(お問い合わせの分 +47)・lint・型チェック、PostgreSQL 16 で migration と権限、Chromium で画面14項目、GAS の偽物で7項目が通る
+- テスト: Deno 147件(2026-10-06 再確認)・lint・型チェック、PostgreSQL 16 で migration と権限、Chromium で画面14項目、GAS の偽物で7項目が通る
 
 ## 2. 決めたこと(変えるときは理由を読む)
 
