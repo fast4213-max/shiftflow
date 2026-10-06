@@ -205,6 +205,7 @@ function render() {
 
       if (isManual) {
         const input = document.createElement("input");
+        input.maxLength = 30;
         input.value = code;
         input.placeholder = "入力";
         input.addEventListener("input", () => {
@@ -232,6 +233,7 @@ function render() {
     const memoTd = document.createElement("td");
     memoTd.className = "memo";
     const memoInput = document.createElement("input");
+    memoInput.maxLength = 200;
     memoInput.value = e.memo || autoMemo;
     memoInput.placeholder = autoMemo;
     if (e.memo) memoInput.className = "override";
