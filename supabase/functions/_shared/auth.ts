@@ -50,30 +50,53 @@ export function anonClient(token?: string): SupabaseClient {
   });
 }
 
-// ログイン中の利用者(プロフィールがある人)。リクエスト本文の値は信用しない
-export async function requireMember(req: Request): Promise<Context> {
-  const header = req.headers.get("Authorization") || "";
-  const token = header.replace(/^Bearer\s+/i, "");
-  if (!token) throw new AppError(401, "ログインしてください。", "unauthenticated");
+// Supabase Auth のエラーが、一時的な障害(通信できない・5xx・混雑)か。
+// そうなら「ログインが切れた」とは言わない(言うと、画面がこの端末のログインを消して、入力中の内容も失う)
+export function isTransientAuthError(error: { status?: number; name?: string } | null | undefined): boolean {
+  if (!error) return false;
+  const status = error.status ?? 0;
+  return status === 0 || status === 429 || status >= 500 || error.name === "AuthRetryableFetchError";
+}
 
-  const admin = adminClient();
+const UNAVAILABLE = () => new AppError(503, "ただいまログインを確認できません。少し待ってから、もう一度お試しください。", "auth_unavailable");
+
+// トークンから、ログイン中の利用者(プロフィールがある人)を調べる。admin は service_role のクライアント。
+// 本当にログインが無い(トークンが無効・ユーザーが消えた・プロフィールが無い)ときだけ 401・403。
+// Auth や DB の一時的な障害は 503(auth_unavailable)にして、画面はログインを消さない
+export async function memberFromToken(admin: SupabaseClient, token: string): Promise<Omit<Context, "db">> {
   const { data, error } = await admin.auth.getUser(token);
-  if (error || !data.user) throw new AppError(401, "ログインし直してください。", "unauthenticated");
+  if (error) {
+    if (isTransientAuthError(error)) throw UNAVAILABLE();
+    throw new AppError(401, "ログインし直してください。", "unauthenticated");
+  }
+  if (!data.user) throw new AppError(401, "ログインし直してください。", "unauthenticated");
 
-  const { data: profile } = await admin
+  const { data: profile, error: profileError } = await admin
     .from("profiles")
     .select("employee_no, role")
     .eq("user_id", data.user.id)
     .maybeSingle();
+  if (profileError) {
+    console.error("profile lookup failed", (profileError as { code?: string }).code);
+    throw UNAVAILABLE();
+  }
   if (!profile) throw new AppError(403, "このアカウントは利用できません。", "not_member");
 
   return {
     userId: data.user.id,
     employeeNo: profile.employee_no,
     isAdmin: profile.role === "admin",
-    db: anonClient(token),
     admin,
   };
+}
+
+// ログイン中の利用者(プロフィールがある人)。リクエスト本文の値は信用しない
+export async function requireMember(req: Request): Promise<Context> {
+  const header = req.headers.get("Authorization") || "";
+  const token = header.replace(/^Bearer\s+/i, "");
+  if (!token) throw new AppError(401, "ログインしてください。", "unauthenticated");
+  const member = await memberFromToken(adminClient(), token);
+  return { ...member, db: anonClient(token) };
 }
 
 export async function requireAdmin(req: Request): Promise<Context> {
