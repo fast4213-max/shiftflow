@@ -18,7 +18,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # test.yml と同じ内容。通ったときだけ deploy に進む
+  # (web/js/plan.js などだけを変えて、テストが赤いのに画面だけ公開されるのを防ぐ)
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno lint
+        working-directory: supabase/functions
+      - run: deno check */index.ts
+        working-directory: supabase/functions
+      - run: deno test --allow-read --allow-env supabase/functions
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     environment:
       name: github-pages
