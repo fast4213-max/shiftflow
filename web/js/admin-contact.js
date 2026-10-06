@@ -290,7 +290,8 @@ function replyForm(inq, messages, replyTo) {
   };
   const [mailLabel, mailRadio] = mk("mail", canMail ? `メールで送る(${replyTo})` : "メールで送る(送り先なし・GAS 未設定)", !canMail);
   const [screenLabel, screenRadio] = mk("screen", inq.logged_in ? "画面だけ(本人の「これまでのお問い合わせ」に出る)" : "画面だけ(受付番号+確認コードで見られる)", false);
-  const preferMail = canMail && (draft.via ? draft.via === "mail" : inq.reply_via === "mail" || messages.some((m) => m.sender === "mail"));
+  // 初期選択は、本人が選んだ受け取り方(メールで受け取る人だけ「メールで送る」)。受信メールがあるだけでは選ばない(D)
+  const preferMail = canMail && (draft.via ? draft.via === "mail" : inq.reply_via === "mail");
   (preferMail ? mailRadio : screenRadio).checked = true;
   [mailRadio, screenRadio].forEach((r) => r.addEventListener("change", () => (draft.via = r.value)));
   via.append(mailLabel, screenLabel);

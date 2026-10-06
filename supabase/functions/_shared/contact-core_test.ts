@@ -447,6 +447,33 @@ Deno.test("メールの返事: 1回目は元の内容の引用つき、2回目�
   assert(s3.r.replies[0].body.includes("お問い合わせありがとうございます"));
 });
 
+Deno.test("画面で返事を受け取る問い合わせに、件名の受付番号で他人がメールを差し込んでも、送り先にならない(D)", async () => {
+  const { deps, db, r } = setup();
+  await submitInquiry(deps, guest(), { ip: "1.1.1.1", userId: null }); // 画面で見る(アドレスなし)
+  await ingestMails(deps, { self: SELF, mails: [mail({ from: "attacker@evil.example", thread_id: "ee0001" })] });
+  assertEquals(db.messages.some((m) => m.sender === "mail" && m.inquiry_id === 1), true); // 取り込まれてはいる
+  const detail = await adminGet(deps, 1);
+  assertEquals(detail.reply_to_email, null);
+  await assertRejects(() => adminReply(deps, { id: 1, body: "x", via: "mail", request_key: key() }), AppError, "送り先のメールアドレスがありません");
+  assertEquals(r.replies.length, 0);
+  // 画面だけの返事はできる
+  await adminReply(deps, { id: 1, body: "x", via: "screen", request_key: key() });
+});
+
+Deno.test("アドレスを消したあと(30日後)は、こちらが送ったスレッドに返信してきた人にだけ返せる(A4・D)", async () => {
+  const { deps, db, r } = setup();
+  await submitInquiry(deps, guest({ reply_via: "mail", email: "taro@gmail.com" }), { ip: "1.1.1.1", userId: null });
+  await adminReply(deps, { id: 1, body: "返事", via: "mail", request_key: key() }); // スレッド ff0123
+  await ingestMails(deps, { self: SELF, mails: [
+    mail({ thread_id: "ff0123", from: "taro@gmail.com" }),
+    mail({ thread_id: "ee0002", from: "attacker@evil.example", subject: "お問い合わせ #0001" }), // 番号だけで入ってきた他人
+  ] });
+  db.inquiries[0].email = null; // 30日たって消えた
+  assertEquals((await adminGet(deps, 1)).reply_to_email, "taro@gmail.com");
+  await adminReply(deps, { id: 1, body: "続き", via: "mail", request_key: key() });
+  assertEquals(r.replies.at(-1)!.to, "taro@gmail.com");
+});
+
 Deno.test("メールで返事: GAS 未設定・宛先なしはエラーにして、何も保存しない", async () => {
   const { deps, db } = setup({ relay: { configured: false } });
   await submitInquiry(deps, guest(), { ip: "1.1.1.1", userId: null });

@@ -368,10 +368,17 @@ export async function adminGet(deps: Deps, id: unknown) {
   };
 }
 
-// 返事のメールの送り先: 問い合わせのアドレス。消えていれば(30日後)、最後に届いたメールの差出人(A4)
+// 返事のメールの送り先: 問い合わせで本人が入れたアドレスだけ。
+// アドレスを消したあと(対応済みで30日。A4)は、こちらが送ったメールのスレッドに、返信してきた人のアドレス。
+// 件名の受付番号だけで入ってきたメール(だれでも書ける。D・R9)の差出人は、送り先にしない
 function replyTarget(inq: Inquiry, messages: Message[]): string | null {
   if (inq.email) return inq.email;
-  const last = [...messages].reverse().find((m) => m.sender === "mail" && !m.bounce && m.from_email);
+  const ourThreads = new Set(
+    messages.filter((m) => m.sender === "admin" && m.channel === "mail" && m.gmail_thread_id).map((m) => m.gmail_thread_id),
+  );
+  const last = [...messages].reverse().find((m) =>
+    m.sender === "mail" && !m.bounce && m.from_email && m.gmail_thread_id && ourThreads.has(m.gmail_thread_id)
+  );
   return last?.from_email ?? null;
 }
 
