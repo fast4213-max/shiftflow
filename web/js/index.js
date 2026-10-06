@@ -1,10 +1,30 @@
 // 最初の画面: 利用者(社員番号+PIN)と管理(管理用パスワード)のタブ
 import {
-  $, AUTOFILL_HINT, callFunction, canSaveLogin, configured, currentSession, go, homePageFor, loadProfile, renderTopbar, startSession,
-  STORAGE_HELP, supabase, toHalfWidth,
+  $, AUTOFILL_HINT, callFunction, canSaveLogin, configured, currentSession, fetchNotices, go, homePageFor, loadProfile, noticeElement,
+  renderTopbar, startSession, STORAGE_HELP, supabase, toHalfWidth,
 } from "./app.js?v=dev";
 
 renderTopbar("index.html");
+
+// お知らせ(利用者タブの、タブと入力欄の間。最大3件)。ログインの動きとは別に読み、失敗しても何も出さない。
+// 読み終わる前に入力を始めていたら、欄が下にずれて押し間違えないよう、ログインボタンの下に出す(N2)
+async function showLoginNotices() {
+  const list = (await fetchNotices()).slice(0, 3);
+  if (!list.length) return;
+  const box = $("login-notices");
+  const heading = document.createElement("div");
+  heading.className = "notices-heading";
+  heading.textContent = "📢 お知らせ";
+  box.appendChild(heading);
+  list.forEach((n) => box.appendChild(noticeElement(n, { clamp: 80 })));
+  const typing = document.activeElement && $("user-form").contains(document.activeElement) && document.activeElement.tagName === "INPUT";
+  if (typing || $("employee-no").value || $("pin").value) {
+    box.classList.add("below");
+    $("user-form").appendChild(box);
+  }
+  box.classList.remove("hidden");
+}
+showLoginNotices().catch(() => {});
 
 function setMessage(id, text, kind) {
   $(id).textContent = text || "";

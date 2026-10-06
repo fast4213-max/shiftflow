@@ -51,3 +51,39 @@ body.admin .topbar .brand .version { color: #cfd6e6; }
 .pin-big { font-size: 2.4rem; font-weight: 700; letter-spacing: 0.25em; text-align: center; margin: 12px 0; font-variant-numeric: tabular-nums; }
 #pin-dialog { width: min(360px, 92vw); }
 table.list button { margin-right: 4px; }
+
+/* ---------- お問い合わせ・お知らせ ---------- */
+.tab-badge { display: inline-block; background: #e53935; color: #fff; border-radius: 9px; font-size: 0.7rem; padding: 0 6px; margin-left: 4px; line-height: 1.5; }
+.contact-status .status-line { padding: 4px 0; font-size: 0.88rem; }
+.contact-status .status-line.warn { color: var(--danger); }
+.contact-status .status-line.ok { color: var(--ok); }
+.contact-grid { display: grid; grid-template-columns: 1fr; gap: 0 14px; }
+@media (min-width: 900px) { .contact-grid { grid-template-columns: minmax(280px, 2fr) 3fr; align-items: start; } }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.chip { border-radius: 14px; font-size: 0.82rem; padding: 3px 12px; }
+.chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.contact-item { display: block; width: 100%; text-align: left; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 6px 0; background: #fff; }
+.contact-item.selected { background: #e8f0fe; border-color: #b7cdf5; }
+.contact-item-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.contact-item .right { margin-left: auto; }
+.detail-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.detail-title h2 { margin: 0; }
+dl.info { display: grid; grid-template-columns: 9em 1fr; gap: 4px 10px; font-size: 0.9rem; margin: 10px 0; }
+dl.info dt { color: var(--muted); }
+dl.info dd { margin: 0; overflow-wrap: anywhere; }
+.alert.danger { background: #fdecea; border: 1px solid #f1b0aa; color: var(--danger); }
+.thread { margin: 8px 0 14px; }
+.bubble .tag { border-radius: 9px; padding: 0 8px; color: #fff; font-size: 0.72rem; background: #5f6368; }
+.bubble .tag.out { background: var(--ok); }
+.bubble .tag.in { background: #e37400; }
+.bubble .tag.bounce { background: var(--danger); }
+.mail-status { font-size: 0.82rem; margin-top: 4px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.mail-status.ok { color: var(--ok); }
+.mail-status.error { color: var(--danger); }
+.gmail-link { font-size: 0.82rem; display: inline-block; margin-top: 4px; }
+.reply-form label.check.inline, label.check.inline { display: inline-flex; font-weight: normal; margin: 4px 12px 4px 0; }
+.reply-form .row { margin-top: 8px; }
+.unmatched { border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 10px; }
+.unmatched textarea { margin: 4px 0; }
+.notice-admin-row { border-bottom: 1px solid var(--line); padding: 10px 0; }
+.notice-admin-row .row { margin-bottom: 4px; }

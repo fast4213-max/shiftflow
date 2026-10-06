@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>お知らせ - shiftflow</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#1a73e8">
+  <link rel="stylesheet" href="css/app.css?v=dev">
+</head>
+<body>
+  <main class="page narrow">
+    <h1>お知らせ</h1>
+    <p id="message" class="message">読み込み中です…</p>
+    <div id="notices" class="notice-list"></div>
+  </main>
+  <script type="module" src="js/notices.js?v=dev" onerror="var e=document.getElementById('message'); e.textContent='画面を読み込めませんでした。電波の良いところで、ページを読み直してください。'; e.className='message error'"></script>
+</body>
+</html>

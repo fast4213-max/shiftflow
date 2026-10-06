@@ -65,9 +65,9 @@ export function renderTopbar(current, { loggedIn = false, isAdmin = false } = {}
   const bar = document.createElement("nav");
   bar.className = "topbar";
   const links = [];
-  if (!loggedIn) links.push(["index.html", "ログイン"]);
+  if (!loggedIn) links.push(["index.html", "ログイン"], ["contact.html", "お問い合わせ"]);
   else if (isAdmin) links.push(["admin.html", "管理"]);
-  else links.push(["input.html", "勤務入力"], ["settings.html", "設定"]);
+  else links.push(["input.html", "勤務入力"], ["settings.html", "設定"], ["notices.html", "お知らせ"], ["contact.html", "お問い合わせ"]);
   links.push(["help.html", "使い方"]);
 
   const brand = document.createElement("a");
@@ -85,6 +85,7 @@ export function renderTopbar(current, { loggedIn = false, isAdmin = false } = {}
     a.href = href;
     a.textContent = label;
     if (href === current) a.className = "current";
+    if (href === "notices.html") a.id = "nav-notices";
     bar.appendChild(a);
   });
 
@@ -99,6 +100,117 @@ export function renderTopbar(current, { loggedIn = false, isAdmin = false } = {}
     bar.appendChild(out);
   }
   document.body.prepend(bar);
+  // まだ見ていないお知らせがあれば、メニューの「お知らせ」に赤い点を付ける(失敗しても何もしない)
+  if (loggedIn && !isAdmin && current !== "notices.html") {
+    fetchNotices().then((list) => {
+      if (unseenNotices(list).length) $("nav-notices")?.classList.add("has-dot");
+    }).catch(() => {});
+  }
+}
+
+// ---------- お知らせ ----------
+
+const NOTICES_SEEN_KEY = "shiftflow-notices-seen";
+
+function noticeKey(n) {
+  return `${n.id}:${n.updated_at}`;
+}
+
+// いま表示するお知らせ(重要が先、新しい順)。読めない・遅い(6秒)ときは空にする(ログインなどの動きを止めない)
+export async function fetchNotices() {
+  if (!configured) return [];
+  const timeout = new Promise((resolve) => setTimeout(() => resolve({ data: null, error: new Error("timeout") }), 6000));
+  try {
+    const { data, error } = await Promise.race([supabase.rpc("current_notices"), timeout]);
+    if (error || !Array.isArray(data)) return [];
+    return data.filter((n) => n && typeof n.title === "string");
+  } catch (_) {
+    return [];
+  }
+}
+
+// まだ見ていないお知らせ。見た記録をこの端末に保存できないときは、点を出さない(空を返す)
+export function unseenNotices(list) {
+  try {
+    const seen = JSON.parse(window.localStorage.getItem(NOTICES_SEEN_KEY) || "[]");
+    if (!Array.isArray(seen)) return list;
+    return list.filter((n) => !seen.includes(noticeKey(n)));
+  } catch (_) {
+    return [];
+  }
+}
+
+export function markNoticesSeen(list) {
+  try {
+    window.localStorage.setItem(NOTICES_SEEN_KEY, JSON.stringify(list.map(noticeKey)));
+  } catch (_) { /* 保存できない端末では何もしない */ }
+}
+
+// 日付("2026-10-06")を "10/6" に
+export function shortDate(value) {
+  const m = String(value || "").match(/^\d{4}-(\d{2})-(\d{2})/);
+  return m ? `${Number(m[1])}/${Number(m[2])}` : "";
+}
+
+// お知らせ1件の表示。文字は textContent だけで入れる(HTML として読まない)。
+// clamp: 本文が長いときは途中までにして「続きを読む」を付ける(ログイン画面用)
+export function noticeElement(n, { clamp = 0, isNew = false } = {}) {
+  const item = document.createElement("div");
+  item.className = "notice-item" + (n.level === "important" ? " important" : "");
+  const head = document.createElement("div");
+  head.className = "notice-head";
+  if (n.level === "important") {
+    const badge = document.createElement("span");
+    badge.className = "notice-badge";
+    badge.textContent = "重要";
+    head.appendChild(badge);
+  }
+  const date = document.createElement("span");
+  date.className = "notice-date";
+  date.textContent = shortDate(n.starts_on);
+  head.appendChild(date);
+  if (isNew) {
+    const badge = document.createElement("span");
+    badge.className = "notice-new";
+    badge.textContent = "NEW";
+    head.appendChild(badge);
+  }
+  const title = document.createElement("div");
+  title.className = "notice-title";
+  title.textContent = n.title;
+  item.append(head, title);
+  const text = String(n.body || "");
+  if (text) {
+    const body = document.createElement("div");
+    body.className = "notice-body";
+    const chars = [...text];
+    if (clamp && chars.length > clamp) {
+      body.textContent = chars.slice(0, clamp).join("") + "…";
+      const more = document.createElement("button");
+      more.type = "button";
+      more.className = "link-button";
+      more.textContent = "続きを読む";
+      more.addEventListener("click", () => {
+        body.textContent = text;
+        more.remove();
+      });
+      item.append(body, more);
+    } else {
+      body.textContent = text;
+      item.appendChild(body);
+    }
+  }
+  return item;
+}
+
+// 画面ごとに1つ使う、使い捨てのキー(二度押し・送り直しで2件にしないため)
+export function newRequestKey() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
 // ログインが無くなった(PINの再設定・変更でほかの端末から消された・削除された)ときに、

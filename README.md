@@ -25,12 +25,17 @@
   └─ Supabase DB ……… マスタ・設定・勤務記録(本人の行しか読み書きできない)
 
 cron-job.org ──(6時間ごと)──▶ Supabase の keepalive() … 無料プランの一時停止を防ぐ
+
+お問い合わせ: 画面 ─▶ Edge Function(contact)─▶ Discord(Webhook)に通知
+                 管理画面の返事 ─▶ 専用 Gmail の GAS ─▶ メール
+                 GAS(5分ごと)─▶ Edge Function(mail-inbound)… 返信メールの取り込み
 ```
 
 - 利用者は社員番号+PINでログインする。新規登録は「共通パスワード」を知っている人だけ(管理者が決める)
 - 管理画面には、最初の画面の「管理」タブから管理用パスワードで入る
 - 利用者は、自分のカレンダーをサービスアカウントのメールアドレスと共有し、カレンダーIDを設定画面に入れる(休日用のカレンダーは、なくてもよい。空にすると「休日」の番号は登録されない。休みも勤務用に入れたいときは、休日用に勤務用と同じIDを入れる)
 - Edge Function は、リクエストに書かれたカレンダーIDは使わず、ログイン中の本人が登録したIDだけを使う
+- お知らせ(ログイン画面・ログイン後の「お知らせ」)とお問い合わせ(ログイン前でも使える)は、管理画面から出す・返事をする。セットアップは [`docs/contact/SETUP.md`](docs/contact/SETUP.md)、設計と予想されるバグの一覧は [`docs/contact/DESIGN.md`](docs/contact/DESIGN.md)
 
 ## ファイル
 
@@ -42,6 +47,8 @@ web/                        画面(GitHub Pages で配信)
   input.html                勤務入力
   admin.html                管理ダッシュボード
   help.html                 使い方(未ログインでも読める)
+  contact.html              お問い合わせ(未ログインでも使える)
+  notices.html              お知らせ(ログイン後)
   js/config.js              Supabase の URL と公開キー(★自分の値を書く)
   js/plan.js                予定の組み立て(supabase/functions/_shared/plan.js と同じ内容)
 supabase/
@@ -57,9 +64,13 @@ supabase/
     register-month/         月の入力を保存してカレンダーに登録
     delete-month/           月のアプリの予定だけ削除し、その月の入力内容も消す(手で入れた予定は消さない)
     sync-holidays/          祝日を取得して保存
+    contact/                お問い合わせの送信・返事を見る
+    admin-contact/          お問い合わせの一覧・返事(管理者だけ)
+    mail-inbound/           GAS からの受信メールの取り込み・古いものの削除(合言葉で確かめる)
     _shared/                共通処理とテスト
 .github/workflows/          Pages への公開、Supabase への自動デプロイ、テスト
 docs/DESIGN.md              設計
+docs/contact/               お問い合わせ・お知らせの設計・セットアップ・GAS のコード(gas/Code.gs)・テスト
 WORKLOG.md                  作業ログ(要約と現在の状態)。詳しい経緯は docs/WORKLOG-archive.md
 ```
 
@@ -209,7 +220,8 @@ Chromebook では「Linux 開発環境」をオンにすると、ターミナル
 deno test --allow-read --allow-env supabase/functions
 ```
 
-予定の組み立て、カレンダー操作(Google への通信は偽物)、ログイン・新規登録・管理者ログイン・ロック(Supabase は偽物)を確認します。
+予定の組み立て、カレンダー操作(Google への通信は偽物)、ログイン・新規登録・管理者ログイン・ロック(Supabase は偽物)、お問い合わせ(送信・返事・受信メール・Discord・GAS への通信。すべて偽物)を確認します。
+お問い合わせの画面・GAS・DB の確かめ方は [`docs/contact/test/README.md`](docs/contact/test/README.md)。
 
 ## 祝日について
 
@@ -248,7 +260,8 @@ deno test --allow-read --allow-env supabase/functions
 
 ## セキュリティ・個人情報
 
-- 秘密の値(サービスアカウントの鍵、管理用パスワード、共通パスワード、アクセストークン)は Supabase / GitHub / Google Cloud の画面にだけ置き、リポジトリに入れない。項目名は [`.env.example`](.env.example) を参照
+- 秘密の値(サービスアカウントの鍵、管理用パスワード、共通パスワード、アクセストークン、Discord の Webhook の URL、GAS の URL と合言葉)は Supabase / GitHub / Google Cloud / GAS の画面にだけ置き、リポジトリに入れない。項目名は [`.env.example`](.env.example) を参照
+- お問い合わせ(社員番号・名前・メールアドレス)は、Edge Function(service_role)だけが読み書きします。画面から直接は読めません。付けた画像は DB に保存せず、Discord と専用 Gmail にだけ届きます
 - すべてのテーブルで RLS を有効にしています。勤務記録と設定は本人だけ(管理者にも見えません)、区所とマスタは全員が読むだけ(書くのは管理者)
 - 社員番号と名前は Supabase のデータベースにだけ保存し、リポジトリには含めません。氏名・勤務先・マスタの実データ・カレンダーIDも同様です
 - ログインの失敗が5回続くと、その社員番号は15分ロックされます(管理者ログイン・新規登録の共通パスワードも同様)
@@ -272,6 +285,7 @@ deno test --allow-read --allow-env supabase/functions
   `select cron.schedule('purge-old-shift-records', '0 18 * * *', 'select public.purge_old_shift_records()');`
 - ログインの失敗回数(`auth_attempts`)も、30日以上更新されていない行を毎日 日本時間の午前3時10分に消します(`purge_old_auth_attempts()`、ジョブ名 `purge-old-auth-attempts`)。ロック中の行は消えません。`pg_cron` を設定できなかったときの手動登録は `select cron.schedule('purge-old-auth-attempts', '10 18 * * *', 'select public.purge_old_auth_attempts()');`
 - 初めて反映する前に、`count_old_shift_records()` で件数を確かめ、マスタを「CSVで保存」で書き出しておく
+- お問い合わせは、最後のやり取りから90日で消します(毎日 日本時間の午前3時20分、`purge_old_contact()`、ジョブ名 `purge-old-contact`)。手動登録は `select cron.schedule('purge-old-contact', '20 18 * * *', 'select public.purge_old_contact()');`。Gmail・Discord の分は [`docs/contact/SETUP.md`](docs/contact/SETUP.md)
 
 ## 更新してもデータが消えないために(直す人向けのメモ)
 

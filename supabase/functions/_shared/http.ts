@@ -56,3 +56,9 @@ export function yearMonthOf(body: Record<string, unknown>): { year: number; mont
   }
   return { year, month };
 }
+
+// 呼び出し元の IP(回数制限用)。Supabase の前段が付ける x-forwarded-for の先頭
+export function clientIp(req: Request): string {
+  const forwarded = req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip") || "";
+  return forwarded.split(",")[0].trim() || "unknown";
+}

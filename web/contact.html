@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>お問い合わせ - shiftflow</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#1a73e8">
+  <link rel="stylesheet" href="css/app.css?v=dev">
+</head>
+<body>
+  <main class="page narrow">
+    <h1>お問い合わせ</h1>
+    <p id="intro" class="muted">ログインできない・使い方がわからないときは、ここから送ってください。管理者に届きます。</p>
+    <p id="load-wait" class="message">読み込み中です…</p>
+    <p id="load-error" class="message error hidden">画面を読み込めませんでした。電波の良いところで、ページを読み直してください。広告ブロック(コンテンツブロッカー)を使っているときは、このサイトではオフにしてください。</p>
+    <p id="admin-note" class="note hidden">管理者は、<a href="admin.html#contact">管理画面の「お問い合わせ」</a>で見てください。</p>
+
+    <!-- 送る -->
+    <form id="contact-form" class="card hidden" autocomplete="on" novalidate onsubmit="return false;">
+      <!-- ログイン前: 手で入れる -->
+      <div id="guest-fields" class="hidden">
+        <label for="employee-no">社員番号(7桁)</label>
+        <input id="employee-no" data-digits inputmode="numeric" maxlength="7" autocomplete="off" placeholder="1234567">
+        <label for="name">名前</label>
+        <input id="name" maxlength="40" autocomplete="name" placeholder="山田 太郎">
+        <label for="office">所属(区所)</label>
+        <select id="office"><option value="">読み込み中…</option></select>
+      </div>
+      <!-- ログイン後: ログイン情報から自動(表示だけ。送るときはサーバーが DB から取る) -->
+      <dl id="member-fields" class="auto-fields hidden">
+        <dt>社員番号</dt><dd id="member-no"></dd>
+        <dt>名前</dt><dd id="member-name"></dd>
+        <dt>所属</dt><dd id="member-office"></dd>
+      </dl>
+
+      <label for="kind">種類</label>
+      <select id="kind">
+        <option value="">選んでください</option>
+        <option value="login">ログインできない</option>
+        <option value="howto">使い方・質問</option>
+        <option value="bug">不具合</option>
+        <option value="other">その他</option>
+      </select>
+
+      <label for="body">内容</label>
+      <textarea id="body" rows="6" maxlength="1000" placeholder="困っていることを書いてください"></textarea>
+      <p class="counter muted"><span id="body-count">0</span> / 1000</p>
+      <p class="warn-text">※ PINはここに書かないでください。</p>
+
+      <label>画像(3枚まで・付けなくてもよい)</label>
+      <div id="thumbs" class="thumbs">
+        <button id="add-image" type="button" class="thumb-add">＋<span>追加</span></button>
+      </div>
+      <input id="image-input" type="file" accept="image/*" multiple class="sr-only" tabindex="-1">
+      <p class="muted small">写真・スクリーンショットを付けられます。送る前に小さくし、撮った場所などの情報は消します。</p>
+      <p class="note-warn small">iPhoneは「<b>写真ライブラリ</b>」から選んでください。「<b>ファイル</b>」から選ぶと、送れないことがあります(そのときはスクリーンショットにして付けてください)。</p>
+      <p class="note-danger small">PINや、ほかの人の名前・勤務が写った画像は送らないでください。</p>
+      <p id="image-message" class="message"></p>
+
+      <fieldset class="reply-via">
+        <legend>返事の受け取り方</legend>
+        <label class="check"><input type="radio" name="reply-via" value="screen" checked>
+          <span><b>この画面で見る</b><br><span id="screen-help" class="muted small"></span></span></label>
+        <label class="check"><input type="radio" name="reply-via" value="mail">
+          <span><b id="mail-label">メールで受け取る</b><br><span id="mail-help" class="muted small"></span></span></label>
+      </fieldset>
+      <div id="email-fields" class="indent hidden">
+        <label for="email">メールアドレス</label>
+        <input id="email" type="email" inputmode="email" autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="254" placeholder="taro@example.com">
+        <label for="email2">もう一度(確認)</label>
+        <input id="email2" type="email" inputmode="email" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="254">
+        <p id="email-risky" class="note-warn small hidden">このアドレスは「..」や「@の直前の.」を含むため、メールを送れないことがあります。ほかのアドレス(Gmail など)があれば、そちらをおすすめします。</p>
+        <div class="note-warn small">
+          ⚠️ 迷惑メールに入ることがあります。届かないときは迷惑メールフォルダを見てください。
+          <b class="mono contact-email"></b> から届くので、受け取れるようにしておいてください。<br>
+          携帯会社のメール(docomo・au・SoftBank)は、パソコンからのメールを受け取らない設定になっていて届かないことがあるので、Gmail などがおすすめです。
+        </div>
+      </div>
+
+      <button id="submit" class="primary block" type="submit">送信する</button>
+      <p id="message" class="message"></p>
+    </form>
+
+    <!-- 送ったあと -->
+    <div id="sent" class="card sent hidden">
+      <p class="sent-title">送信しました(受付番号 <span id="sent-no"></span>)</p>
+      <div id="sent-code" class="hidden">
+        <p>返事は、下の「返事を見る」で、この受付番号と確認コードを入れると見られます。<b>この画面をスクリーンショットしておいてください。</b></p>
+        <div class="code-box">
+          <div class="muted small">受付番号</div><div id="sent-code-no" class="big mono"></div>
+          <div class="muted small">確認コード</div><div id="sent-code-value" class="big mono"></div>
+        </div>
+      </div>
+      <div id="sent-mail" class="hidden">
+        <p>返事は、下のアドレスにメールで届きます。</p>
+        <p class="sent-email mono" id="sent-email"></p>
+        <p class="note-warn small">⚠️ 迷惑メールに入ることがあります。差出人「shiftflow 勤務登録」(<span class="mono contact-email"></span>)を受け取れるようにしておいてください。数日たっても届かないときは、もう一度送ってください。</p>
+      </div>
+      <p id="sent-member" class="hidden">返事は、下の「これまでのお問い合わせ」に出ます。</p>
+      <p id="sent-images" class="message"></p>
+      <button id="again" type="button" class="block">別のお問い合わせを送る</button>
+    </div>
+
+    <!-- ログイン前: 返事を見る -->
+    <section id="view-section" class="hidden">
+      <h2>返事を見る</h2>
+      <div class="card">
+        <p class="muted small">「この画面で見る」を選んで送った方は、受付番号と確認コードを入れてください。</p>
+        <div class="two">
+          <div><label for="view-no">受付番号</label><input id="view-no" inputmode="numeric" autocomplete="off" placeholder="#0012"></div>
+          <div><label for="view-code">確認コード</label><input id="view-code" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="ABCD-2345"></div>
+        </div>
+        <button id="view-button" type="button" class="block">返事を見る</button>
+        <p id="view-message" class="message"></p>
+        <div id="view-result"></div>
+      </div>
+    </section>
+
+    <!-- ログイン後: これまでのお問い合わせ -->
+    <section id="mine-section" class="hidden">
+      <h2>これまでのお問い合わせ</h2>
+      <p id="mine-message" class="message"></p>
+      <div id="mine"></div>
+    </section>
+  </main>
+  <script type="module" src="js/contact.js?v=dev" onerror="document.getElementById('load-wait').classList.add('hidden'); document.getElementById('load-error').classList.remove('hidden')"></script>
+</body>
+</html>

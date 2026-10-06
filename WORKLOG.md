@@ -16,7 +16,8 @@
 - 自動デプロイ: main に push → GitHub Actions(Test → Deploy Supabase / GitHub Pages)。テストが赤いと Supabase へは反映されない
 - テスト: Deno 87件・lint・型チェックが緑。`web/js/plan.js` と `supabase/functions/_shared/plan.js` は同じ内容に保つ(テストで確認)
 - ブランチ: 作業は main に直接。今回の確認作業は `ccr-9cc46a85-vp9h39`
-- 次に作るもの: お問い合わせ・お知らせ(設計済み・未実装)。設計と、予想されるバグの一覧(X・N・C・D・M・R・A の番号)は [`docs/contact/DESIGN.md`](docs/contact/DESIGN.md)。実装後のデバッグは、その表の状態を更新する
+- お問い合わせ・お知らせ: **実装済み・本番の確認はこれから**(ブランチ `ccr-2c057c1f-srabih`。main には未反映)。設計・予想されるバグ91件と状態は [`docs/contact/DESIGN.md`](docs/contact/DESIGN.md)(4章の表・8章の本番でしか確かめられないこと)、セットアップは [`docs/contact/SETUP.md`](docs/contact/SETUP.md)、確かめ方は [`docs/contact/test/README.md`](docs/contact/test/README.md)
+- テスト: Deno 132件(お問い合わせの分 +45)・lint・型チェック、PostgreSQL 16 で migration と権限、Chromium で画面14項目、GAS の偽物で7項目が通る
 
 ## 2. 決めたこと(変えるときは理由を読む)
 
@@ -91,10 +92,12 @@ N1〜N4 の案
 - マスタは管理画面の「CSVで保存」で、ときどき書き出す(無料プランに自動バックアップなし)
 - cron-job.org のジョブが有効で、6時間ごとに動いているか、ときどき見る
 - ログインできない人には、使い方の手順8「iPhone・Androidでログインできないとき」を案内する
+- お問い合わせ: main に反映したあと [`docs/contact/SETUP.md`](docs/contact/SETUP.md) の手順(Secrets 3つ・GAS)。管理画面の「お問い合わせ」タブで、GAS の最終確認が30分以上前なら赤く出る
 - 見送りの 1〜3・5・N1・N4 は、利用者が増えた・外に広がった・不審なログインや登録に気づいたときに読み返して直す
 
 ## 6. 履歴(新しいものを上に1〜3行で足す)
 
+- 2026-10-06 お問い合わせ・お知らせを実装(DB・Edge Functions 3つ・GAS・画面)。テスト中に見つけた不具合 F1〜F7 を直した(DESIGN.md 7章)。予想されるバグは 確認済 / 対策済 / 本番で確認 に分けた
 - 2026-10-06 画像は Discord にも出す、保存期間は3か月(DB・Gmail・Discord とも)に決定。予想されるバグ D8〜D11・X9・X10 を追記
 - 2026-10-06 専用 Gmail(shiftflow.kinmu@gmail.com)と Discord の Webhook を本人が作成。問い合わせに画像(3枚まで・Gmail へ転送)を追加で設計し、予想されるバグ I1〜I12・A7 を追記
 - 2026-10-06 お問い合わせ・お知らせを設計(コードは変更なし)。見本の画像と、実装で出そうなバグ約60件を `docs/contact/` に記録

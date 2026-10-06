@@ -2,6 +2,8 @@
 import { $, callFunction, copyText, formatDateTime, requireLogin, sharedPasswordProblem, supabase } from "./app.js?v=dev";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, TOKEN_EXPIRES } from "./config.js?v=dev";
 import { checkMasterRows, masterRowsFromCsv, masterToCsv, readTextFile } from "./csv.js?v=dev";
+import { initContactAdmin } from "./admin-contact.js?v=dev";
+import { initNoticesAdmin } from "./admin-notices.js?v=dev";
 
 const MASTER_COLUMNS = [
   ["code", "番号"],
@@ -453,6 +455,13 @@ requireLogin("admin.html", { needAdmin: true })
     callFunction("app-config")
       .then((config) => ($("sa-email").value = config.serviceAccountEmail))
       .catch((err) => ($("sa-email").value = "取得できませんでした: " + err.message));
+    // お問い合わせ・お知らせ(読み込めなくても、ほかのタブは使えるようにする)
+    try {
+      initContactAdmin();
+      initNoticesAdmin();
+    } catch (err) {
+      message(err.message || String(err), "error");
+    }
     await refresh();
     const tab = location.hash.replace("#", "");
     if (document.getElementById("pane-" + tab)) showTab(tab);

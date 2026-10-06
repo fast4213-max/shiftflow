@@ -42,3 +42,12 @@ verify_jwt = false
 verify_jwt = false
 [functions.sync-holidays]
 verify_jwt = false
+
+[functions.contact]
+verify_jwt = false
+
+[functions.admin-contact]
+verify_jwt = false
+
+[functions.mail-inbound]
+verify_jwt = false

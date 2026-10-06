@@ -16,6 +16,8 @@
     <button class="dtab" data-tab="users" role="tab">利用者</button>
     <button class="dtab" data-tab="master" role="tab">マスタ表</button>
     <button class="dtab" data-tab="import" role="tab">マスタ登録</button>
+    <button class="dtab" data-tab="contact" role="tab">お問い合わせ<span id="contact-badge" class="tab-badge hidden"></span></button>
+    <button class="dtab" data-tab="notices" role="tab">お知らせ</button>
     <button class="dtab" data-tab="settings" role="tab">設定</button>
   </div>
 
@@ -24,6 +26,7 @@
 
     <!-- 概要 -->
     <section id="pane-overview" class="pane">
+      <div id="contact-alert"></div>
       <div id="alerts"></div>
       <div class="kpis">
         <div class="kpi"><div class="kpi-label">登録している人</div><div class="kpi-num" id="kpi-users">—</div><div class="kpi-sub">人</div></div>
@@ -106,6 +109,63 @@
             <button id="csv-cancel">やめる</button>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- お問い合わせ -->
+    <section id="pane-contact" class="pane hidden">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>お問い合わせ</h2>
+          <button id="contact-reload">読み直す</button>
+        </div>
+        <div id="contact-status" class="contact-status"></div>
+      </div>
+      <div class="contact-grid">
+        <div class="panel contact-list-panel">
+          <div class="chips" role="tablist">
+            <button class="chip active" data-filter="todo">要対応<span id="count-todo"></span></button>
+            <button class="chip" data-filter="replied">返信済み</button>
+            <button class="chip" data-filter="all">すべて</button>
+            <button class="chip" data-filter="unmatched">受信メール<span id="count-unmatched"></span></button>
+          </div>
+          <p id="contact-list-message" class="message"></p>
+          <div id="contact-list"></div>
+        </div>
+        <div class="panel contact-detail-panel">
+          <p id="contact-detail-message" class="message"></p>
+          <div id="contact-detail"><p class="muted">左の一覧から選んでください。</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- お知らせ -->
+    <section id="pane-notices" class="pane hidden">
+      <div class="panel">
+        <h2 id="notice-form-title">お知らせを出す</h2>
+        <label for="notice-title">タイトル(100文字まで)</label>
+        <input id="notice-title" maxlength="100" autocomplete="off">
+        <label for="notice-body">本文(1000文字まで。なくてもよい)</label>
+        <textarea id="notice-body" rows="4" maxlength="1000"></textarea>
+        <label>重要度</label>
+        <div class="row">
+          <label class="check inline"><input type="radio" name="notice-level" value="info" checked> ふつう</label>
+          <label class="check inline"><input type="radio" name="notice-level" value="important"> 重要(赤)</label>
+        </div>
+        <label>表示する期間(日本時間。終わりは空なら、消すまでずっと)</label>
+        <div class="row">
+          <input id="notice-start" type="date"> 〜 <input id="notice-end" type="date">
+        </div>
+        <div class="row" style="margin-top: 12px">
+          <button id="notice-save" class="primary">保存して公開</button>
+          <button id="notice-cancel" class="hidden">編集をやめる</button>
+        </div>
+        <p id="notice-message" class="message"></p>
+        <p class="muted">ログイン画面(利用者タブ)には表示中のものが最大3件(重要が先、新しい順)、ログイン後の「お知らせ」には全部出ます。</p>
+      </div>
+      <div class="panel">
+        <h2>お知らせの一覧</h2>
+        <div id="notice-list"></div>
       </div>
     </section>
 

@@ -30,6 +30,8 @@
 
     <!-- 利用者 -->
     <form id="user-form" class="card" autocomplete="on" onsubmit="if (!window.shiftflowReady &amp;&amp; document.getElementById('load-error').classList.contains('hidden')) document.getElementById('load-wait').classList.remove('hidden'); return false;">
+      <!-- お知らせ(管理画面から出す)。読めないとき・0件のときは出さない -->
+      <section id="login-notices" class="notices hidden" aria-label="お知らせ"></section>
       <label for="employee-no">社員番号(7桁)</label>
       <input id="employee-no" data-digits name="username" inputmode="numeric" maxlength="7" autocomplete="username" placeholder="1234567" required>
       <label for="pin">PIN(4桁の数字)</label>
@@ -37,6 +39,7 @@
       <button id="user-login" class="primary block" type="submit">ログイン</button>
       <p id="user-message" class="message"></p>
       <p class="muted center">はじめての方は <a href="register.html">新規登録</a> ・ <a href="help.html">使い方</a></p>
+      <p class="muted center">ログインできないときは <a href="contact.html">お問い合わせ</a></p>
     </form>
 
     <!-- 管理 -->
