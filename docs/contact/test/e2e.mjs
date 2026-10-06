@@ -511,6 +511,42 @@ await check("管理画面: お知らせを出す・直す・消す。期間の�
   await ctx.close();
 });
 
+// ---------- 公開直後(古い HTML と新しい JS) ----------
+await check("古い HTML(版 OLD)と新しい JS(版 NEW)が混ざったら、1回だけ読み直す(E)。同じ版なら読み直さない", async () => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await ctx.newPage();
+  page.setDefaultTimeout(8000);
+  const be = backend({});
+  await page.route(SB + "/**", be.handler);
+  await page.route("https://cdn.jsdelivr.net/**", cdnRoute);
+  let navs = 0;
+  page.on("framenavigated", (f) => { if (f === page.mainFrame()) navs++; });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  // HTML だけ版 OLD、JS の中の import は NEW(app.js を ?v=NEW で配る)にする
+  await page.route(BASE + "/index.html", async (route) => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, body: (await res.text()).replace("js/index.js?v=dev", "js/index.js?v=OLD1") });
+  });
+  await page.route(BASE + "/js/index.js*", async (route) => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, body: (await res.text()).replaceAll("./app.js?v=dev", "./app.js?v=NEW1") });
+  });
+  await page.route(BASE + "/js/app.js*", async (route) => route.continue({ url: BASE + "/js/app.js?v=dev" }));
+  await page.goto(BASE + "/index.html");
+  await page.waitForTimeout(1500);
+  assert.equal(navs, 2, "reload once: " + navs); // 最初の読み込み + 1回の読み直し
+  assert.deepEqual(errors, []);
+  await ctx.close();
+  // 版が同じ(dev)なら読み直さない
+  const ok = await open("index.html");
+  let n2 = 0;
+  ok.page.on("framenavigated", (f) => { if (f === ok.page.mainFrame()) n2++; });
+  await ok.page.waitForTimeout(1200);
+  assert.equal(n2, 0);
+  await ok.ctx.close();
+});
+
 // ---------- 狭い画面 ----------
 await check("幅320px: 横にはみ出さない(N9)", async () => {
   for (const [path, userId, profile] of [["index.html"], ["contact.html"], ["contact.html", "u1", USER], ["notices.html", "u1", USER]]) {

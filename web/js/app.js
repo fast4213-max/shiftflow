@@ -10,6 +10,22 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js?v=dev";
 
 export const configured = !SUPABASE_URL.includes("YOUR-PROJECT-REF");
 
+// 公開した直後の10分ほどは、キャッシュで古い HTML と新しい JS が混ざることがある(画面の id や関数が合わず、止まる)。
+// この JS の版(?v=…。公開のたびに変わる)と、HTML が読み込んだ最初の JS の版が違うときは、1回だけ読み直す。
+// 読み直しても同じ版なら(または記録できない端末では)何もしない(読み直しを繰り返さない)。開発中(v=dev)は何もしない
+(function reloadIfStaleHtml() {
+  try {
+    const mine = new URL(import.meta.url).searchParams.get("v");
+    const entry = document.querySelector('script[type="module"][src]');
+    const theirs = entry ? new URL(entry.src, location.href).searchParams.get("v") : null;
+    if (!mine || !theirs || mine === "dev" || mine === theirs) return;
+    const key = "shiftflow-reloaded-for";
+    if (window.sessionStorage.getItem(key) === mine) return;
+    window.sessionStorage.setItem(key, mine);
+    location.reload();
+  } catch (_) { /* 何もしない */ }
+})();
+
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
 });
