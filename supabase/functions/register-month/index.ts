@@ -88,10 +88,11 @@ serve(async (req) => {
     await deleteAppEvents(calendars, year, month, { clearNextFirst, clearNextSecondOffduty: nextFirstOffduty, existing });
     const { created, skipped } = await createEvents(calendars, events);
 
-    // 作り直せたので、印は消す(印が今回の翌月1日のときだけ)
-    await ctx.admin.from("user_settings")
-      .update({ last_registered_at: new Date().toISOString(), ...(retryNextFirst || events.some((e) => e.date === nextFirst) ? { next_first_pending: null } : {}) })
-      .eq("user_id", ctx.userId);
+    await ctx.admin.from("user_settings").update({ last_registered_at: new Date().toISOString() }).eq("user_id", ctx.userId);
+    // 最後まで登録できたので、今回の翌月1日の印は消す(Q8)。翌月1日に作る予定が無いとき(月末を泊から戻した)も消す。
+    // 別の月の印(ほかの月の登録が途中で止まったもの)は、その月をやり直すときに使うので消さない
+    await ctx.admin.from("user_settings").update({ next_first_pending: null })
+      .eq("user_id", ctx.userId).eq("next_first_pending", nextFirst);
 
     // skipped: 休日用のカレンダーを設定していない人の「休日」の予定(登録していない)
     return { count: created, skipped };

@@ -195,6 +195,39 @@ const post = (w, body) => w.ctx.doPost({ postData: { contents: JSON.stringify({ 
   assert.throws(() => w2.ctx.pollInbox(), /Supabase/);
   console.log("ok pollInbox");
 }
+// 6時間の記録が切れても、全部渡せた時刻の1日前より古いメールは送り直さない。渡せなかったときは時刻を進めない(Q7)
+{
+  const w = world();
+  const t = w.mkThread();
+  const old = w.mkMessage(t, { from: "a@x.com", subject: "s", body: "3日前", date: new Date(Date.now() - 3 * 86400000) });
+  w.ctx.pollInbox();
+  assert.deepEqual(w.hooks.at(-1).mails.map((m) => m.id), [old.id]);
+  assert.ok(w.props.has("inbox_checked_at"));
+  w.cache.clear(); // 6時間たって記録が切れた
+  const fresh = w.mkMessage(t, { from: "a@x.com", subject: "s", body: "新しい" });
+  w.ctx.pollInbox();
+  assert.deepEqual(w.hooks.at(-1).mails.map((m) => m.id), [fresh.id]); // 3日前のものは送り直さない
+  // Supabase が受け取れなかったら時刻を進めず、次の回(記録が切れたあとも)にもう一度送る
+  const w2 = world();
+  const m = w2.mkMessage(w2.mkThread(), { from: "a@x.com", subject: "s", body: "b", date: new Date(Date.now() - 3 * 86400000) });
+  w2.setHook(() => ({ ok: true, known: [] }));
+  w2.ctx.pollInbox();
+  assert.equal(w2.props.has("inbox_checked_at"), false);
+  w2.setHook((p) => ({ ok: true, known: p.mails.map((x) => x.id) }));
+  w2.ctx.pollInbox();
+  assert.deepEqual(w2.hooks.at(-1).mails.map((x) => x.id), [m.id]);
+  // 1回に送るのは30件まで。残りがあるときは時刻を進めない
+  const w3 = world();
+  const t3 = w3.mkThread();
+  for (let i = 0; i < 35; i++) w3.mkMessage(t3, { from: "a@x.com", subject: "s", body: "b" + i });
+  w3.ctx.pollInbox();
+  assert.equal(w3.hooks.at(-1).mails.length, 30);
+  assert.equal(w3.props.has("inbox_checked_at"), false);
+  w3.ctx.pollInbox();
+  assert.equal(w3.hooks.at(-1).mails.length, 5);
+  assert.ok(w3.props.has("inbox_checked_at"));
+  console.log("ok poll window");
+}
 // 送信後のラベル付けが失敗しても、送信は成功扱い。送り直しで2通目を送らない
 {
   const w = world();

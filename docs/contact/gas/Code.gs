@@ -17,7 +17,7 @@
  * 手順は docs/contact/SETUP.md。コードを直したら「デプロイを管理」→ 鉛筆 →「新しいバージョン」で更新する(URL は変わらない)。
  */
 
-const VERSION = "2026-10-06";
+const VERSION = "2026-10-07";
 const SENDER_NAME = "shiftflow 勤務登録";
 const LABEL_ROOT = "shiftflow"; // 90日で消す対象の印(すべての shiftflow のメールに付ける)
 const LABEL_RECEIPT = "shiftflow/受付";
@@ -257,7 +257,13 @@ function plainBody_(m) {
 }
 
 // 5分ごと: 受信トレイ(迷惑メールは除く)の、まだ渡していないメールを Supabase へ。
-// 渡せたもの(known)は6時間覚えて、次からは送らない。Supabase も同じメールは二重に入れない(R1・R2)
+// 渡せたもの(known)は6時間覚えて、次からは送らない。Supabase も同じメールは二重に入れない(R1・R2)。
+// 6時間の記録(CacheService の上限)が切れたあとに、14日分を毎回送り直さないよう、全部渡せた最後の時刻を覚えて、
+// 次からはその1日前より新しいメールだけを見る(Q7)。止まっていた間・渡せなかったメールは、時刻を進めないので拾える
+const INBOX_CHECKED = "inbox_checked_at";
+const INBOX_OVERLAP_MS = 86400000;
+const INBOX_MAX_MS = 14 * 86400000;
+
 function pollInbox() {
   // 前の回がまだ動いているときは、何もしない。
   // スクリプトのロック(LockService)は使わない: 返事の送信(doPost)が同じロックを待つので、取り込みが長引くと送信が失敗してしまう。
@@ -268,17 +274,26 @@ function pollInbox() {
   try {
     const cache = CacheService.getScriptCache();
     const self = self_();
-    const since = Date.now() - 14 * 86400000;
-    const threads = GmailApp.search("in:inbox newer_than:14d", 0, 50);
+    const startedAt = Date.now();
+    const checked = Number(props_().getProperty(INBOX_CHECKED) || 0);
+    const since = Math.max(startedAt - INBOX_MAX_MS, checked - INBOX_OVERLAP_MS);
+    const days = Math.min(14, Math.max(1, Math.ceil((startedAt - since) / 86400000)));
+    const threads = GmailApp.search("in:inbox newer_than:" + days + "d", 0, 50);
+    // 探した数・送る数の上限に当たったときは、まだ見ていないメールがあるかもしれないので、時刻を進めない
+    let complete = threads.length < 50;
     const mails = [];
     const threadOf = {};
-    for (let t = 0; t < threads.length && mails.length < 30; t++) {
+    for (let t = 0; t < threads.length && complete; t++) {
       const messages = threads[t].getMessages();
       const ids = messages.map((m) => "seen:" + m.getId());
       const seen = cache.getAll(ids);
-      for (let i = 0; i < messages.length && mails.length < 30; i++) {
+      for (let i = 0; i < messages.length && complete; i++) {
         const m = messages[i];
         if (seen["seen:" + m.getId()] || m.isInTrash() || m.getDate().getTime() < since) continue;
+        if (mails.length >= 30) {
+          complete = false;
+          break;
+        }
         const addr = address_(m.getFrom());
         if (addr === self || isGoogleNotice_(addr)) {
           cache.put("seen:" + m.getId(), "1", 21600);
@@ -303,6 +318,7 @@ function pollInbox() {
       }
     }
     if (!mails.length) {
+      if (complete) props_().setProperty(INBOX_CHECKED, String(startedAt));
       // 新しいメールが無いときも、10分に1回は「動いている」を知らせる(R12)
       if (!cache.get("heartbeat")) {
         hook_({ action: "heartbeat" });
@@ -311,10 +327,13 @@ function pollInbox() {
       return;
     }
     const res = hook_({ action: "mail", mails: mails });
-    (res.known || []).forEach((id) => {
+    const known = res.known || [];
+    known.forEach((id) => {
       cache.put("seen:" + id, "1", 21600);
       if (threadOf[id]) addLabels_(threadOf[id], LABEL_INBOX);
     });
+    // 全部を渡せたときだけ時刻を進める(渡せなかったものは、次の回にもう一度送る)
+    if (complete && mails.every((m) => known.indexOf(m.id) >= 0)) props_().setProperty(INBOX_CHECKED, String(startedAt));
     cache.put("heartbeat", "1", 600);
   } finally {
     props_().deleteProperty("polling_since");

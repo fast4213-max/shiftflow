@@ -115,14 +115,15 @@ async function main() {
   const messageId = location.hash === "#admin" ? "admin-message" : "user-message";
   setMessage(messageId, "前回のログインを確認しています…");
   try {
-    const profile = await loadProfile(session).catch(() => null);
+    const profile = await loadProfile(session);
     if (profile) return go(await homePageFor(session, profile));
+    // プロフィールが本当に無い(管理者が削除したなど)ときだけ、残っていたログインを捨てる
     await supabase.auth.signOut({ scope: "local" });
     setMessage(messageId, "");
   } catch (err) {
-    // 確かめられなかったときは、残っていたログインを捨てて入力し直してもらう
-    await supabase.auth.signOut({ scope: "local" });
-    setMessage(messageId, "");
+    // 通信の失敗・一時的な障害で確かめられなかったときは、ログインを消さない(Q1。電波の悪い所で開いただけで
+    // ログアウトされないように)。読み直せば先へ進める。ここで入れ直しても、新しいログインに入れ替わるだけ
+    setMessage(messageId, "前回のログインを確かめられませんでした。電波の良いところで、ページを読み直してください。", "error");
   }
   setFormsBusy(false);
   (location.hash === "#admin" ? $("admin-password") : $("employee-no")).focus();

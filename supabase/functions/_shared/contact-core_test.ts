@@ -43,6 +43,7 @@ function fakeRepo() {
   const members: Record<string, { role: string; employeeNo: string | null; name: string; officeName: string | null }> = {
     "user-1": { role: "user", employeeNo: "1234567", name: "山田 太郎", officeName: "A区所" },
     "user-2": { role: "user", employeeNo: "7654321", name: "佐藤 花子", officeName: null },
+    "user-3": { role: "user", employeeNo: "1111111", name: "鈴木 一郎", officeName: "長".repeat(80) },
     "admin-1": { role: "admin", employeeNo: null, name: "", officeName: null },
   };
   let msgSeq = 0;
@@ -107,7 +108,8 @@ function fakeRepo() {
       Object.assign(messages.find((m) => m.id === id)!, patch);
       return Promise.resolve();
     },
-    inquiryIdByThread: (t) => Promise.resolve(messages.find((m) => m.gmail_thread_id === t && m.inquiry_id != null)?.inquiry_id ?? null),
+    inquiryIdByThread: (t) =>
+      Promise.resolve(messages.find((m) => m.gmail_thread_id === t && m.sender === "admin" && m.inquiry_id != null)?.inquiry_id ?? null),
     unmatchedMails: () => Promise.resolve(messages.filter((m) => m.inquiry_id == null)),
     countUnmatched: () => Promise.resolve(messages.filter((m) => m.inquiry_id == null && m.sender === "mail").length),
     profileByEmployeeNo: (no) =>
@@ -248,6 +250,14 @@ Deno.test("ログイン後の送信: 社員番号・名前・所属は DB から
   // これまでのお問い合わせは本人のものだけ
   const mine = await listMine(deps, "user-1");
   assertEquals(mine.map((m) => m.no), ["#0001"]);
+});
+
+Deno.test("区所の名前が60文字を超えていても、所属を60文字に切り詰めて送れる(Q9)", async () => {
+  const { deps, db, settle } = setup();
+  await submitInquiry(deps, guest(), { ip: "1.1.1.1", userId: "user-3" });
+  await submitInquiry(deps, guest({ office: "短".repeat(70) }), { ip: "1.1.1.1", userId: null });
+  await settle();
+  assertEquals(db.inquiries.map((i) => [...i.office_name].length), [60, 60]);
 });
 
 Deno.test("送り直し(同じ request_key)は2件にせず、通知も1回だけ(C2)", async () => {
@@ -437,6 +447,7 @@ Deno.test("管理者の返事(メール): GAS に件名・本文・宛先を渡�
   assertEquals(r.replies[0].reply_to_message_id, null); // まだ相手からのメールは無い
   assertEquals(res.message!.mail_status, "sent");
   assertEquals(db.messages.find((m) => m.sender === "admin")!.gmail_thread_id, "ff0123");
+  assertEquals(db.inquiries[0].status, "replied");
 });
 
 Deno.test("メールの返事が時間切れ: 送れたか分からない(unknown)。送り直しは同じ key で GAS に渡す(M5)", async () => {
@@ -444,6 +455,7 @@ Deno.test("メールの返事が時間切れ: 送れたか分からない(unknow
   await submitInquiry(deps, guest({ reply_via: "mail", email: "taro@gmail.com" }), { ip: "1.1.1.1", userId: null });
   const res = await adminReply(deps, { id: 1, body: "返事", via: "mail", request_key: key() });
   assertEquals(res.message!.mail_status, "unknown");
+  assertEquals(db.inquiries[0].status, "open"); // 送れたか分からないときは要対応に残す(Q4)
   const msg = db.messages.find((m) => m.sender === "admin")!;
   // 利用者の画面には、送れなかった返事は出さない(unknown は出す)
   assertEquals(msg.mail_error, "timeout");
@@ -454,6 +466,22 @@ Deno.test("メールの返事が時間切れ: 送れたか分からない(unknow
   const again = await adminResend(deps, { message_id: msg.id });
   assertEquals(again.message!.mail_status, "sent");
   assertEquals(r.replies[0].key, r.replies[1].key);
+  assertEquals(db.inquiries[0].status, "replied"); // 送り直して届いたら返信済み(Q4)
+});
+
+Deno.test("メールの返事が送れなかった(上限など): 要対応に残す。対応済みにしたあとの送り直しは、対応済みのまま(Q4)", async () => {
+  const { deps, db } = setup({ relay: { result: { ok: false, kind: "failed", error: "上限です" } } });
+  await submitInquiry(deps, guest({ reply_via: "mail", email: "taro@gmail.com" }), { ip: "1.1.1.1", userId: null });
+  await adminReply(deps, { id: 1, body: "返事", via: "mail", request_key: key() });
+  assertEquals(db.inquiries[0].status, "open");
+  // 画面だけの返事は、今までどおり返信済み
+  await adminReply(deps, { id: 1, body: "画面の返事", via: "screen", request_key: key() });
+  assertEquals(db.inquiries[0].status, "replied");
+  await adminSetStatus(deps, { id: 1, status: "done" });
+  (deps.relay as { reply: unknown }).reply = () => Promise.resolve({ ok: true, message_id: "m3", thread_id: "t3" });
+  const failed = db.messages.find((m) => m.sender === "admin" && m.channel === "mail")!;
+  await adminResend(deps, { message_id: failed.id });
+  assertEquals(db.inquiries[0].status, "done");
 });
 
 Deno.test("メールの返事: 1回目は元の内容の引用つき、2回目以降は短い文面。届かなかった返事は数えない", async () => {
@@ -614,6 +642,17 @@ Deno.test("受信メール: 件名の番号で当てはめたときは、アド�
   const list = await adminList(deps, "unmatched");
   assertEquals(list.unmatched_mails.length, 2);
   assertEquals(list.counts.unmatched, 2);
+});
+
+Deno.test("受信メール: 件名の番号で差し込まれた他人のスレッドは、2通目以降も「違う人」の注意を出す(Q3)", async () => {
+  const { deps, db, d } = setup();
+  await submitInquiry(deps, guest({ reply_via: "mail", email: "taro@gmail.com" }), { ip: "1.1.1.1", userId: null });
+  d.posts.length = 0;
+  const evil = { from: "evil@example.com", thread_id: "ff0e01" };
+  await ingestMails(deps, { self: SELF, mails: [mail(evil)] });
+  await ingestMails(deps, { self: SELF, mails: [mail(evil)] });
+  assertEquals(db.messages.filter((x) => x.sender === "mail" && x.inquiry_id === 1).length, 2);
+  assertEquals(d.posts.map((p) => JSON.stringify(p.payload).includes("違う人")), [true, true]);
 });
 
 Deno.test("受信メール: 届かなかった知らせは本文の番号で当てはめ、印を付ける(R10)", async () => {

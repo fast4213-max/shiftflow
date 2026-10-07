@@ -192,12 +192,13 @@ export async function submitInquiry(
     }
     employeeNo = info.employeeNo;
     name = info.name;
-    officeName = info.officeName ?? "未設定";
+    // 区所の名前には長さの上限が無い(昔に付けた長い名前もありうる)ので、所属の上限(60文字)に切り詰める(Q9)
+    officeName = truncate(info.officeName ?? "未設定", 60);
   } else {
     employeeNo = toHalfWidth(body.employee_no).replace(/[\s\-ー－]/g, "");
     if (!isEmployeeNo(employeeNo)) throw new AppError(400, "社員番号は7桁の数字で入力してください。", "bad_employee_no");
     name = requireLine(body.name, "名前", 40);
-    officeName = requireLine(body.office, "所属", 60);
+    officeName = truncate(requireLine(body.office, "所属", 200), 60);
   }
 
   // ログイン前で「画面で見る」は、画面が作った確認コード(画面が覚えているので、送り直しても同じコードになる)
@@ -459,6 +460,8 @@ export async function adminReply(deps: Deps, body: Record<string, unknown>) {
   });
   if (!viaMail) return { message: msg, duplicate: false };
   const sent = await sendReplyMail(deps, inq, msg, messages, to!);
+  // メールが送れなかった・送れたか分からないときは、「要対応」に残す(Q4。返信済みにすると一覧から消えて、送り直しを忘れるため)
+  if (sent.mail_status !== "sent") await repo.updateInquiry(inq.id, { status: "open" });
   return { message: sent, duplicate: false };
 }
 
@@ -503,7 +506,10 @@ export async function adminResend(deps: Deps, body: Record<string, unknown>) {
   const to = msg.from_email ?? replyTarget(inq, messages);
   if (!to) throw new AppError(400, "送り先のメールアドレスがありません。", "no_email");
   await repo.updateMessage(msg.id, { mail_status: "sending" });
-  return { message: await sendReplyMail(deps, inq, msg, messages, to) };
+  const sent = await sendReplyMail(deps, inq, msg, messages, to);
+  // 送り直して届いたら、要対応のまま残していたもの(Q4)を返信済みにする(対応済みにしてあれば、そのまま)
+  if (sent.mail_status === "sent" && inq.status === "open") await repo.updateInquiry(inq.id, { status: "replied" });
+  return { message: sent };
 }
 
 export async function adminSetStatus(deps: Deps, body: Record<string, unknown>) {

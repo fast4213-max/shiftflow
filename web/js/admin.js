@@ -19,6 +19,9 @@ const MASTER_COLUMNS = [
   ["holiday_weekday_end", "休平退勤"],
 ];
 
+// 区所の名前の長さの上限(お問い合わせの「所属」に写すときの上限と同じ。Q9)
+const OFFICE_NAME_MAX = 60;
+
 let stats = null;
 let currentMaster = [];
 let pendingRows = null;
@@ -250,8 +253,9 @@ function renderOffices() {
     const actions = document.createElement("div");
     actions.append(
       button("名前変更", async () => {
-        const name = prompt("新しい名前", o.name);
+        const name = prompt("新しい名前(60文字まで)", o.name);
         if (!name || !name.trim() || name.trim() === o.name) return;
+        if ([...name.trim()].length > OFFICE_NAME_MAX) return message(`区所の名前は${OFFICE_NAME_MAX}文字までにしてください。`, "error");
         const { error } = await supabase.from("offices").update({ name: name.trim() }).eq("id", o.id);
         if (error) return message(error.code === "23505" ? "同じ名前の区所があります。" : error.message, "error");
         refresh();
@@ -277,6 +281,7 @@ function renderOffices() {
 $("add-office").addEventListener("click", async () => {
   const name = $("new-office").value.trim();
   if (!name) return;
+  if ([...name].length > OFFICE_NAME_MAX) return message(`区所の名前は${OFFICE_NAME_MAX}文字までにしてください。`, "error");
   const { error } = await supabase.from("offices").insert({ name, sort_order: stats.offices.length + 1 });
   if (error) return message(error.code === "23505" ? "同じ名前の区所があります。" : error.message, "error");
   $("new-office").value = "";

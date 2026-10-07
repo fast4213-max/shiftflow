@@ -113,7 +113,7 @@ help.html      使い方(未ログインでも読める)
 | `pages.yml` | `web/` を変えて main に push したとき | `web/` を GitHub Pages に公開 |
 | `test.yml` | コードを変えたとき | 予定の組み立て・カレンダー操作のテスト |
 
-GitHub の Secrets に入れるもの(最初に本人が1回だけ): `SUPABASE_ACCESS_TOKEN`、`SUPABASE_PROJECT_REF`、`SUPABASE_DB_PASSWORD`。
+GitHub の Secrets に入れるもの(最初に本人が1回だけ): `SUPABASE_ACCESS_TOKEN`、`SUPABASE_PROJECT_ID`、`SUPABASE_DB_PASSWORD`。
 サービスアカウントの鍵は Supabase のダッシュボードの Edge Functions → Secrets に本人が入れる(GitHub には置かない)。
 
 ---
@@ -214,7 +214,7 @@ GitHub の Secrets に入れるもの(最初に本人が1回だけ): `SUPABASE_A
 ## 7. 最初に本人がやること(実装後)
 
 1. Supabase のプロジェクトを作る(Tokyo)。Authentication で「新規ユーザーの登録を許可」をオフ、「メールの確認」をオフ
-2. Supabase のアクセストークンを発行し、GitHub の Secrets に `SUPABASE_ACCESS_TOKEN` / `SUPABASE_PROJECT_REF` / `SUPABASE_DB_PASSWORD` を入れる → 以降は push で自動反映
+2. Supabase のアクセストークンを発行し、GitHub の Secrets に `SUPABASE_ACCESS_TOKEN` / `SUPABASE_PROJECT_ID` / `SUPABASE_DB_PASSWORD` を入れる → 以降は push で自動反映
 3. Google Cloud でプロジェクト作成 → Calendar API を有効化 → サービスアカウントと鍵(JSON)を作り、Supabase の Edge Functions → Secrets に入れる
 4. `web/js/config.js` に Supabase の URL と公開用キーを書く(公開してよい値)。GitHub Pages の Source を「GitHub Actions」にする
 5. 管理用ユーザーと共通パスワードを設定する(手順は実装時に README に書く)

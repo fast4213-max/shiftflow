@@ -52,6 +52,7 @@ function backend(opts = {}) {
       if (opts.officesDelay) await new Promise((r) => setTimeout(r, opts.officesDelay));
       return opts.officesFail ? json({ message: "x" }, 500) : json(["A区所", "B区所"]);
     }
+    if (path === "/rest/v1/profiles" && opts.profileAbort) return route.abort("failed");
     if (path === "/rest/v1/profiles") return json(opts.profile ? [opts.profile] : []);
     if (path === "/rest/v1/user_settings") return json([{ office_id: 1, work_calendar_id: "w", holiday_calendar_id: null, verified_at: "2026-10-01", split_day_events: false }]);
     if (path === "/rest/v1/offices") return json([{ name: "A区所" }]);
@@ -70,6 +71,7 @@ function backend(opts = {}) {
       if (opts.contactDelay) await new Promise((r) => setTimeout(r, opts.contactDelay));
       if (body.action === "submit") {
         if (opts.submitError) return json(opts.submitError, opts.submitError.status || 401);
+        if (opts.submitDuplicate) return json({ id: 12, no: "#0012", duplicate: true, images: "none" });
         const id = st.inquiries.length + 12;
         st.inquiries.push({ id, body });
         return json({ id, no: "#" + String(id).padStart(4, "0"), duplicate: false, images: body.images.length ? "ok" : "none" });
@@ -99,7 +101,8 @@ function backend(opts = {}) {
             { id: 3, inquiry_id: 12, sender: "mail", channel: "mail", body: "<img src=x onerror=alert(2)>ありがとう", body_full: "ありがとう\n> 引用", from_email: "other@example.com", subject: "Re: お問い合わせ #0012", attachment_names: "a.jpg", gmail_thread_id: "ff01", created_at: new Date().toISOString() },
           ], registered: { name: "山田 太郎", officeName: "A区所" }, reply_to_email: "taro@gmail.com" });
       }
-      if (body.action === "reply") return json({ message: { id: 9, mail_status: body.via === "mail" ? "sent" : null }, duplicate: false });
+      if (body.action === "reply" && opts.replyDuplicate) return json({ message: { id: 9, body: "前の文", mail_status: "sent" }, duplicate: true });
+      if (body.action === "reply") return json({ message: { id: 9, body: body.body, mail_status: body.via === "mail" ? "sent" : null }, duplicate: false });
       if (body.action === "resend") return json({ message: { id: 2, mail_status: "sent" } });
       if (body.action === "status") return json({ ok: true });
       if (body.action === "reply-unmatched") return json({ message: { mail_status: "sent" } });
@@ -187,6 +190,34 @@ await check("ログイン画面: 入力を始めたあとに届いたお知ら�
   assert.equal(before.y, after.y);
   assert.ok(await page.evaluate(() => document.getElementById("login-notices").classList.contains("below")));
   assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("ログイン画面: 前回のログインの確認が通信エラーなら、ログインを消さずに知らせる。プロフィールが無いときだけ消す(Q1)", async () => {
+  const key = "sb-owotkyocoslifbgwwafm-auth-token";
+  const a = await open("index.html", { userId: "u1", opts: { profileAbort: true } });
+  await a.page.waitForSelector("#user-message.error");
+  assert.ok((await a.page.textContent("#user-message")).includes("確かめられませんでした"));
+  assert.ok(await a.page.evaluate((k) => !!localStorage.getItem(k), key));
+  assert.equal(await a.page.isEnabled("#user-login"), true);
+  await a.ctx.close();
+  const b = await open("index.html", { userId: "u1", opts: { profile: null } });
+  await b.page.waitForFunction((k) => !localStorage.getItem(k), key);
+  assert.equal(await b.page.textContent("#user-message"), "");
+  await b.ctx.close();
+});
+
+await check("お問い合わせ: 前の送信がもう届いていた(duplicate)ときは、直した内容は届いていないと知らせる(Q6)", async () => {
+  const { page, ctx } = await open("contact.html", { opts: { submitDuplicate: true } });
+  await page.waitForSelector("#contact-form:not(.hidden)");
+  await page.fill("#employee-no", "1234567");
+  await page.fill("#name", "山田 太郎");
+  await page.selectOption("#office", "A区所");
+  await page.selectOption("#kind", "login");
+  await page.fill("#body", "直した内容");
+  await page.click("#submit");
+  await page.waitForSelector("#sent:not(.hidden)");
+  assert.ok((await page.textContent("#sent-images")).includes("もう届いていました"));
   await ctx.close();
 });
 
@@ -475,6 +506,26 @@ await check("管理画面: お問い合わせタブの件数・GAS が止まっ�
   await page.waitForSelector("#contact-list-message.ok");
   assert.deepEqual(errors, []);
   await ctx.close();
+});
+
+await check("管理画面: 前の返事がもう届いていて文が違うときは、直した文は送っていないと知らせる(Q6)", async () => {
+  const { page, ctx } = await open("admin.html", { userId: "a1", opts: { profile: ADMIN, replyDuplicate: true }, viewport: { width: 1200, height: 900 } });
+  await page.click('.dtab[data-tab="contact"]');
+  await page.click(".contact-item >> nth=0");
+  await page.waitForSelector(".reply-form textarea");
+  await page.fill(".reply-form textarea", "直した文");
+  await page.click("text=返事を送る");
+  await page.waitForSelector("#contact-detail-message.error");
+  assert.ok((await page.textContent("#contact-detail-message")).includes("直した文は送っていません"));
+  await ctx.close();
+});
+
+await check("管理画面: 区所の名前は60文字まで(Q9)", async () => {
+  const { page, ctx, be } = await open("admin.html", { userId: "a1", opts: { profile: ADMIN }, viewport: { width: 1200, height: 900 } });
+  await page.waitForSelector("#new-office", { state: "attached" });
+  assert.equal(await page.getAttribute("#new-office", "maxlength"), "60");
+  await ctx.close();
+  void be;
 });
 
 await check("管理画面: お知らせを出す・直す・消す。期間の誤りは止める", async () => {

@@ -336,7 +336,10 @@ function showSent(res, via, email) {
     $("view-code").value = code.slice(0, 4) + "-" + code.slice(4);
   }
   if (via === "mail") $("sent-email").textContent = email || "";
-  if (res.images === "failed") {
+  if (res.duplicate) {
+    // 前の送信(時間切れなどで結果が分からなかったもの)が届いていた。そのあとで直した内容・付けた画像は届いていない(Q6)
+    setMessage("sent-images", "前に送ったお問い合わせが、もう届いていました(受付番号は同じです)。そのあとで直した内容や付けた画像は届いていないので、必要なら「別のお問い合わせを送る」から、受付番号を書いて送ってください。", "error");
+  } else if (res.images === "failed") {
     setMessage("sent-images", "画像は届かなかった可能性があります。必要なら、受付番号を書いて、もう一度画像を付けて送ってください。", "error");
   } else if (res.images === "ok") {
     setMessage("sent-images", "画像も届きました。", "ok");

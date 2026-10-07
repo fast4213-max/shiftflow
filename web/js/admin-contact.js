@@ -6,6 +6,8 @@ import { CONTACT_EMAIL } from "./config.js?v=dev";
 
 const KIND_LABELS = { login: "ログインできない", howto: "使い方・質問", bug: "不具合", other: "その他" };
 const MAX_REPLY = 3000;
+// メールを送る操作の待ち時間。サーバーは GAS を最大28秒待ち、GAS 側でも順番待ちがあるので、既定の30秒より長くする(Q5)
+const MAIL_TIMEOUT_MS = 60000;
 
 let filter = "todo";
 let selectedId = null;
@@ -190,7 +192,7 @@ function mailStatusLine(m, inq) {
       div.appendChild(btn("もう一度送る", async (ev) => {
         ev.target.disabled = true;
         try {
-          const res = await callFunction("admin-contact", { action: "resend", message_id: m.id });
+          const res = await callFunction("admin-contact", { action: "resend", message_id: m.id }, { timeoutMs: MAIL_TIMEOUT_MS });
           await openDetail(inq.id, { quiet: true });
           const ok = res.message && res.message.mail_status === "sent";
           setMessage("contact-detail-message", ok ? "送りました。" : "送れませんでした。表示を確認してください。", ok ? "ok" : "error");
@@ -314,12 +316,18 @@ function replyForm(inq, messages, replyTo) {
     send.disabled = true;
     setMessage("contact-detail-message", viaValue === "mail" ? "メールを送っています…" : "保存しています…");
     try {
-      const res = await callFunction("admin-contact", { action: "reply", id: inq.id, body: text, via: viaValue, request_key: draft.key });
+      const res = await callFunction("admin-contact", { action: "reply", id: inq.id, body: text, via: viaValue, request_key: draft.key },
+        { timeoutMs: MAIL_TIMEOUT_MS });
       drafts.delete(inq.id);
       const status = res.message && res.message.mail_status;
       await openDetail(inq.id, { quiet: true });
+      if (res.duplicate && res.message && res.message.body !== text) {
+        // 前の送信(時間切れなどで結果が分からなかったもの)が届いていた。直した文は送っていない(Q6)
+        setMessage("contact-detail-message", "前に送った返事がもう届いていました。そのあとで直した文は送っていません。必要なら、もう一度書いて送ってください。", "error");
+        return;
+      }
       setMessage("contact-detail-message",
-        status === "failed" || status === "unknown" ? "返事は保存しましたが、メールは送れませんでした。下の表示を確認してください。" : "返事を送りました。",
+        status === "failed" || status === "unknown" ? "返事は保存しましたが、メールは送れませんでした。下の表示を確認してください(要対応のまま残します)。" : "返事を送りました。",
         status === "failed" || status === "unknown" ? "error" : "ok");
     } catch (err) {
       setMessage("contact-detail-message", err.message || String(err), "error");
@@ -371,9 +379,15 @@ function renderUnmatched(mails) {
         if (!ta.value.trim()) return;
         send.disabled = true;
         try {
-          const res = await callFunction("admin-contact", { action: "reply-unmatched", message_id: m.id, body: ta.value.trim(), request_key: key });
+          const text = ta.value.trim();
+          const res = await callFunction("admin-contact", { action: "reply-unmatched", message_id: m.id, body: text, request_key: key },
+            { timeoutMs: MAIL_TIMEOUT_MS });
           const status = res.message && res.message.mail_status;
           await loadList({ quiet: true });
+          if (res.duplicate && res.message && res.message.body !== text) {
+            setMessage("contact-list-message", "前に送った返信がもう届いていました。そのあとで直した文は送っていません。", "error");
+            return;
+          }
           setMessage("contact-list-message", status === "sent" ? "返信しました。" : "返信を送れませんでした。もう一度読み直して確認してください。", status === "sent" ? "ok" : "error");
         } catch (err) {
           setMessage("contact-list-message", err.message || String(err), "error");

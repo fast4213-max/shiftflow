@@ -380,7 +380,11 @@ $("register").addEventListener("click", async () => {
     // 登録は「保存 → 今ある予定を削除 → 作り直し」の順なので、途中で失敗すると予定が欠けたままになる。
     // 何も変わっていない失敗(設定の不足・二重実行・ログイン切れ)には、この案内は付けない
     state.dirty = true;
-    const untouched = ["busy", "not_configured", "not_verified", "no_office", "unauthenticated", "not_member"];
+    // (auth_unavailable・bad_entries・holiday_unavailable も、保存の前に止まるので何も変わっていない。Q2)
+    const untouched = [
+      "busy", "not_configured", "not_verified", "no_office", "unauthenticated", "not_member",
+      "auth_unavailable", "bad_entries", "holiday_unavailable",
+    ];
     setStatus(err.message + (untouched.includes(err.code)
       ? ""
       : "(入力は保存されています。カレンダーの予定が途中までになっていることがあるので、もう一度「登録」を押してください)"), true);
