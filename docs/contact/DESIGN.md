@@ -2,7 +2,7 @@
 
 状態: **実装済み・main に反映済み・GAS と Discord のセットアップ待ち**(2026-10-06。セットアップは [`SETUP.md`](SETUP.md)。確かめ方は [`test/README.md`](test/README.md))
 
-見本の画像は `img/`。画像は `draw.py`(共通の部品とログイン画面など)・`v2.py`・`v3.py`・`v4.py` で作った(Pillow。`python3 v3.py` などで作り直せる)。
+見本の画像は `img/`(作るのに使った Pillow のスクリプトは削除済み。必要なら git の履歴の `docs/contact/draw.py`・`v2〜v4.py`)。
 
 ---
 
