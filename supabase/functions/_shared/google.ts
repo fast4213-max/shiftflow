@@ -74,7 +74,14 @@ async function accessToken(): Promise<string> {
     iat: now,
     exp: now + 3600,
   }));
-  const key = await importKey(sa.private_key);
+  let key: CryptoKey;
+  try {
+    key = await importKey(sa.private_key);
+  } catch (err) {
+    // 鍵の貼り間違い(PEM が壊れている)は、待っても直らない。再試行せずに設定の不備として返す(T2)
+    console.error("GOOGLE_SERVICE_ACCOUNT_JSON の private_key を読めません", err instanceof Error ? err.message : err);
+    throw setupProblem();
+  }
   const signature = new Uint8Array(
     await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(`${header}.${claims}`)),
   );
@@ -108,6 +115,14 @@ export class GoogleError extends Error {
 
 // Google への1回の通信を待つ時間の上限
 const REQUEST_TIMEOUT_MS = 20_000;
+
+// 読む(GET)ときは、withRetryBudget の残りの時間も超えて待たない(S22。祝日の取り直しの「3秒」が、応答しない Google で20秒になっていた)。
+// 作る・消すは、途中で切ると状態が分からなくなるので、いつもの上限のまま
+const MIN_REQUEST_TIMEOUT_MS = 1_000;
+function requestTimeoutMs(method: string, deadline: number, now = Date.now()): number {
+  if (method !== "GET" || !budgetStore?.getStore()) return REQUEST_TIMEOUT_MS;
+  return Math.min(REQUEST_TIMEOUT_MS, Math.max(MIN_REQUEST_TIMEOUT_MS, deadline - now));
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -168,7 +183,7 @@ async function call(method: string, path: string, body?: unknown, query?: Record
         },
         body: body ? JSON.stringify(body) : undefined,
         // Google が応答しないとき、いつまでも待たない(待つと、二重実行防止のロックを持ったまま固まる)
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(requestTimeoutMs(method, deadline)),
       });
     } catch (err) {
       // サーバー側の設定の不備(鍵の失効・GOOGLE_SERVICE_ACCOUNT_JSON の誤り。accessToken が投げる)は、待っても直らない。

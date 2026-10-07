@@ -52,7 +52,7 @@ export function yearMonthOf(body: Record<string, unknown>): { year: number; mont
   const year = Number(body.year);
   const month = Number(body.month);
   if (!Number.isInteger(year) || year < 2000 || year > 2100 || !Number.isInteger(month) || month < 1 || month > 12) {
-    throw new AppError(400, "年月の指定が正しくありません。");
+    throw new AppError(400, "年月の指定が正しくありません。", "bad_period");
   }
   return { year, month };
 }
@@ -70,6 +70,6 @@ export function entriesFrom(body: Record<string, unknown>): Record<string, unkno
   if (!v || typeof v !== "object" || Array.isArray(v)) {
     throw new AppError(400, "入力の形が正しくありません。ページを読み直して、もう一度お試しください。", "bad_entries");
   }
-  if (Object.keys(v).length > 62) throw new AppError(400, "入力が多すぎます。");
+  if (Object.keys(v).length > 62) throw new AppError(400, "入力が多すぎます。", "bad_entries");
   return v as Record<string, unknown>;
 }

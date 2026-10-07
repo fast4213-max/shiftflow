@@ -3,7 +3,7 @@
 
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
 import { createEvents, deleteAppEvents, eventsToRegister, listAppEvents, parseTimeRange, isOffTitle, splitDayEvents, staleNextMonthRecords } from "./shift-calendar.ts";
-import { AppError } from "./http.ts";
+import { AppError, entriesFrom, yearMonthOf } from "./http.ts";
 import {
   calendarAccessError,
   clearsVerification,
@@ -582,4 +582,39 @@ Deno.test("Google の鍵の失効など(トークンが取れない 4xx)は、�
   } finally {
     resetGoogleCacheForTest();
   }
+});
+
+Deno.test("Google の鍵の中身が壊れているときも、再試行せずに「管理者に連絡」(503 calendar_setup)にする(T2)", async () => {
+  const saved = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_JSON")!;
+  Deno.env.set(
+    "GOOGLE_SERVICE_ACCOUNT_JSON",
+    JSON.stringify({ client_email: "sa@example.iam.gserviceaccount.com", private_key: "-----BEGIN PRIVATE KEY-----\nbm90IGEga2V5\n-----END PRIVATE KEY-----\n" }),
+  );
+  resetGoogleCacheForTest();
+  let fetchCalls = 0;
+  globalThis.fetch = () => {
+    fetchCalls++;
+    return Promise.resolve(Response.json({ items: [] }));
+  };
+  const started = Date.now();
+  try {
+    const err = await assertRejects(() => listAppEvents({ work: "w", holiday: "" }, 2026, 10), AppError) as AppError;
+    assertEquals([err.status, err.code, fetchCalls], [503, "calendar_setup", 0]);
+    assert(Date.now() - started < 1000);
+  } finally {
+    Deno.env.set("GOOGLE_SERVICE_ACCOUNT_JSON", saved);
+    resetGoogleCacheForTest();
+  }
+});
+
+Deno.test("年月・入力の件数の 400 には code が付く(画面が「保存の前に止まった」と分かる。S23)", () => {
+  const codeOf = (fn: () => unknown) => {
+    try {
+      fn();
+    } catch (e) {
+      return (e as AppError).code;
+    }
+  };
+  assertEquals(codeOf(() => yearMonthOf({ year: 1999, month: 1 })), "bad_period");
+  assertEquals(codeOf(() => entriesFrom({ entries: Object.fromEntries(Array.from({ length: 63 }, (_, i) => [String(i), {}])) })), "bad_entries");
 });

@@ -87,3 +87,21 @@ Deno.test("祝日を初めて取る年が取れないときは、503(holiday_una
     retryPolicy.jitter = saved.jitter;
   }
 });
+
+Deno.test("祝日の取り直しで Google が応答しないときも、3秒の上限で諦める(1回の待ちが20秒にならない。S22)", async () => {
+  // 応答しない Google: signal が中止されるまで返さない(中止されたら AbortError)
+  globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.host === "oauth2.googleapis.com") return Promise.resolve(Response.json({ access_token: "token", expires_in: 3600 }));
+    return new Promise((_, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "TimeoutError")));
+    });
+  };
+  const old = new Date(Date.now() - 40 * 86400_000).toISOString();
+  const { admin, writes } = fakeAdmin([{ year: thisYear, source: "google", fetched_at: old }]);
+  const t0 = Date.now();
+  await ensureHolidayYears(admin, [thisYear]); // 例外にならない(前回の分を使う)
+  const ms = Date.now() - t0;
+  assert(ms < 6000, `待ちすぎ: ${ms}ms`); // 区切らないと、1回20秒待つ
+  assertEquals(writes, []);
+});
