@@ -324,7 +324,10 @@ $("contact-form").addEventListener("submit", async (ev) => {
   }
 });
 
-function showSent(res, via, email) {
+function showSent(res, inputVia, inputEmail) {
+  // 送り直しで前の問い合わせが届いていたときは、前の返事の受け取り方で案内する(入れ直した方では案内しない。S20)
+  const via = res.duplicate && res.reply_via ? res.reply_via : inputVia;
+  const email = via === inputVia ? inputEmail : "(前の送信で入れたアドレス)";
   $("sent-no").textContent = res.no;
   $("sent-code").classList.toggle("hidden", !(mode === "guest" && via === "screen"));
   $("sent-mail").classList.toggle("hidden", via !== "mail");

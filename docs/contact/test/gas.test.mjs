@@ -51,8 +51,8 @@ function world() {
       getUserLabelByName: (n) => labels.get(n) ?? null, createLabel: mkLabel,
       getMessageById: (id) => { for (const t of threads) for (const m of t.messages) if (m.id === id) return m; throw new Error("not found"); },
       createDraft: (to, subject, body, opts) => ({ send: () => { quota--; const t = mkThread(); const m = mkMessage(t, { from: `${opts.name} <${SELF}>`, to, subject, body, attachments: (opts.attachments || []).map((a) => a.n) }); sent.push(m); if (to === SELF) mkMessage(t, { from: `${opts.name} <${SELF}>`, to, subject, body }); return m; } }),
-      search: (q) => {
-        if (q.startsWith("in:inbox")) return threads.filter((t) => !t.trashed);
+      search: (q, start, max) => {
+        if (q.startsWith("in:inbox")) return threads.filter((t) => !t.trashed).slice(start ?? 0, (start ?? 0) + (max ?? 500));
         if (q.startsWith("label:shiftflow")) return threads.filter((t) => t.labels.has("shiftflow") && !t.trashed);
         return [];
       },
@@ -227,6 +227,27 @@ const post = (w, body) => w.ctx.doPost({ postData: { contents: JSON.stringify({ 
   assert.equal(w3.hooks.at(-1).mails.length, 5);
   assert.ok(w3.props.has("inbox_checked_at"));
   console.log("ok poll window");
+}
+// スレッドが多くても(以前は50件ちょうどで1件も渡さなかった)、見つけた分は渡す(S1)。2万字の切れ目の絵文字は半分を残さない(S13)
+{
+  const w = world();
+  for (let i = 0; i < 60; i++) w.mkMessage(w.mkThread(), { from: "a@x.com", subject: "s", body: "b" + i });
+  w.ctx.pollInbox();
+  assert.equal(w.hooks.at(-1).action, "mail");
+  assert.equal(w.hooks.at(-1).mails.length, 30);
+  const w2 = world();
+  for (let i = 0; i < 210; i++) w2.mkMessage(w2.mkThread(), { from: "a@x.com", subject: "s", body: "b" + i });
+  w2.ctx.pollInbox();
+  assert.equal(w2.hooks.at(-1).mails.length, 30);
+  assert.equal(w2.props.has("inbox_checked_at"), false); // 探す数の上限に当たったので時刻は進めない
+  const w3 = world();
+  const long = "あ".repeat(19999) + "😀" + "続き";
+  w3.mkMessage(w3.mkThread(), { from: "a@x.com", subject: "s", body: long });
+  w3.ctx.pollInbox();
+  const body = w3.hooks.at(-1).mails[0].body;
+  assert.equal(body.length, 19999);
+  assert.ok(!/[\uD800-\uDFFF]/.test(body));
+  console.log("ok poll many threads / emoji cut");
 }
 // 送信後のラベル付けが失敗しても、送信は成功扱い。送り直しで2通目を送らない
 {

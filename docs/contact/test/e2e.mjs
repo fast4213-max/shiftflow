@@ -59,6 +59,7 @@ function backend(opts = {}) {
     if (path === "/rest/v1/rpc/admin_stats" && opts.statsAbort) return route.abort("failed");
     if (path === "/rest/v1/rpc/admin_stats" && opts.statsFail) return json({ message: "statement timeout" }, 500);
     if (path === "/rest/v1/rpc/admin_stats") return json({ users: 1, verified: 1, active_30d: 1, signups_7d: 0, signup_password_set: true, offices: [{ id: 1, name: "A区所", master_count: 1, user_count: 1 }], no_office: 0, users_list: [] });
+    if (path === "/rest/v1/shift_master" && opts.masterFail) return json({ message: "boom" }, 500);
     if (path === "/rest/v1/shift_master") return json([]);
     if (path === "/rest/v1/notices") {
       if (req.method() === "GET") return json(st.notices);
@@ -66,12 +67,23 @@ function backend(opts = {}) {
       if (req.method() === "PATCH") { const id = Number(url.searchParams.get("id").replace("eq.", "")); Object.assign(st.notices.find((n) => n.id === id), body); return json(null, 204); }
       if (req.method() === "DELETE") { const id = Number(url.searchParams.get("id").replace("eq.", "")); st.notices = st.notices.filter((n) => n.id !== id); return json(null, 204); }
     }
-    if (path === "/functions/v1/app-config") return json({ serviceAccountEmail: "sa@x.iam.gserviceaccount.com" });
+    if (path === "/auth/v1/logout") return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*" } });
+    if (path === "/auth/v1/token") {
+      // ログインの更新(S2)。"down" は通信できない、それ以外は新しいログインを返す
+      if (opts.refresh === "down") return route.abort("failed");
+      return json(session("u1"));
+    }
+    if (path === "/functions/v1/app-config") {
+      st.appConfigCalls = (st.appConfigCalls || 0) + 1;
+      // 最初の1回だけ「ログインが切れた」を返す(S2)
+      if (opts.firstUnauth && st.appConfigCalls === 1) return json({ error: "ログインし直してください。", code: "unauthenticated" }, 401);
+      return json({ serviceAccountEmail: "sa@x.iam.gserviceaccount.com" });
+    }
     if (path === "/functions/v1/contact") {
       if (opts.contactDelay) await new Promise((r) => setTimeout(r, opts.contactDelay));
       if (body.action === "submit") {
         if (opts.submitError) return json(opts.submitError, opts.submitError.status || 401);
-        if (opts.submitDuplicate) return json({ id: 12, no: "#0012", duplicate: true, images: "none" });
+        if (opts.submitDuplicate) return json({ id: 12, no: "#0012", duplicate: true, images: "none", reply_via: opts.submitDuplicate === "mail" ? "mail" : "screen" });
         const id = st.inquiries.length + 12;
         st.inquiries.push({ id, body });
         return json({ id, no: "#" + String(id).padStart(4, "0"), duplicate: false, images: body.images.length ? "ok" : "none" });
@@ -218,6 +230,58 @@ await check("お問い合わせ: 前の送信がもう届いていた(duplicate)
   await page.click("#submit");
   await page.waitForSelector("#sent:not(.hidden)");
   assert.ok((await page.textContent("#sent-images")).includes("もう届いていました"));
+  await ctx.close();
+});
+
+await check("送り直しで前の問い合わせ(メールで受け取る)が届いていたら、使えない確認コードを出さない(S20)", async () => {
+  const { page, ctx } = await open("contact.html", { opts: { submitDuplicate: "mail" } });
+  await page.waitForSelector("#contact-form:not(.hidden)");
+  await page.fill("#employee-no", "1234567");
+  await page.fill("#name", "山田 太郎");
+  await page.selectOption("#office", "A区所");
+  await page.selectOption("#kind", "login");
+  await page.fill("#body", "内容");
+  await page.click("#submit");
+  await page.waitForSelector("#sent:not(.hidden)");
+  assert.equal(await page.isVisible("#sent-code"), false);
+  assert.equal(await page.isVisible("#sent-mail"), true);
+  await ctx.close();
+});
+
+await check("ログインの更新が遅れて「ログインが切れた」と言われたら、更新して1回だけ送り直す。更新できない(圏外)ときはログインを消さない(S2)", async () => {
+  const key = "sb-owotkyocoslifbgwwafm-auth-token";
+  const a = await open("settings.html", { userId: "u1", opts: { profile: USER, firstUnauth: true } });
+  await a.page.waitForFunction(() => document.getElementById("sa-email").value === "sa@x.iam.gserviceaccount.com");
+  assert.equal(a.be.st.appConfigCalls, 2);
+  assert.ok(a.page.url().endsWith("settings.html"));
+  await a.ctx.close();
+  const b = await open("settings.html", { userId: "u1", opts: { profile: USER, firstUnauth: true, refresh: "down" } });
+  // 圏外のとき、supabase-js はログインの更新を30秒ほど粘ってから諦める
+  await b.page.waitForFunction(() => document.getElementById("sa-email").value.startsWith("取得できませんでした"), null, { timeout: 45000 });
+  assert.ok((await b.page.inputValue("#sa-email")).includes("通信が不安定"));
+  assert.ok(b.page.url().endsWith("settings.html"));
+  assert.ok(await b.page.evaluate((k) => !!localStorage.getItem(k), key));
+  await b.ctx.close();
+});
+
+await check("ログアウトは、この端末だけ(scope=local。S5)", async () => {
+  const { page, ctx, be } = await open("notices.html", { userId: "u1", opts: { profile: USER } });
+  await page.waitForSelector("text=ログアウト");
+  await page.click("text=ログアウト");
+  await page.waitForURL(/index\.html/);
+  const out = be.st.calls.find((c) => c.path === "/auth/v1/logout");
+  assert.ok(out && out.search.includes("scope=local"), JSON.stringify(out && out.search));
+  await ctx.close();
+});
+
+await check("管理画面: マスタを読み込めていないときは「CSVで保存」で前の区所のマスタを保存しない(S4)", async () => {
+  const { page, ctx } = await open("admin.html", { userId: "a1", opts: { profile: ADMIN, masterFail: true }, viewport: { width: 1200, height: 900 } });
+  await page.waitForSelector("#message.error");
+  await page.click('.dtab[data-tab="master"]');
+  const download = page.waitForEvent("download", { timeout: 1500 }).then(() => true, () => false);
+  await page.click("#csv-download");
+  assert.equal(await download, false);
+  assert.ok((await page.textContent("#message")).includes("読み込めていません"));
   await ctx.close();
 });
 

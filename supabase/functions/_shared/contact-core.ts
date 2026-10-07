@@ -91,6 +91,7 @@ export interface Repo {
   messageByRequestKey(key: string): Promise<Message | null>;
   messageExists(gmailMessageId: string): Promise<boolean>;
   updateMessage(id: number, patch: Partial<Message>): Promise<void>;
+  deleteMessage(id: number): Promise<void>;
   inquiryIdByThread(threadId: string): Promise<number | null>;
   unmatchedMails(limit: number): Promise<Message[]>;
   countUnmatched(): Promise<number>;
@@ -152,7 +153,8 @@ async function limit(repo: Repo, key: string, [max, minutes]: readonly [number, 
 // 送信
 // ============================================================
 
-export type SubmitResult = { id: number; no: string; duplicate: boolean; images: "none" | "ok" | "failed" };
+// reply_via: 送り直し(duplicate)のとき、前に届いていた問い合わせの返事の受け取り方(画面がそれに合わせて案内する。S20)
+export type SubmitResult = { id: number; no: string; duplicate: boolean; images: "none" | "ok" | "failed"; reply_via?: string };
 
 export async function submitInquiry(
   deps: Deps,
@@ -229,7 +231,11 @@ export async function submitInquiry(
   });
   const result: SubmitResult = { id: created.id, no: formatNo(created.id), duplicate: created.duplicate, images: "none" };
   // 送り直し(前の送信は届いていた)ときは、通知を二重に出さない(C2・I9)
-  if (created.duplicate) return result;
+  if (created.duplicate) {
+    const before = await repo.getInquiry(created.id);
+    if (before) result.reply_via = before.reply_via;
+    return result;
+  }
 
   const inquiry = await repo.getInquiry(created.id);
   if (!inquiry) return result;
@@ -258,7 +264,9 @@ export async function notifyNewInquiry(deps: Deps, inq: Inquiry, text: string, f
       return false;
     }
     let res = await discord.post(newInquiryPayload(inq, text), files);
-    if (!res.ok && files.length) {
+    // 画像なしで送り直すのは、Discord が断ってきた(大きすぎるなど)ときだけ。時間切れ(status 0)は届いているかもしれないので、
+    // 送り直さない(送り直すと同じ通知が2つ出て、最初の通知は ID が分からず90日たっても消せない。S8)
+    if (!res.ok && files.length && res.status !== 0) {
       res = await discord.post(newInquiryPayload(inq, text, `${files.length}枚(Discord に送れませんでした。Gmailで見てください)`));
       if (res.ok) {
         await repo.recordDiscordPost(res.id, inq.id);
@@ -626,30 +634,22 @@ export async function ingestMails(deps: Deps, body: Record<string, unknown>): Pr
         gmail_message_id: id,
         gmail_thread_id: threadId,
       });
-      known.push(id);
-      if (!msg) continue; // 同時に別の取り込みが入れた
-      added++;
-      if (inquiryId == null) continue;
-      const inq = await repo.getInquiry(inquiryId);
-      await repo.updateInquiry(inquiryId, {
-        has_new_mail: true,
-        status: "open",
-        done_at: null,
-        last_activity_at: new Date().toISOString(),
-      });
-      if (deps.discord.configured) {
-        // スレッドではなく件名の番号で当てはめたときは、だれでも差し込めるので、アドレスが違えば知らせる(R9)
-        const mismatch = !byThread && !bounce && (!inq?.email || fromEmail !== inq.email);
-        const res = await deps.discord.post(inboundMailPayload(inquiryId, {
-          from_email: fromEmail,
-          subject,
-          body: msg.body,
-          bounce,
-          mismatch,
-          attachments,
-        }));
-        if (res.ok) await repo.recordDiscordPost(res.id, inquiryId);
+      if (!msg) {
+        known.push(id); // 同時に別の取り込みが入れた
+        continue;
       }
+      if (inquiryId != null) {
+        try {
+          await reopenAndNotify(deps, inquiryId, msg, { byThread, bounce, fromEmail, subject, attachments, date: m.date });
+        } catch (err) {
+          // 要対応に戻す・通知が一時的にできなかった。入れたメールを消して、次の回にもう一度やり直す(S6。
+          // 残すと「取り込み済み」になり、要対応に戻らず通知もされないまま、返事を見落とすため)
+          await repo.deleteMessage(msg.id).catch(() => {});
+          throw err;
+        }
+      }
+      known.push(id);
+      added++;
     } catch (err) {
       console.error("ingest mail failed", err instanceof Error ? err.message : err);
     }
@@ -657,11 +657,57 @@ export async function ingestMails(deps: Deps, body: Record<string, unknown>): Pr
   return { known, added };
 }
 
+// 送り主がメールサーバー(届かなかった知らせを出す MAILER-DAEMON・postmaster)か
+function isDaemonAddress(email: string | null): boolean {
+  return !!email && /^(mailer-daemon|postmaster)@/i.test(email);
+}
+
+// 取り込んだメールの問い合わせを要対応に戻し、Discord に知らせる。
+// 失敗したら例外にする(呼び出し側がメールを消して、次の回にやり直す)。Discord は、混雑・障害(429・5xx)で
+// 確かに届いていないときだけやり直す(時間切れは届いているかもしれないので、やり直さない)。1時間より古いメールはやり直さない
+async function reopenAndNotify(
+  deps: Deps,
+  inquiryId: number,
+  msg: Message,
+  m: { byThread: boolean; bounce: boolean; fromEmail: string | null; subject: string; attachments: string; date?: string },
+): Promise<void> {
+  const { repo } = deps;
+  const inq = await repo.getInquiry(inquiryId);
+  await repo.updateInquiry(inquiryId, {
+    has_new_mail: true,
+    status: "open",
+    done_at: null,
+    last_activity_at: new Date().toISOString(),
+  });
+  if (!deps.discord.configured) return;
+  // スレッドではなく件名の番号で当てはめたときは、だれでも差し込めるので、アドレスが違えば知らせる(R9)。
+  // 届かなかった知らせとして注意を省くのは、送り主がメールサーバーのときだけ(件名だけなら、だれでも付けられる。S7)
+  const realBounce = m.bounce && isDaemonAddress(m.fromEmail);
+  const mismatch = !m.byThread && !realBounce && (!inq?.email || m.fromEmail !== inq.email);
+  const res = await deps.discord.post(inboundMailPayload(inquiryId, {
+    from_email: m.fromEmail,
+    subject: m.subject,
+    body: msg.body,
+    bounce: m.bounce,
+    mismatch,
+    attachments: m.attachments,
+  }));
+  if (res.ok) {
+    await repo.recordDiscordPost(res.id, inquiryId).catch(() => {});
+    return;
+  }
+  const at = Date.parse(m.date ?? "");
+  const recent = Number.isFinite(at) && Date.now() - at < 60 * 60_000;
+  if ((res.status === 429 || res.status >= 500) && recent) throw new Error(`discord ${res.status}`);
+  console.error("discord inbound notify failed", res.status);
+}
+
 export async function recordHeartbeat(deps: Deps, body: Record<string, unknown>) {
   const s = (typeof body.status === "object" && body.status) ? body.status as Record<string, unknown> : {};
   await deps.repo.setStatus("gas", {
     version: truncate(String(s.version ?? ""), 40),
-    quota: Number.isFinite(Number(s.quota)) ? Number(s.quota) : null,
+    // 届かなかった(null)ときは「分からない」。Number(null) は 0 になり「残り0通」と扱ってしまうので使わない(S18)
+    quota: typeof s.quota === "number" && Number.isFinite(s.quota) ? s.quota : null,
     address: normalizeEmail(body.self),
   });
 }

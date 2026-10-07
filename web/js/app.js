@@ -252,10 +252,9 @@ supabase.auth.onAuthStateChange((event) => {
 
 export async function logout() {
   loginRequired = false; // 自分でログアウトしたときは「切れました」を出さない
-  // 通信に失敗すると、この端末のログインが残ったままになる(次に開くと勝手に入る)。
-  // そのときは、この端末のログインだけでも必ず消す
-  const { error } = await supabase.auth.signOut().catch((err) => ({ error: err }));
-  if (error) await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+  // この端末のログインだけを消す(S5。ほかの端末・管理画面を開いているほかの PC はログインしたまま)。
+  // supabase-js は、通信に失敗しても、この端末に保存したログインは必ず消す
+  await supabase.auth.signOut({ scope: "local" }).catch(() => {});
   go("index.html");
 }
 
@@ -273,16 +272,48 @@ export function friendlyText(text) {
 // timeoutMs: 返事を待つ時間(電波が悪いと、いつまでも「読み込み中」のままにならないように。既定30秒。
 //   登録・削除は Google の混雑の再試行で2分近くかかることがあるので長くする)。時間切れになっても、サーバー側の処理は続くことがある
 export async function callFunction(name, body = {}, { stayOnLoss = false, timeoutMs = 30000 } = {}) {
+  let { data: result, err } = await invokeOnce(name, body, timeoutMs);
+  if (!err) return result;
+  // 「ログインが切れた」と言われても、圏外のあいだにログインの更新(1時間ごと)ができなかっただけのことがある
+  // (supabase-js は更新に失敗すると、1分ほど同じ失敗を使い回し、その間はログインの代わりに公開用のキーで送るため)。
+  // ここでログインの更新をやり直し、できたら1回だけ送り直す。サーバーはログインを確かめる前に止まっているので、送り直しても二重にならない(S2)
+  if (err.code === "unauthenticated") {
+    const { data, error } = await supabase.auth.refreshSession().catch((e) => ({ data: null, error: e }));
+    if (data && data.session) {
+      ({ data: result, err } = await invokeOnce(name, body, timeoutMs));
+      if (!err) return result;
+    } else if (error && isRetryableAuthError(error)) {
+      // 通信がまだ不安定で、ログインが本当に切れたかは分からない。ログインと入力は消さない
+      const e = new Error("通信が不安定なため、ログインを確かめられませんでした。電波の良いところで、少し待ってからもう一度お試しください。");
+      e.code = "auth_unavailable";
+      throw e;
+    }
+  }
+  // ログインが無くなっていた(ほかの端末でPINを変えた・再設定された・削除された)ときは、ログイン画面へ
+  if (!stayOnLoss && (err.code === "unauthenticated" || err.code === "not_member")) {
+    await loginLost("ログインが切れました。もう一度ログインしてください。");
+  }
+  throw err;
+}
+
+// ログインの更新の失敗が、通信の問題(もう一度やれば通るかもしれない)か
+function isRetryableAuthError(error) {
+  const status = Number(error.status || 0);
+  return error.name === "AuthRetryableFetchError" || status === 0 || status === 429 || status >= 500;
+}
+
+// Edge Function を1回呼ぶ。成功したら { data }、失敗したら { err }(画面に出せる Error)を返す
+async function invokeOnce(name, body, timeoutMs) {
   let timer;
   const timeout = new Promise((resolve) => {
     timer = setTimeout(() => resolve({ data: null, error: { timedOut: true } }), timeoutMs);
   });
   const { data, error } = await Promise.race([supabase.functions.invoke(name, { body }), timeout]).finally(() => clearTimeout(timer));
-  if (!error) return data;
+  if (!error) return { data, err: null };
   if (error.timedOut) {
     const err = new Error("通信に時間がかかっています。電波の良いところで、もう一度お試しください(処理が続いていることもあるので、結果を確かめてください)。");
     err.code = "timeout";
-    throw err;
+    return { data: null, err };
   }
   let message = "通信に失敗しました。電波の良いところでもう一度お試しください。";
   let code = "";
@@ -296,11 +327,7 @@ export async function callFunction(name, body = {}, { stayOnLoss = false, timeou
   } catch (_) { /* JSON でなければ既定のメッセージ */ }
   const err = new Error(message);
   err.code = code;
-  // ログインが無くなっていた(ほかの端末でPINを変えた・再設定された・削除された)ときは、ログイン画面へ
-  if (!stayOnLoss && (code === "unauthenticated" || code === "not_member")) {
-    await loginLost("ログインが切れました。もう一度ログインしてください。");
-  }
-  throw err;
+  return { data: null, err };
 }
 
 // Edge Function が返したセッションを保存してログイン状態にする

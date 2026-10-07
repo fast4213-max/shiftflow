@@ -16,6 +16,7 @@ import {
   listMine,
   maintenance,
   type Message,
+  recordHeartbeat,
   type NewMessage,
   type Repo,
   submitInquiry,
@@ -108,6 +109,11 @@ function fakeRepo() {
       Object.assign(messages.find((m) => m.id === id)!, patch);
       return Promise.resolve();
     },
+    deleteMessage(id) {
+      const i = messages.findIndex((m) => m.id === id);
+      if (i >= 0) messages.splice(i, 1);
+      return Promise.resolve();
+    },
     inquiryIdByThread: (t) =>
       Promise.resolve(messages.find((m) => m.gmail_thread_id === t && m.sender === "admin" && m.inquiry_id != null)?.inquiry_id ?? null),
     unmatchedMails: () => Promise.resolve(messages.filter((m) => m.inquiry_id == null)),
@@ -151,7 +157,9 @@ function fakeRepo() {
   return { repo, inquiries, messages, rate, discordPosts, status };
 }
 
-function fakeDiscord(opts: { configured?: boolean; failWithFiles?: boolean; failAll?: boolean; removeStatus?: number } = {}) {
+function fakeDiscord(
+  opts: { configured?: boolean; failWithFiles?: boolean; failAll?: boolean; removeStatus?: number; failStatus?: number[] } = {},
+) {
   const posts: { payload: DiscordPayload; files: DiscordFile[] }[] = [];
   const removed: string[] = [];
   let seq = 1000;
@@ -162,6 +170,9 @@ function fakeDiscord(opts: { configured?: boolean; failWithFiles?: boolean; fail
       configured: opts.configured ?? true,
       post(payload: DiscordPayload, files: DiscordFile[] = []): Promise<DiscordResult> {
         posts.push({ payload, files });
+        // failStatus: 送るたびに先頭から1つずつ使う失敗の status(0 は時間切れ・通信エラー)
+        const fail = opts.failStatus?.shift();
+        if (fail !== undefined) return Promise.resolve({ ok: false, status: fail, error: "fail" });
         if (opts.failAll || (opts.failWithFiles && files.length)) return Promise.resolve({ ok: false, status: 413, error: "too large" });
         return Promise.resolve({ ok: true, id: String(++seq) });
       },
@@ -653,6 +664,77 @@ Deno.test("受信メール: 件名の番号で差し込まれた他人のスレ�
   await ingestMails(deps, { self: SELF, mails: [mail(evil)] });
   assertEquals(db.messages.filter((x) => x.sender === "mail" && x.inquiry_id === 1).length, 2);
   assertEquals(d.posts.map((p) => JSON.stringify(p.payload).includes("違う人")), [true, true]);
+});
+
+Deno.test("受信メール: 件名だけ「Undeliverable」にした他人のメールにも、「違う人」の注意を出す(S7)", async () => {
+  const { deps, d } = setup();
+  await submitInquiry(deps, guest({ reply_via: "mail", email: "taro@gmail.com" }), { ip: "1.1.1.1", userId: null });
+  d.posts.length = 0;
+  await ingestMails(deps, { self: SELF, mails: [mail({ from: "evil@example.com", thread_id: "ff0e02", subject: "Undeliverable: お問い合わせ #0001" })] });
+  assert(JSON.stringify(d.posts[0].payload).includes("違う人"));
+});
+
+Deno.test("受信メール: 要対応に戻せなかったときは、メールを入れずに次の回にやり直す(S6)", async () => {
+  const { deps, db } = setup();
+  await submitInquiry(deps, guest({ reply_via: "mail", email: "taro@gmail.com" }), { ip: "1.1.1.1", userId: null });
+  await adminSetStatus(deps, { id: 1, status: "done" });
+  const update = deps.repo.updateInquiry;
+  deps.repo.updateInquiry = () => Promise.reject(new Error("db down"));
+  const m = mail({ from: "taro@gmail.com", thread_id: "ff0e03" });
+  const first = await ingestMails(deps, { self: SELF, mails: [m] });
+  assertEquals(first.known, []);
+  assertEquals(db.messages.filter((x) => x.gmail_message_id === m.id).length, 0);
+  deps.repo.updateInquiry = update;
+  const second = await ingestMails(deps, { self: SELF, mails: [m] });
+  assertEquals(second.known, [m.id]);
+  assertEquals(db.inquiries[0].status, "open");
+});
+
+Deno.test("受信メール: Discord が混雑・障害(429・5xx)なら、新しいメールはやり直す。時間切れ・古いメールはやり直さない(S6・S8)", async () => {
+  const now = new Date().toISOString();
+  const old = new Date(Date.now() - 2 * 3600_000).toISOString();
+  {
+    const failStatus: number[] = [];
+    const { deps, d } = setup({ discord: { failStatus } });
+    await submitInquiry(deps, guest({ reply_via: "mail", email: "taro@gmail.com" }), { ip: "1.1.1.1", userId: null });
+    d.posts.length = 0;
+    failStatus.push(503);
+    const m = mail({ from: "taro@gmail.com", date: now });
+    assertEquals((await ingestMails(deps, { self: SELF, mails: [m] })).known, []);
+    assertEquals((await ingestMails(deps, { self: SELF, mails: [m] })).known, [m.id]);
+    assertEquals(d.posts.length, 2);
+  }
+  for (const [status, date] of [[0, now], [503, old]] as const) {
+    const failStatus: number[] = [];
+    const { deps } = setup({ discord: { failStatus } });
+    await submitInquiry(deps, guest({ reply_via: "mail", email: "taro@gmail.com" }), { ip: "1.1.1.1", userId: null });
+    failStatus.push(status);
+    const m = mail({ from: "taro@gmail.com", date });
+    assertEquals((await ingestMails(deps, { self: SELF, mails: [m] })).known, [m.id]);
+  }
+});
+
+Deno.test("新しい問い合わせの通知: 画像つきが時間切れ(届いたか分からない)なら、画像なしで送り直さない(S8)", async () => {
+  const { deps, d, db } = setup({ discord: { failStatus: [0] } });
+  await submitInquiry(deps, guest({ images: [{ data: JPEG }] }), { ip: "1.1.1.1", userId: null });
+  assertEquals(d.posts.length, 1);
+  assertEquals(db.inquiries[0].discord_status, "failed");
+});
+
+Deno.test("GAS の知らせで残りの通数が届かなかった(null)ときは、0通ではなく「分からない」にする(S18)", async () => {
+  const { deps, db } = setup();
+  await recordHeartbeat(deps, { self: SELF, status: { version: "x", quota: null } });
+  assertEquals(db.status.gas.value.quota, null);
+  await recordHeartbeat(deps, { self: SELF, status: { version: "x", quota: 57 } });
+  assertEquals(db.status.gas.value.quota, 57);
+});
+
+Deno.test("送り直しで前の問い合わせが届いていたときは、前の返事の受け取り方を返す(S20)", async () => {
+  const { deps } = setup();
+  const k = key();
+  await submitInquiry(deps, guest({ request_key: k, reply_via: "mail", email: "taro@gmail.com" }), { ip: "1.1.1.1", userId: null });
+  const again = await submitInquiry(deps, guest({ request_key: k, reply_via: "screen" }), { ip: "1.1.1.1", userId: null });
+  assertEquals([again.duplicate, again.reply_via], [true, "mail"]);
 });
 
 Deno.test("受信メール: 届かなかった知らせは本文の番号で当てはめ、印を付ける(R10)", async () => {

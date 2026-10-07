@@ -31,10 +31,11 @@ export function discordFromEnv(fetchFn: typeof fetch = fetch): Discord {
     };
   }
 
-  async function send(init: () => RequestInit, path = "?wait=true"): Promise<Response | Error> {
+  // retryOnError: 通信エラー・時間切れのとき、もう1回送るか。通知(POST)は送らない(実は届いていて、同じ通知が2つ出るため。S8)
+  async function send(init: () => RequestInit, path = "?wait=true", { retryOnError = false, timeoutMs = 10_000 } = {}): Promise<Response | Error> {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const res = await fetchFn(url + path, { ...init(), signal: AbortSignal.timeout(10_000) });
+        const res = await fetchFn(url + path, { ...init(), signal: AbortSignal.timeout(timeoutMs) });
         if (res.status === 429 && attempt === 0) {
           // 回数の制限: 待つ時間が短ければ1回だけ待ってやり直す
           const body = await res.json().catch(() => ({}));
@@ -47,7 +48,7 @@ export function discordFromEnv(fetchFn: typeof fetch = fetch): Discord {
         }
         return res;
       } catch (err) {
-        if (attempt === 1) return err instanceof Error ? err : new Error(String(err));
+        if (attempt === 1 || !retryOnError) return err instanceof Error ? err : new Error(String(err));
       }
     }
     return new Error("Discord に送れませんでした");
@@ -65,7 +66,8 @@ export function discordFromEnv(fetchFn: typeof fetch = fetch): Discord {
         files.forEach((f, i) => form.append(`files[${i}]`, new Blob([new Uint8Array(f.bytes)], { type: f.type }), f.name));
         return { method: "POST", body: form };
       };
-      const res = await send(init);
+      // 画像つきは大きいので、待つ時間を長めにする(時間切れで「届いたか分からない」を減らす)
+      const res = await send(init, "?wait=true", { timeoutMs: files.length ? 30_000 : 10_000 });
       // 通信エラーの文には URL(秘密)が入るので伏せる(D6)
       if (res instanceof Error) return { ok: false, status: 0, error: res.message.replaceAll(url!, "[webhook]").slice(0, 200) };
       const text = await res.text().catch(() => "");
@@ -79,7 +81,7 @@ export function discordFromEnv(fetchFn: typeof fetch = fetch): Discord {
     },
     async remove(messageId) {
       if (!/^\d{5,25}$/.test(messageId)) return { ok: false, status: 400 };
-      const res = await send(() => ({ method: "DELETE" }), `/messages/${messageId}`);
+      const res = await send(() => ({ method: "DELETE" }), `/messages/${messageId}`, { retryOnError: true });
       if (res instanceof Error) return { ok: false, status: 0 };
       await res.body?.cancel().catch(() => {});
       return { ok: res.ok, status: res.status };

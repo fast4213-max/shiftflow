@@ -3,6 +3,7 @@
 
 import { assert, assertEquals, assertThrows } from "jsr:@std/assert@1";
 import {
+  cleanText,
   charLength,
   codeBlock,
   embedLength,
@@ -231,4 +232,10 @@ Deno.test("DB のエラーのログに、失敗した行の中身(社員番号�
   assert(!e.message.includes("7654321") && !e.message.includes("taro@gmail.com") && !e.message.includes("佐藤"));
   assertEquals(sanitizeDbError(null).message, "DB error : ");
   assertEquals(sanitizeDbError({ code: "X", message: "a\nFailing row 1234567" }).message, "DB error X: a");
+});
+
+Deno.test("cleanText: 対になっていない UTF-16 の半分(絵文字の途中の切れ目)は除く(S13)", () => {
+  assertEquals(cleanText("あ\uD83D"), "あ");
+  assertEquals(cleanText("\uDE00い"), "い");
+  assertEquals(cleanText("😀え"), "😀え");
 });

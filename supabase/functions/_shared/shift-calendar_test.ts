@@ -4,7 +4,16 @@
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
 import { createEvents, deleteAppEvents, eventsToRegister, listAppEvents, parseTimeRange, isOffTitle, splitDayEvents, staleNextMonthRecords } from "./shift-calendar.ts";
 import { AppError } from "./http.ts";
-import { calendarAccessError, clearsVerification, GoogleError, isPrimaryCalendarId, nextRetryDelay, retryPolicy, withRetryBudget } from "./google.ts";
+import {
+  calendarAccessError,
+  clearsVerification,
+  GoogleError,
+  isPrimaryCalendarId,
+  nextRetryDelay,
+  resetGoogleCacheForTest,
+  retryPolicy,
+  withRetryBudget,
+} from "./google.ts";
 import { buildPlan, indexMaster } from "./plan.js";
 
 // テスト用の使い捨て鍵でサービスアカウントを用意する
@@ -549,5 +558,28 @@ Deno.test("Google が応答しない・通信エラーのとき: 読む・消す
     assertEquals([posts, err.code], [1, "calendar_error"]);
   } finally {
     retryPolicy.baseMs = saved.baseMs;
+  }
+});
+
+Deno.test("Google の鍵の失効など(トークンが取れない 4xx)は、再試行せずに「管理者に連絡」(503 calendar_setup)にする(S3)", async () => {
+  resetGoogleCacheForTest();
+  let tokenCalls = 0;
+  let apiCalls = 0;
+  globalThis.fetch = (input: string | URL | Request, _init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.host === "oauth2.googleapis.com") {
+      tokenCalls++;
+      return Promise.resolve(Response.json({ error: "invalid_grant" }, { status: 400 }));
+    }
+    apiCalls++;
+    return Promise.resolve(Response.json({ items: [] }));
+  };
+  const started = Date.now();
+  try {
+    const err = await assertRejects(() => listAppEvents({ work: "w", holiday: "" }, 2026, 10), AppError) as AppError;
+    assertEquals([err.status, err.code, tokenCalls, apiCalls], [503, "calendar_setup", 1, 0]);
+    assert(Date.now() - started < 1000);
+  } finally {
+    resetGoogleCacheForTest();
   }
 });

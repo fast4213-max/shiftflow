@@ -17,7 +17,7 @@
  * 手順は docs/contact/SETUP.md。コードを直したら「デプロイを管理」→ 鉛筆 →「新しいバージョン」で更新する(URL は変わらない)。
  */
 
-const VERSION = "2026-10-07";
+const VERSION = "2026-10-07b";
 const SENDER_NAME = "shiftflow 勤務登録";
 const LABEL_ROOT = "shiftflow"; // 90日で消す対象の印(すべての shiftflow のメールに付ける)
 const LABEL_RECEIPT = "shiftflow/受付";
@@ -253,7 +253,11 @@ function plainBody_(m) {
       .replace(/&gt;/g, ">")
       .replace(/&amp;/g, "&");
   }
-  return text.slice(0, 20000);
+  // 2万字で切る。切れ目が絵文字(2つで1文字の UTF-16)の途中なら、その半分を落とす
+  // (半分だけ残ると DB に保存できず、毎回取り込みに失敗し続けるため。S13)
+  let cut = text.slice(0, 20000);
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  return cut;
 }
 
 // 5分ごと: 受信トレイ(迷惑メールは除く)の、まだ渡していないメールを Supabase へ。
@@ -263,6 +267,7 @@ function plainBody_(m) {
 const INBOX_CHECKED = "inbox_checked_at";
 const INBOX_OVERLAP_MS = 86400000;
 const INBOX_MAX_MS = 14 * 86400000;
+const INBOX_MAX_THREADS = 200; // 1回に探すスレッドの数(GmailApp.search の上限は500)
 
 function pollInbox() {
   // 前の回がまだ動いているときは、何もしない。
@@ -278,19 +283,22 @@ function pollInbox() {
     const checked = Number(props_().getProperty(INBOX_CHECKED) || 0);
     const since = Math.max(startedAt - INBOX_MAX_MS, checked - INBOX_OVERLAP_MS);
     const days = Math.min(14, Math.max(1, Math.ceil((startedAt - since) / 86400000)));
-    const threads = GmailApp.search("in:inbox newer_than:" + days + "d", 0, 50);
-    // 探した数・送る数の上限に当たったときは、まだ見ていないメールがあるかもしれないので、時刻を進めない
-    let complete = threads.length < 50;
+    const threads = GmailApp.search("in:inbox newer_than:" + days + "d", 0, INBOX_MAX_THREADS);
+    // 探した数・送る数の上限に当たったときは、まだ見ていないメールがあるかもしれないので、時刻を進めない。
+    // (上限に当たっても、見つけた分は渡す。S1: 以前は、スレッドが上限の数あると1件も渡さなかった)
+    let complete = threads.length < INBOX_MAX_THREADS;
+    let full = false; // 1回に渡す30件に達した
     const mails = [];
     const threadOf = {};
-    for (let t = 0; t < threads.length && complete; t++) {
+    for (let t = 0; t < threads.length && !full; t++) {
       const messages = threads[t].getMessages();
       const ids = messages.map((m) => "seen:" + m.getId());
       const seen = cache.getAll(ids);
-      for (let i = 0; i < messages.length && complete; i++) {
+      for (let i = 0; i < messages.length && !full; i++) {
         const m = messages[i];
         if (seen["seen:" + m.getId()] || m.isInTrash() || m.getDate().getTime() < since) continue;
         if (mails.length >= 30) {
+          full = true;
           complete = false;
           break;
         }

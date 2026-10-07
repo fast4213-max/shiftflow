@@ -31,6 +31,8 @@ export function truncate(s: string, max: number): string {
 // 改行をそろえ、制御文字を除き、前後の空白を取る
 export function cleanText(v: unknown): string {
   return String(v ?? "")
+    // 対になっていない UTF-16 の半分(絵文字の途中で切れたものなど)は、DB に保存できないので除く(S13)
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "")
     .replace(/\r\n?/g, "\n")
     // deno-lint-ignore no-control-regex
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")

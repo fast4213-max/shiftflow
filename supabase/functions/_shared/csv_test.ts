@@ -58,3 +58,19 @@ Deno.test("CSV: 番号の全角の英数字・記号は半角にそろえる(日
   assertEquals(rows.map((r: { errors: string[] }) => r.errors), [["番号が重複"], ["番号が重複"], [], [], []]);
 });
 
+
+Deno.test("CSV: 時刻の誤記(3桁の時・午前午後・60分以上)は「時刻が読めない」にする。括弧・秒つきは読む(S10)", () => {
+  const rows = check([
+    "1,日勤,123:45,14:00,,,,,,,",
+    "2,日勤,午後9:01,14:00,,,,,,,",
+    "3,日勤,9:75,14:00,,,,,,,",
+    "4,日勤,(9:01),09:01:00,（ 6:16 ）,25:30,,,,,",
+  ]);
+  assertEquals(rows.map((r: { errors: string[] }) => r.errors), [
+    ["時刻が読めない: 123:45"],
+    ["時刻が読めない: 午後9:01"],
+    ["時刻が読めない: 9:75"],
+    [],
+  ]);
+  assertEquals([rows[3].weekday_start, rows[3].weekday_end, rows[3].holiday_start, rows[3].holiday_end], ["9:01", "9:01", "6:16", "25:30"]);
+});

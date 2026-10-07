@@ -13,6 +13,12 @@ type ServiceAccount = { client_email: string; private_key: string; token_uri?: s
 let cachedAccount: ServiceAccount | null = null;
 let cachedToken: { token: string; expires: number } | null = null;
 
+// テスト用: 覚えている鍵とトークンを忘れる
+export function resetGoogleCacheForTest(): void {
+  cachedAccount = null;
+  cachedToken = null;
+}
+
 export function serviceAccount(): ServiceAccount {
   if (cachedAccount) return cachedAccount;
   const raw = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_JSON");
@@ -165,6 +171,9 @@ async function call(method: string, path: string, body?: unknown, query?: Record
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch (err) {
+      // サーバー側の設定の不備(鍵の失効・GOOGLE_SERVICE_ACCOUNT_JSON の誤り。accessToken が投げる)は、待っても直らない。
+      // 再試行せずにそのまま返す(S3。以前は通信エラーと同じに約67秒待ってから「時間をおいて」と出ていた)
+      if (err instanceof AppError) throw err;
       // 通信エラー・時間切れ。読む・消すは何度やっても同じなので、混雑のときと同じように待って再試行する。
       // 作る(POST)は、実は作れていたかもしれず、やり直すと同じ予定が2つできるので、再試行せずに失敗にする
       const wait = method === "GET" || method === "DELETE" ? nextRetryDelay(i, Date.now(), deadline) : null;
@@ -288,6 +297,8 @@ export function setupProblem(): AppError {
 // 回数制限(403 でも)・障害・通信エラーは、共有設定のせいではないので「操作に失敗しました」(502)にする。
 // Google 側の設定の不備は「管理者に連絡」(503 calendar_setup)にして、原因(状態と理由。個人情報は含まない)をログに残す
 export function calendarAccessError(err: unknown, label: string): AppError {
+  // すでに画面向けのエラー(設定の不備 calendar_setup など)なら、そのまま使う(S3)
+  if (err instanceof AppError) return err;
   if (err instanceof GoogleError && isGoogleSetupProblem(err.status, err.reason, err.message)) {
     console.error("google setup problem", err.status, err.reason);
     return setupProblem();

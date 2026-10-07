@@ -116,7 +116,7 @@ async function main() {
     if (next !== toHalfWidth($("pin-new2").value)) return message("pin-result", "新しいPINが2回で一致しません。", "error");
     $("pin-save").disabled = true;
     try {
-      const result = await callFunction("change-pin", { current_pin: current, new_pin: next });
+      const result = await callFunction("change-pin", { current_pin: current, new_pin: next }, { timeoutMs: 60000 });
       // PINは変わったが、新しいPINで入り直せなかった(混雑など)。この端末のログインも消されたので、ログインし直してもらう
       if (!result.session) {
         await loginLost("PINを変更しました。新しいPINで、もう一度ログインしてください。");
@@ -129,7 +129,12 @@ async function main() {
         (result.sessionsCleared === true ? "ほかの端末でログインしていた分は、ログアウトしました。"
           : result.sessionsCleared === false ? "(ほかの端末のログインは消せませんでした。管理者に連絡してください)" : ""), "ok");
     } catch (err) {
-      message("pin-result", err.message || String(err), "error");
+      // 返事が届かなかった(時間切れ・通信の失敗)ときは、サーバーではPINが変わっていることがある。
+      // 前のPINだと決めつけて入り直すと、失敗の回数が増えてロックされるので、新しいPINから試すよう案内する(S12)
+      const unknown = err.code === "timeout" || !err.code;
+      message("pin-result", unknown
+        ? "通信が切れたため、PINが変わったか分かりません。次にログインするときは、まず新しいPINで試してください(前のPINで何度も試すと、15分ロックされます)。"
+        : err.message || String(err), "error");
     } finally {
       $("pin-save").disabled = false;
     }

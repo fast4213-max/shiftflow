@@ -24,6 +24,7 @@ const OFFICE_NAME_MAX = 60;
 
 let stats = null;
 let currentMaster = [];
+let currentMasterOfficeId = null; // currentMaster がどの区所のものか(読み込み中・失敗のときは null。S4)
 let pendingRows = null;
 
 function message(text, kind) {
@@ -65,9 +66,10 @@ document.querySelectorAll(".dtab").forEach((t) => t.addEventListener("click", ()
 // ---------- 概要 ----------
 
 // アクセストークンの期限までの日数(期限の日の終わりまで使える)
+// 期限が過ぎたら負の数(期限の翌日の途中でも -1。以前は 0 になり「あと0日」と出ていた。S17)
 function tokenDaysLeft() {
-  const end = new Date(TOKEN_EXPIRES + "T23:59:59+09:00");
-  return Math.ceil((end - new Date()) / 86400000);
+  const ms = new Date(TOKEN_EXPIRES + "T23:59:59+09:00") - new Date();
+  return ms < 0 ? Math.floor(ms / 86400000) : Math.ceil(ms / 86400000);
 }
 
 function tokenLabel() {
@@ -316,15 +318,19 @@ function renderMasterTable(tbody, rows, withErrors) {
 
 async function loadMaster() {
   const office = stats.offices.find((o) => String(o.id) === $("view-office").value);
+  // 読み終わるまでは、前の区所のマスタを「今の区所のもの」として保存させない(S4)
+  currentMaster = [];
+  currentMasterOfficeId = null;
   if (!office) {
-    currentMaster = [];
     renderMasterTable($("master"), [], false);
     $("master-count").textContent = "";
     return;
   }
   const { data, error } = await supabase.from("shift_master").select("*").eq("office_id", office.id).order("sort_order");
   if (error) throw error;
+  if (String(office.id) !== $("view-office").value) return; // 読んでいる間に、別の区所に切り替えた
   currentMaster = data;
+  currentMasterOfficeId = office.id;
   renderMasterTable($("master"), data, false);
   const counts = {};
   data.forEach((r) => (counts[r.kind] = (counts[r.kind] || 0) + 1));
@@ -336,6 +342,10 @@ $("view-office").addEventListener("change", () => loadMaster().catch((err) => me
 $("csv-download").addEventListener("click", () => {
   const office = stats.offices.find((o) => String(o.id) === $("view-office").value);
   if (!office) return;
+  if (currentMasterOfficeId !== office.id) {
+    message("この区所のマスタを読み込めていません。少し待ってから(読み込めないときは区所を選び直してから)、もう一度押してください。", "error");
+    return;
+  }
   const blob = new Blob([masterToCsv(currentMaster)], { type: "text/csv" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);

@@ -110,6 +110,14 @@ export function normalizeTime(value) {
   return m ? Number(m[1]) + ":" + m[2] : "";
 }
 
+// 取り込み前の確認用: 欄全体が時刻の形のときだけ "9:01" にする(形が違えば "")。
+// 「(9:01)」「09:01:00」は読む。「123:45」(→ 23:45 になってしまう)・「午後9:01」(→ 朝の 9:01)・「9:75」は読まない(S10)
+export function strictTime(value) {
+  const m = String(value || "").trim().match(/^[(（]?\s*(\d{1,2}):(\d{2})(?::\d{2})?\s*[)）]?$/);
+  if (!m || Number(m[2]) > 59) return "";
+  return Number(m[1]) + ":" + m[2];
+}
+
 const TIME_FIELDS = [
   "weekday_start", "weekday_end", "holiday_start", "holiday_end",
   "weekday_holiday_start", "weekday_holiday_end", "holiday_weekday_start", "holiday_weekday_end",
@@ -131,7 +139,7 @@ export function checkMasterRows(rows) {
     TIME_FIELDS.forEach((f) => {
       // 記号だけの欄(「-」「×」など)は、時刻なし(空)として扱う
       const raw = isNoTimeMark(r[f]) ? "" : r[f];
-      out[f] = normalizeTime(raw);
+      out[f] = strictTime(raw);
       if (raw && !out[f]) {
         errors.push("時刻が読めない: " + r[f]);
         unreadable.add(f);

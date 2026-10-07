@@ -89,6 +89,9 @@ export function supabaseRepo(db: SupabaseClient): Repo {
     async updateMessage(id, patch) {
       check(await db.from("inquiry_messages").update(patch).eq("id", id));
     },
+    async deleteMessage(id) {
+      check(await db.from("inquiry_messages").delete().eq("id", id));
+    },
     // こちら(管理者)がメールで返事を送ったスレッドだけを見る。件名の番号で入ってきた他人のメールのスレッドを、
     // 次から「スレッドで当てはまった」扱いにしない(Q3。送り主が違うときの注意が消えないように)
     async inquiryIdByThread(threadId) {
