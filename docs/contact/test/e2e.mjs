@@ -282,6 +282,9 @@ await check("管理画面: マスタを読み込めていないときは「CSV�
   await page.click("#csv-download");
   assert.equal(await download, false);
   assert.ok((await page.textContent("#message")).includes("読み込めていません"));
+  // 読み込みに失敗したとき、前の区所の表と件数を残さない(U2)
+  assert.equal(await page.locator("#master tr").count(), 0);
+  assert.equal(await page.textContent("#master-count"), "読み込み中…");
   await ctx.close();
 });
 

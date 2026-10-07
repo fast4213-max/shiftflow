@@ -321,6 +321,11 @@ async function loadMaster() {
   // 読み終わるまでは、前の区所のマスタを「今の区所のもの」として保存させない(S4)
   currentMaster = [];
   currentMasterOfficeId = null;
+  // 前の区所の表と件数を残さない(読み込みに失敗しても、選んだ区所と違う表が出たままにならないように。U2)
+  if (office) {
+    renderMasterTable($("master"), [], false);
+    $("master-count").textContent = "読み込み中…";
+  }
   if (!office) {
     renderMasterTable($("master"), [], false);
     $("master-count").textContent = "";
