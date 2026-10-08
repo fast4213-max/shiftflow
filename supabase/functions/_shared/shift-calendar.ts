@@ -261,13 +261,6 @@ export const SECOND_EVENT_MINUTES = 60;
 // (スマホや PC の日本語入力では、「〜」が全角の「～」に、「-」が「ー」になることが多い)。
 // 出勤が24時以降(25:00 など)は読まない。翌日の時間の予定になり、月末だと翌月1日に入って、
 // 登録し直しても消えずに増えていくため(その日は1件のまま)。退勤の分が読めなければ、出勤だけとみなす
-function normalizeTimeText(text: string): string {
-  return text
-    .replace(/[０-９：]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
-    .replace(/から|[〜～~∼〰\-－−ー―—–‐‑‒─ｰ→⇒]/g, "〜")
-    .replace(/\s+/g, "");
-}
-
 export function parseTimeRange(text: string): { start: number; end: number | null } | null {
   const s = normalizeTimeText(text);
   const m = s.match(/^(\d{1,2}):(\d{2})(?:〜(?:(\d{1,2}):(\d{2}))?)?$/);
@@ -278,6 +271,14 @@ export function parseTimeRange(text: string): { start: number; end: number | nul
   if (m[3] === undefined) return { start, end: null };
   const [eh, em] = [Number(m[3]), Number(m[4])];
   return { start, end: eh > 47 || em > 59 ? null : eh * 60 + em };
+}
+
+// 全角の数字・コロンを半角に、横棒・「から」などを「〜」にして、空白を取る(parseTimeRange・parseOffdutyTime で使う)
+function normalizeTimeText(text: string): string {
+  return text
+    .replace(/[０-９：]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .replace(/から|[〜～~∼〰\-－−ー―—–‐‑‒─ｰ→⇒]/g, "〜")
+    .replace(/\s+/g, "");
 }
 
 // 手入力の番号のうち、非番・休みを表すものは、メモに時間があっても分けない
