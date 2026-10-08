@@ -12,6 +12,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: read # 同じ push の Deploy Supabase の結果を見るため(V1)
 
 concurrency:
   group: pages
@@ -41,6 +42,33 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # 前の版と比べて、supabase/ が変わったかを見るため
+      # 同じ push で DB・Edge Functions も変えたときは、Deploy Supabase が成功するまで公開しない(V1)。
+      # 先に新しい画面を公開すると、DB にまだ無い列を画面が読み書きして、全員の保存などが失敗するため。
+      # Deploy Supabase が失敗したら、ここも失敗にする(直して Deploy Supabase が成功したら、この workflow を手で動かす。手で動かしたときは待たない)
+      - name: Supabase の反映を待つ
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # Deploy Supabase(deploy-supabase.yml の paths)の対象が変わったか。前の版と比べられないときは、変わったものとして待つ
+          if git cat-file -e "$BEFORE^{commit}" 2>/dev/null &&
+             git diff --quiet "$BEFORE" "$GITHUB_SHA" -- supabase/ 'docs/contact/test/db_*' .github/workflows/deploy-supabase.yml; then
+            echo "supabase/ は変わっていないので待たない"; exit 0
+          fi
+          for i in $(seq 1 90); do # 10秒おきに最大15分
+            state=$(gh run list -R "$GITHUB_REPOSITORY" --workflow deploy-supabase.yml --commit "$GITHUB_SHA" --event push \
+              --json status,conclusion -q '.[0] | "\(.status) \(.conclusion)"')
+            echo "Deploy Supabase: ${state:-(まだ始まっていない)}"
+            case "$state" in
+              "completed success") exit 0 ;;
+              completed*) echo "::error::Deploy Supabase が成功しなかったので、画面は公開しません。Deploy Supabase を直して成功させてから、この workflow(GitHub Pages)を手で動かしてください。"; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "::error::Deploy Supabase が15分で終わらなかったので、画面は公開しません。Deploy Supabase が成功したら、この workflow を手で動かしてください。"; exit 1
       - uses: actions/configure-pages@v5
       # CSS/JS の URL の ?v=dev を公開のたびに変わる値にする。
       # スマホのブラウザが古い JS をキャッシュから使い続け、新しい画面と合わずに止まるのを防ぐ。

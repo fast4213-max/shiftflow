@@ -105,11 +105,22 @@ async function save() {
   if (endsOn && endsOn < startsOn) return setMessage("終わりの日は、始まりの日と同じか、それより後にしてください(終わりの日は、その日いっぱい表示されます)。", "error");
   $("notice-save").disabled = true;
   const row = { title, body, level, starts_on: startsOn, ends_on: endsOn };
-  const { error } = editingId
-    ? await supabase.from("notices").update(row).eq("id", editingId)
+  // 直すときは、直した行を返してもらう(別のタブなどで消されていると0件で、エラーにはならないため。V3)
+  const { data, error } = editingId
+    ? await supabase.from("notices").update(row).eq("id", editingId).select("id")
     : await supabase.from("notices").insert(row);
   $("notice-save").disabled = false;
   if (error) return setMessage(error.message, "error");
+  if (editingId && !(data && data.length)) {
+    // 書いた内容は残し、新しく出すフォームに切り替える(もう一度押せば新しいお知らせとして公開できる)
+    editingId = null;
+    $("notice-form-title").textContent = "お知らせを出す";
+    $("notice-save").textContent = "保存して公開";
+    $("notice-cancel").classList.add("hidden");
+    setMessage("このお知らせが見つかりません(別の画面で削除された可能性があります)。直した内容は保存していません。もう一度「保存して公開」を押すと、新しいお知らせとして公開します。", "error");
+    loadNotices();
+    return;
+  }
   const today = todayJst();
   const note = startsOn > today ? `${startsOn} から表示されます。` : endsOn && endsOn < today ? "期間が過ぎているので表示されません。" : "ログイン画面などに表示されます。";
   setMessage((editingId ? "直しました。" : "公開しました。") + note, "ok");

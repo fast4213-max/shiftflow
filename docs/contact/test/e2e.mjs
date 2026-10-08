@@ -70,7 +70,8 @@ function backend(opts = {}) {
     if (path === "/rest/v1/notices") {
       if (req.method() === "GET") return json(st.notices);
       if (req.method() === "POST") { st.notices.unshift({ id: st.nextNotice++, ...body, updated_at: new Date().toISOString() }); return json(null, 201); }
-      if (req.method() === "PATCH") { const id = Number(url.searchParams.get("id").replace("eq.", "")); Object.assign(st.notices.find((n) => n.id === id), body); return json(null, 204); }
+      // 直す(PATCH)は、PostgREST と同じく直した行を返す。行が無ければ 0件(エラーにはならない)
+      if (req.method() === "PATCH") { const id = Number(url.searchParams.get("id").replace("eq.", "")); const n = st.notices.find((x) => x.id === id); if (n) Object.assign(n, body); return json(n ? [{ id }] : []); }
       if (req.method() === "DELETE") { const id = Number(url.searchParams.get("id").replace("eq.", "")); st.notices = st.notices.filter((n) => n.id !== id); return json(null, 204); }
     }
     if (path === "/auth/v1/logout") return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*" } });
@@ -651,6 +652,26 @@ await check("管理画面: お知らせを出す・直す・消す。期間の�
   await page.screenshot({ path: OUT + "admin-notices.png", fullPage: true });
   assert.deepEqual(errors, []);
   page.on("dialog", (d) => d.accept());
+  await ctx.close();
+});
+
+await check("管理画面: 直している間にお知らせが消されていたら、「直しました」と出さず、書いた内容を残して新しく出せる(V3)", async () => {
+  const { page, ctx, be, errors } = await open("admin.html#notices", { userId: "a1", opts: { profile: ADMIN }, viewport: { width: 1200, height: 900 } });
+  await page.waitForSelector("#notice-list .notice-admin-row");
+  await page.click("#notice-list >> text=編集 >> nth=0");
+  const id = be.st.notices[0].id;
+  be.st.notices = be.st.notices.filter((n) => n.id !== id); // 別のタブで消された
+  await page.fill("#notice-title", "直したお知らせ");
+  await page.click("#notice-save");
+  await page.waitForSelector("#notice-message.error");
+  assert.ok((await page.textContent("#notice-message")).includes("見つかりません"));
+  assert.equal(await page.inputValue("#notice-title"), "直したお知らせ");
+  assert.equal(await page.textContent("#notice-save"), "保存して公開");
+  await page.click("#notice-save");
+  await page.waitForSelector("#notice-message.ok");
+  assert.ok((await page.textContent("#notice-message")).startsWith("公開しました。"));
+  assert.equal(be.st.calls.filter((c) => c.path === "/rest/v1/notices" && c.method === "POST").length, 1);
+  assert.deepEqual(errors, []);
   await ctx.close();
 });
 

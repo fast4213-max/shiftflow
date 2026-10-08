@@ -204,7 +204,7 @@ Supabase の無料プランは、1週間ほどデータベースが使われな�
 
 | 変えたもの | やること |
 |---|---|
-| `web/` | main にプッシュすれば自動で Pages に反映 |
+| `web/` | main にプッシュすれば自動で Pages に反映(同じプッシュで `supabase/` も変えたときは、Deploy Supabase が成功してから公開。失敗したら Pages も止まるので、Deploy Supabase を直したあと Pages を「Re-run jobs」) |
 | `supabase/functions/` | main にプッシュすれば自動でデプロイ |
 | `supabase/migrations/` | **すでに反映したファイルは書き換えない**。変更は新しいファイル(例: `20261001000000_xxx.sql`)を足す。push すれば自動で反映 |
 | マスタ | 管理画面で区所を選んで CSV を取り込み直す |

@@ -110,7 +110,7 @@ help.html      使い方(未ログインでも読める)
 | ワークフロー | いつ | すること |
 |---|---|---|
 | `deploy-supabase.yml` | `supabase/` を変えて main に push したとき(手動でも可) | `supabase link` → `supabase db push`(SQL の反映)→ `supabase functions deploy` |
-| `pages.yml` | `web/` を変えて main に push したとき | `web/` を GitHub Pages に公開 |
+| `pages.yml` | `web/` を変えて main に push したとき | `web/` を GitHub Pages に公開(同じ push で `supabase/` も変えたときは、Deploy Supabase の成功を待つ。新しい画面が DB より先に出て、保存などが失敗するのを防ぐ) |
 | `test.yml` | コードを変えたとき | 予定の組み立て・カレンダー操作のテスト |
 
 GitHub の Secrets に入れるもの(最初に本人が1回だけ): `SUPABASE_ACCESS_TOKEN`、`SUPABASE_PROJECT_ID`、`SUPABASE_DB_PASSWORD`。

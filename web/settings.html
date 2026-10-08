@@ -51,7 +51,7 @@
       <p class="muted">チェックを入れると、非番の日に予定が2つ入ります。上が終日の「〜」(メモに退勤時間)、下が退勤の「時間」(例: <b>9:02</b>)です。手入力の「〜」「非番」なども、メモに退勤時間を書けば2つになります。<b>次に登録する分から</b>変わります。</p>
       <label for="offduty-id">非番の時間用カレンダーID(なくてもよい)</label>
       <input id="offduty-id" class="mono" maxlength="200" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="使わなければ空のまま">
-      <p class="muted">「非番を2件で登録する」の、下の「時間」の予定だけを入れるカレンダーです。色を変えたい人だけ、もう1つカレンダーを作って入れます。空なら勤務用に入ります(色は勤務と同じ)。チェックを入れていないときは使いません。</p>
+      <p class="muted">「非番を2件で登録する」の、下の「時間」の予定だけを入れるカレンダーです。色を変えたい人だけ、もう1つカレンダーを作って入れます。空なら勤務用に入ります(色は勤務と同じ)。IDを入れているあいだは、チェックを外していても接続テストをします。使うのをやめるときは、IDを空にして保存し、Googleカレンダーでそのカレンダーを削除します(勤務用・休日用と同じIDにしていたときは削除しません)。</p>
       <button id="save" class="primary block" type="button">保存して接続テスト</button>
       <p id="result" class="message" aria-live="polite"></p>
       <p id="go-input" class="hidden"><a href="input.html">勤務入力へ進む →</a></p>
