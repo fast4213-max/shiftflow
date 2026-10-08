@@ -24,7 +24,7 @@
 
     <div class="card">
       <strong>2. カレンダーを共有する</strong>
-      <p class="muted"><b>勤務用</b>の新しいカレンダー(休日の予定も分けたい人は<b>休日用</b>も)を作り、それぞれ下のアドレスと権限「<b>すべての予定の詳細の変更や表示ができます</b>」で共有します(自分のメインのカレンダーは使えません)。</p>
+      <p class="muted"><b>勤務用</b>の新しいカレンダー(休日の予定も分けたい人は<b>休日用</b>も、非番の時間の色を変えたい人は<b>非番の時間用</b>も)を作り、それぞれ下のアドレスと権限「<b>すべての予定の詳細の変更や表示ができます</b>」で共有します(自分のメインのカレンダーは使えません)。</p>
       <div class="row">
         <input id="sa-email" class="mono" readonly value="読み込み中…">
         <button id="copy-sa" type="button">コピー</button>
@@ -46,7 +46,12 @@
       <input id="holiday-id" class="mono" maxlength="200" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="使わなければ空のまま">
       <p class="muted">休日用を空にすると、「休日」の番号(公休・年休など)はカレンダーに登録されません(勤務・非番だけ登録します)。休みも勤務用のカレンダーに入れたいときは、ここに<b>勤務用と同じID</b>を入れてください。</p>
       <label class="check"><input id="split-day" type="checkbox"> 出勤を2件で登録する(Googleカレンダーだけで見る人向け)</label>
-      <p class="muted">チェックを入れると、出勤の日に予定が2つ入ります。上が終日の「番号」(例: <b>25</b>。メモの時間は今のまま)、下が出勤の「時間」(例: <b>10:00〜18:30</b>)です。<b>次に登録する分から</b>変わり、すでに登録した予定は変わりません。非番は変わりません。</p>
+      <p class="muted">チェックを入れると、出勤の日に予定が2つ入ります。上が終日の「番号」(例: <b>25</b>。メモの時間は今のまま)、下が出勤の「時間」(例: <b>10:00〜18:30</b>)です。<b>次に登録する分から</b>変わり、すでに登録した予定は変わりません。非番は下の「非番を2件で登録する」で選びます。</p>
+      <label class="check"><input id="split-offduty" type="checkbox"> 非番を2件で登録する(Googleカレンダーだけで見る人向け)</label>
+      <p class="muted">チェックを入れると、非番の日に予定が2つ入ります。上が終日の「〜」(メモに退勤時間)、下が退勤の「時間」(例: <b>9:02</b>)です。手入力の「〜」「非番」なども、メモに退勤時間を書けば2つになります。<b>次に登録する分から</b>変わります。</p>
+      <label for="offduty-id">非番の時間用カレンダーID(なくてもよい)</label>
+      <input id="offduty-id" class="mono" maxlength="200" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="使わなければ空のまま">
+      <p class="muted">「非番を2件で登録する」の、下の「時間」の予定だけを入れるカレンダーです。色を変えたい人だけ、もう1つカレンダーを作って入れます。空なら勤務用に入ります(色は勤務と同じ)。チェックを入れていないときは使いません。</p>
       <button id="save" class="primary block" type="button">保存して接続テスト</button>
       <p id="result" class="message" aria-live="polite"></p>
       <p id="go-input" class="hidden"><a href="input.html">勤務入力へ進む →</a></p>

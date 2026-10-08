@@ -1,4 +1,4 @@
-// 利用者の勤務用・休日用カレンダーへの登録・削除。
+// 利用者の勤務用・休日用・非番の時間用カレンダーへの登録・削除。
 // カレンダーIDは必ず user_settings から読む(リクエスト本文の値は使わない)。
 
 import { addDays, daysInMonth, dateKey } from "./plan.js";
@@ -7,7 +7,20 @@ import { AppError } from "./http.ts";
 import { APP_TAG, calendarAccessError, deleteEvent, insertAllDayEvent, insertTimedEvent, listEvents, runPool, withRetryBudget } from "./google.ts";
 
 // holiday は空でもよい(休日用のカレンダーを使わない人。種別が「休日」の予定は登録しない)
-export type Calendars = { work: string; holiday: string; officeId?: number | null; splitDayEvents?: boolean };
+// offduty は空でもよい(非番を2件で登録するときの時間の予定を入れるカレンダー。空なら勤務用に入れる)
+export type Calendars = {
+  work: string;
+  holiday: string;
+  offduty?: string;
+  officeId?: number | null;
+  splitDayEvents?: boolean;
+  splitOffdutyEvents?: boolean;
+};
+
+// 非番の時間の予定を入れるカレンダー(非番用が空なら勤務用)
+export function offdutyCalendarOf(calendars: Calendars): string {
+  return calendars.offduty || calendars.work;
+}
 
 const CONCURRENCY = 4;
 
@@ -17,7 +30,7 @@ const WORK_BUDGET_MS = 120_000;
 export async function loadVerifiedCalendars(ctx: Context): Promise<Calendars> {
   const { data, error } = await ctx.db
     .from("user_settings")
-    .select("work_calendar_id, holiday_calendar_id, verified_at, office_id, split_day_events")
+    .select("work_calendar_id, holiday_calendar_id, offduty_calendar_id, verified_at, office_id, split_day_events, split_offduty_events")
     .eq("user_id", ctx.userId)
     .maybeSingle();
   if (error) throw error;
@@ -27,7 +40,14 @@ export async function loadVerifiedCalendars(ctx: Context): Promise<Calendars> {
   if (!data.verified_at) {
     throw new AppError(400, "設定画面で「接続テスト」を行ってください。", "not_verified");
   }
-  return { work: data.work_calendar_id, holiday: data.holiday_calendar_id, officeId: data.office_id, splitDayEvents: !!data.split_day_events };
+  return {
+    work: data.work_calendar_id,
+    holiday: data.holiday_calendar_id,
+    offduty: data.offduty_calendar_id || "",
+    officeId: data.office_id,
+    splitDayEvents: !!data.split_day_events,
+    splitOffdutyEvents: !!data.split_offduty_events,
+  };
 }
 
 // 二重実行防止のロックを取って fn を実行する
@@ -44,9 +64,14 @@ export async function withUserLock<T>(ctx: Context, fn: () => Promise<T>): Promi
   }
 }
 
+// エラーに出すカレンダーの名前。同じIDを2つ以上の用途に使っているときは「カレンダー」
 function label(calendars: Calendars, id: string): string {
-  if (calendars.work === id && calendars.holiday === id) return "カレンダー";
-  return calendars.work === id ? "勤務用カレンダー" : "休日用カレンダー";
+  const names = [
+    calendars.work === id && "勤務用",
+    calendars.holiday === id && "休日用",
+    calendars.offduty === id && "非番の時間用",
+  ].filter(Boolean);
+  return names.length === 1 ? `${names[0]}カレンダー` : "カレンダー";
 }
 
 // このアプリが作った予定(印の付いた終日予定)
@@ -59,7 +84,7 @@ export async function listAppEvents(calendars: Calendars, year: number, month: n
   const nextSecond = addDays(dateKey(year, month, daysInMonth(year, month)), 2);
 
   const found: AppEvent[] = [];
-  for (const calendarId of new Set([calendars.work, calendars.holiday].filter(Boolean))) {
+  for (const calendarId of new Set([calendars.work, calendars.holiday, calendars.offduty || ""].filter(Boolean))) {
     let items;
     try {
       // カレンダーのタイムゾーンに左右されないよう前後1日広めに取り、終日予定の日付で絞る
@@ -84,7 +109,7 @@ export async function listAppEvents(calendars: Calendars, year: number, month: n
 }
 
 // 対象月の、このアプリが作った予定を削除して件数を返す。
-// 翌月1日は、この月の月末の泊から作られる非番(勤務用カレンダーの offduty)だけを対象にする。
+// 翌月1日は、この月の月末の泊から作られる非番(勤務用・非番の時間用カレンダーの offduty)だけを対象にする。
 // clearNextFirst のとき(翌月1日の予定も作り直すとき)は、翌月1日のアプリの予定を全部消す
 // (翌月を先に登録していた場合の、1日の勤務・休日の予定と重ならないように)。
 // clearNextSecondOffduty のとき(翌月1日が非番になるとき)は、翌月2日の非番も消す。翌月1日が非番なら
@@ -103,7 +128,9 @@ export async function deleteAppEvents(
   const nextFirst = addDays(dateKey(year, month, daysInMonth(year, month)), 1);
   const nextSecond = addDays(nextFirst, 1);
   const events = existing ?? await listAppEvents(calendars, year, month);
-  const isOffduty = (e: AppEvent) => e.calendarId === calendars.work && e.tag === "offduty";
+  // 非番の時間の予定(非番を2件で登録したときの2件目)は、非番の時間用カレンダーにある
+  const isOffduty = (e: AppEvent) =>
+    e.tag === "offduty" && (e.calendarId === calendars.work || e.calendarId === offdutyCalendarOf(calendars));
   const targets = events.filter((e) =>
     e.date < nextFirst ||
     (e.date === nextFirst && (clearNextFirst || isOffduty(e))) ||
@@ -126,9 +153,9 @@ export type PlannedEvent = {
   kind: string;
   title: string;
   description: string;
-  // 番号の予定のあとに続けて作る、時間の予定(出勤を終日2件に分ける設定のとき)
-  // (時間つき。startMin / endMin はその日の0時からの分)
-  second?: { title: string; description: string; startMin: number; endMin: number };
+  // 番号の予定のあとに続けて作る、時間の予定(出勤・非番を2件に分ける設定のとき)
+  // (時間つき。startMin / endMin はその日の0時からの分。calendar が "offduty" なら非番の時間用カレンダー、ほかは勤務用)
+  second?: { title: string; description: string; startMin: number; endMin: number; calendar?: "work" | "offduty" };
 };
 
 // 予定を作る。休日用のカレンダーが無い人の「休日」の予定は作らない(skipped に数える)。
@@ -155,8 +182,9 @@ export async function createEvents(
   await runPool(targets, CONCURRENCY, async (e) => {
     await insert(e, e.title, e.description);
     if (e.second) {
+      const secondId = e.second.calendar === "offduty" ? offdutyCalendarOf(calendars) : calendars.work;
       try {
-        await insertTimedEvent(calendars.work, {
+        await insertTimedEvent(secondId, {
           date: e.date,
           startMin: e.second.startMin,
           endMin: e.second.endMin,
@@ -165,7 +193,7 @@ export async function createEvents(
           kind: e.kind,
         });
       } catch (err) {
-        throw calendarAccessError(err, label(calendars, calendars.work));
+        throw calendarAccessError(err, label(calendars, secondId));
       }
     }
   });
@@ -233,11 +261,15 @@ export const SECOND_EVENT_MINUTES = 60;
 // (スマホや PC の日本語入力では、「〜」が全角の「～」に、「-」が「ー」になることが多い)。
 // 出勤が24時以降(25:00 など)は読まない。翌日の時間の予定になり、月末だと翌月1日に入って、
 // 登録し直しても消えずに増えていくため(その日は1件のまま)。退勤の分が読めなければ、出勤だけとみなす
-export function parseTimeRange(text: string): { start: number; end: number | null } | null {
-  const s = text
+function normalizeTimeText(text: string): string {
+  return text
     .replace(/[０-９：]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
     .replace(/から|[〜～~∼〰\-－−ー―—–‐‑‒─ｰ→⇒]/g, "〜")
     .replace(/\s+/g, "");
+}
+
+export function parseTimeRange(text: string): { start: number; end: number | null } | null {
+  const s = normalizeTimeText(text);
   const m = s.match(/^(\d{1,2}):(\d{2})(?:〜(?:(\d{1,2}):(\d{2}))?)?$/);
   if (!m) return null;
   const [sh, sm] = [Number(m[1]), Number(m[2])];
@@ -255,9 +287,14 @@ export function parseTimeRange(text: string): { start: number; end: number | nul
 //   (「明」は、明石・有明のような駅名の番号を非番にしないよう、それだけのときと「明け」「明番」だけを見る)
 export function isOffTitle(title: string): boolean {
   const t = title.trim();
+  return isOffdutyTitle(t) || (/休/.test(t) && !/[出勤]/.test(t));
+}
+
+// isOffTitle のうち、非番を表すもの(休みを表す「休」は含めない)。非番を2件で登録する設定で、手入力の非番に使う
+export function isOffdutyTitle(title: string): boolean {
+  const t = title.trim();
   if (!/[\p{L}\p{N}]/u.test(t.replace(/[ーｰ]/g, ""))) return true;
-  if (t === "非" || t === "明" || /非番|明け|明番/.test(t)) return true;
-  return /休/.test(t) && !/[出勤]/.test(t);
+  return t === "非" || t === "明" || /非番|明け|明番/.test(t);
 }
 
 export function splitDayEvents(events: PlannedEvent[], master: Record<string, any>): PlannedEvent[] {
@@ -277,4 +314,37 @@ export function splitDayEvents(events: PlannedEvent[], master: Record<string, an
     if (endMin <= startMin) endMin = startMin + SECOND_EVENT_MINUTES;
     return { ...e, second: { title: time, description: "", startMin, endMin } };
   });
+}
+
+// 非番を2件に分ける設定のとき、非番の予定に、退勤時間の予定(時間つき)を付ける。
+// 1件目=今までどおり勤務用の終日の「〜」(メモ=退勤時間)。2件目=退勤時間から1時間の時間つきの予定で、タイトルは時間だけ(例「9:02」)。
+// 2件目は非番の時間用カレンダー(空なら勤務用)に入れる(色を変えたい人向け)。
+// 対象は、自動の非番(泊の翌日)と、手入力の非番(マスタにない番号で「〜」「非番」「明け」など。「休」を含むものは休みなので除く)。
+// メモの1行目が退勤時間として読めないもの(手で書き換えたとき・24時以降)は、1件のまま
+export function splitOffdutyEvents(events: PlannedEvent[], master: Record<string, any>): PlannedEvent[] {
+  return events.map((e) => {
+    if (e.calendar !== "work" || e.second) return e;
+    const manual = e.kind === "day" && !master[e.title] && isOffdutyTitle(e.title);
+    if (e.kind !== "offduty" && !manual) return e;
+    const end = parseOffdutyTime(e.description.split("\n")[0]);
+    if (end === null) return e;
+    return {
+      ...e,
+      second: { title: formatMinutes(end), description: "", startMin: end, endMin: end + SECOND_EVENT_MINUTES, calendar: "offduty" },
+    };
+  });
+}
+
+// 非番のメモの1行目の退勤時間(「9:02」「〜9:02」「8:30〜9:02」なら後ろ)を、その日の0時からの分にする。読めなければ null。
+// 全角・「～」「-」なども parseTimeRange と同じに読む。24時以降は読まない(翌日の予定になるため)
+export function parseOffdutyTime(text: string): number | null {
+  const m = normalizeTimeText(text).match(/^〜?(?:\d{1,2}:\d{2}〜)?(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const [h, min] = [Number(m[1]), Number(m[2])];
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+function formatMinutes(min: number): string {
+  return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, "0")}`;
 }

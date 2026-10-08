@@ -356,10 +356,11 @@ export async function loadProfile(session) {
   return data;
 }
 
+// 列は「*」で読む(設定の列を足したとき、画面が DB より先に反映されても、ログインのたびに読めなくならないように)
 export async function loadSettings(session) {
   const { data, error } = await supabase
     .from("user_settings")
-    .select("work_calendar_id, holiday_calendar_id, verified_at, office_id, split_day_events")
+    .select("*")
     .eq("user_id", session.user.id)
     .maybeSingle();
   if (error) throw error;

@@ -1,5 +1,5 @@
-// 接続テスト: 登録済みの勤務用・休日用カレンダーにテスト予定を書いて即削除する。
-// 両方とも書ければ検証済みにする。カレンダーIDは user_settings から読む(本文は見ない)。
+// 接続テスト: 登録済みの勤務用・休日用・非番の時間用カレンダーにテスト予定を書いて即削除する。
+// 全部書ければ検証済みにする。カレンダーIDは user_settings から読む(本文は見ない)。
 
 import { requireMember } from "../_shared/auth.ts";
 import { calendarAccessError, clearsVerification, deleteEvent, insertAllDayEvent, isPrimaryCalendarId } from "../_shared/google.ts";
@@ -11,12 +11,14 @@ serve(async (req) => {
 
   const { data: settings, error } = await ctx.db
     .from("user_settings")
-    .select("work_calendar_id, holiday_calendar_id")
+    .select("work_calendar_id, holiday_calendar_id, offduty_calendar_id")
     .eq("user_id", ctx.userId)
     .maybeSingle();
   if (error) throw error;
   const work = settings?.work_calendar_id || "";
   const holiday = settings?.holiday_calendar_id || "";
+  // 非番の時間用も空でもよい(非番を2件で登録するときの時間の予定を、勤務用に入れる)
+  const offduty = settings?.offduty_calendar_id || "";
   // 休日用は空でもよい(休日用のカレンダーを使わない人。その場合、種別が「休日」の予定は登録しない)
   if (!work) {
     throw new AppError(400, "勤務用のカレンダーIDを入力して保存してください。", "not_configured");
@@ -24,7 +26,7 @@ serve(async (req) => {
 
   // メインのカレンダー(ID=メールアドレス)は使えない。社員番号のログインでは本人のものか確かめられないため、
   // このアプリ用に新しく作ったカレンダーを使ってもらう
-  for (const [id, name] of [[work, "勤務用"], [holiday, "休日用"]]) {
+  for (const [id, name] of [[work, "勤務用"], [holiday, "休日用"], [offduty, "非番の時間用"]]) {
     if (id && isPrimaryCalendarId(id)) {
       throw new AppError(
         400,
@@ -35,9 +37,9 @@ serve(async (req) => {
   }
 
   // 他の利用者が検証済みで使っているカレンダーは使えない
-  const ids = [...new Set([work, holiday].filter(Boolean))];
+  const ids = [...new Set([work, holiday, offduty].filter(Boolean))];
   let taken = false;
-  for (const column of ["work_calendar_id", "holiday_calendar_id"]) {
+  for (const column of ["work_calendar_id", "holiday_calendar_id", "offduty_calendar_id"]) {
     const { data: others, error: othersError } = await ctx.admin
       .from("user_settings")
       .select("user_id")
@@ -54,10 +56,13 @@ serve(async (req) => {
 
   // 日本時間の今日に終日のテスト予定を書いて、すぐ消す
   const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const testTargets = new Map([[work, "勤務用カレンダー"]]);
-  if (holiday && !testTargets.has(holiday)) testTargets.set(holiday, "休日用カレンダー");
-  for (const [id, name] of testTargets) {
-    const label = work === holiday ? "カレンダー" : name;
+  // 同じIDを2つ以上の用途に使っているときは、1回だけ書いて、エラーには「カレンダー」と出す
+  const testTargets = new Map<string, string>();
+  for (const [id, name] of [[work, "勤務用カレンダー"], [holiday, "休日用カレンダー"], [offduty, "非番の時間用カレンダー"]]) {
+    if (!id) continue;
+    testTargets.set(id, testTargets.has(id) ? "カレンダー" : name);
+  }
+  for (const [id, label] of testTargets) {
     try {
       const ev = await insertAllDayEvent(id, {
         date: today,
@@ -82,7 +87,8 @@ serve(async (req) => {
     .update({ verified_at: new Date().toISOString() })
     .eq("user_id", ctx.userId)
     .eq("work_calendar_id", work)
-    .eq("holiday_calendar_id", holiday);
+    .eq("holiday_calendar_id", holiday)
+    .eq("offduty_calendar_id", offduty);
   if (updateError) throw updateError;
 
   return { ok: true };

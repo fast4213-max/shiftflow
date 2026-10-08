@@ -13,6 +13,7 @@ import {
   listAppEvents,
   loadVerifiedCalendars,
   splitDayEvents,
+  splitOffdutyEvents,
   staleNextMonthRecords,
   withUserLock,
 } from "../_shared/shift-calendar.ts";
@@ -74,8 +75,10 @@ serve(async (req) => {
     if (pendingRes.error) throw pendingRes.error;
     const retryNextFirst = pendingRes.data?.next_first_pending === nextFirst;
     const registered = eventsToRegister(plan.events, existing, nextFirst, retryNextFirst);
-    // 出勤を終日2件(番号・時間)に分ける設定の人は、次回の登録から時間の予定も作る
-    const events = calendars.splitDayEvents ? splitDayEvents(registered, master) : registered;
+    // 出勤を終日2件(番号・時間)に分ける設定の人は、次回の登録から時間の予定も作る。
+    // 非番を2件(「〜」・退勤時間)に分ける設定の人も同じ(時間の予定は非番の時間用カレンダーへ)
+    const daySplit = calendars.splitDayEvents ? splitDayEvents(registered, master) : registered;
+    const events = calendars.splitOffdutyEvents ? splitOffdutyEvents(daySplit, master) : daySplit;
     // 翌月1日の予定(月末が泊なら非番、泊でなければ翌月1日の記録の予定)を作るときは、
     // 翌月1日にあるアプリの予定を全部消してから作り直す(重ならないように)。
     // 翌月1日が非番なら翌月2日は非番にならないので、翌月2日に残った非番(翌月1日が泊だったとき)も消す

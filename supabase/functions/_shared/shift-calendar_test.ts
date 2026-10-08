@@ -2,7 +2,19 @@
 //   deno test supabase/functions --allow-read --allow-env
 
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
-import { createEvents, deleteAppEvents, eventsToRegister, listAppEvents, parseTimeRange, isOffTitle, splitDayEvents, staleNextMonthRecords } from "./shift-calendar.ts";
+import {
+  createEvents,
+  deleteAppEvents,
+  eventsToRegister,
+  isOffdutyTitle,
+  isOffTitle,
+  listAppEvents,
+  parseOffdutyTime,
+  parseTimeRange,
+  splitDayEvents,
+  splitOffdutyEvents,
+  staleNextMonthRecords,
+} from "./shift-calendar.ts";
 import { AppError, entriesFrom, yearMonthOf } from "./http.ts";
 import {
   calendarAccessError,
@@ -617,4 +629,117 @@ Deno.test("年月・入力の件数の 400 には code が付く(画面が「保
   };
   assertEquals(codeOf(() => yearMonthOf({ year: 1999, month: 1 })), "bad_period");
   assertEquals(codeOf(() => entriesFrom({ entries: Object.fromEntries(Array.from({ length: 63 }, (_, i) => [String(i), {}])) })), "bad_entries");
+});
+
+Deno.test("parseOffdutyTime: 非番のメモの退勤時間(「〜9:02」・2つあれば後ろ・全角)を読む。24時以降・時間でないものは読まない", () => {
+  assertEquals(parseOffdutyTime("9:02"), 542);
+  assertEquals(parseOffdutyTime("〜9:02"), 542);
+  assertEquals(parseOffdutyTime("～９：０２"), 542);
+  assertEquals(parseOffdutyTime("8:30〜9:02"), 542);
+  assertEquals(parseOffdutyTime("8:30 - 9:02"), 542);
+  for (const t of ["", "休み", "24:10", "9:60", "8:30〜", "9:02 品川"]) assertEquals(parseOffdutyTime(t), null, t);
+});
+
+Deno.test("splitOffdutyEvents: 自動の非番と手入力の非番に、退勤時間から1時間の予定(タイトルは時間だけ・非番の時間用)を付ける", () => {
+  const ev = (title: string, kind: string, description: string, calendar = "work") => ({ date: "2026-11-10", calendar, kind, title, description });
+  const out = splitOffdutyEvents([
+    ev("〜", "offduty", "9:02"),
+    ev("〜", "offduty", "〜９：０５\nメモ"),
+    ev("〜", "day", "8:30〜9:30"), // 手入力の非番
+    ev("非番", "day", "9:30"),
+    ev("明け", "day", "9:30"),
+    ev("公休", "day", "9:30"), // 休みは分けない
+    ev("2001", "day", "9:30"), // 勤務は分けない(出勤を2件の設定で分ける)
+    ev("〜", "offduty", "休み"), // 時間でないメモ
+    ev("〜", "offduty", "24:30"), // 24時以降
+    ev("公休", "day", "9:30", "holiday"),
+  ], {});
+  assertEquals(out.map((e) => e.second && [e.second.title, e.second.startMin, e.second.endMin, e.second.calendar]), [
+    ["9:02", 542, 602, "offduty"],
+    ["9:05", 545, 605, "offduty"],
+    ["9:30", 570, 630, "offduty"],
+    ["9:30", 570, 630, "offduty"],
+    ["9:30", 570, 630, "offduty"],
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+  ]);
+  // 1件目はそのまま(勤務用の終日の「〜」・メモも今まで通り)
+  assertEquals(out[0].calendar, "work");
+  assertEquals(out[0].description, "9:02");
+  // マスタにある番号は手入力ではないので分けない
+  assertEquals(splitOffdutyEvents([ev("〜", "day", "9:30")], { "〜": { type: "日勤" } })[0].second, undefined);
+  assertEquals(isOffdutyTitle("非番明け"), true);
+  assertEquals(isOffdutyTitle("年休"), false);
+});
+
+Deno.test("出勤を2件と非番を2件を両方使っても、1つの予定に時間の予定は1つだけ", () => {
+  const events = [
+    { date: "2026-11-09", calendar: "work", kind: "day", title: "2001", description: "10:00-23:00" },
+    { date: "2026-11-10", calendar: "work", kind: "day", title: "〜", description: "9:30" },
+    { date: "2026-11-11", calendar: "work", kind: "offduty", title: "〜", description: "9:30" },
+  ];
+  const out = splitOffdutyEvents(splitDayEvents(events, {}), {});
+  assertEquals(out.map((e) => e.second?.calendar ?? "work"), ["work", "offduty", "offduty"]);
+  assertEquals(out[0].second?.endMin, 1380);
+});
+
+Deno.test("createEvents: 非番の時間の予定は非番の時間用カレンダーへ。空なら勤務用。終日の「〜」は勤務用のまま", async () => {
+  const work = "w@group.calendar.google.com";
+  const offduty = "o@group.calendar.google.com";
+  const posted: { calendar: string; body: any }[] = [];
+  mockFetch((c) => {
+    if (c.method === "POST") {
+      posted.push({ calendar: decodeURIComponent(c.url.pathname.split("/")[4]), body: c.body });
+      return Response.json({ id: "x" });
+    }
+  });
+  const events = splitOffdutyEvents([
+    { date: "2026-10-03", calendar: "work", kind: "offduty", title: "〜", description: "9:30" },
+    { date: "2026-10-04", calendar: "work", kind: "day", title: "25", description: "10:00〜18:30", second: { title: "10:00〜18:30", description: "", startMin: 600, endMin: 1110 } },
+  ], {});
+  const result = await createEvents({ work, holiday: "", offduty }, events);
+  assertEquals(result, { created: 4, skipped: 0 });
+  const where = (summary: string) => posted.filter((p) => p.body.summary === summary).map((p) => p.calendar);
+  assertEquals(where("〜"), [work]);
+  assertEquals(where("9:30"), [offduty]);
+  assertEquals(where("10:00〜18:30"), [work]); // 出勤の時間の予定は今まで通り勤務用
+  const timed = posted.find((p) => p.body.summary === "9:30")!.body;
+  assertEquals(timed.start, { dateTime: "2026-10-03T09:30:00", timeZone: "Asia/Tokyo" });
+  assertEquals(timed.end, { dateTime: "2026-10-03T10:30:00", timeZone: "Asia/Tokyo" });
+  assertEquals(timed.extendedProperties, tag("offduty"));
+
+  posted.length = 0;
+  await createEvents({ work, holiday: "", offduty: "" }, events);
+  assertEquals(where("9:30"), [work]);
+});
+
+Deno.test("deleteAppEvents: 非番の時間用カレンダーの予定も消す(翌月1日・2日の非番も勤務用と同じ扱い)", async () => {
+  const work = "work@group.calendar.google.com";
+  const offduty = "offduty@group.calendar.google.com";
+  const calls = mockFetch((c) => {
+    if (c.method !== "GET") return;
+    if (c.url.pathname.includes(encodeURIComponent(offduty))) {
+      return Response.json({
+        items: [
+          { id: "o-10", start: { dateTime: "2026-10-10T09:30:00+09:00" }, extendedProperties: tag("offduty") },
+          { id: "o-manual", start: { dateTime: "2026-10-11T09:30:00+09:00" } },
+          { id: "o-next-1", start: { dateTime: "2026-11-01T09:30:00+09:00" }, extendedProperties: tag("offduty") },
+          { id: "o-next-1-day", start: { dateTime: "2026-11-01T09:30:00+09:00" }, extendedProperties: tag("day") },
+          { id: "o-next-2", start: { dateTime: "2026-11-02T09:30:00+09:00" }, extendedProperties: tag("offduty") },
+        ],
+      });
+    }
+    return Response.json({ items: [{ id: "w-10", start: { date: "2026-10-10" }, extendedProperties: tag("offduty") }] });
+  });
+  const deleted = () => calls.filter((c) => c.method === "DELETE").map((c) => c.url.pathname.split("/").pop()).sort();
+
+  await deleteAppEvents({ work, holiday: "", offduty }, 2026, 10);
+  assertEquals(deleted(), ["o-10", "o-next-1", "w-10"]);
+
+  calls.length = 0;
+  await deleteAppEvents({ work, holiday: "", offduty }, 2026, 10, { clearNextFirst: true, clearNextSecondOffduty: true });
+  assertEquals(deleted(), ["o-10", "o-next-1", "o-next-1-day", "o-next-2", "w-10"]);
 });

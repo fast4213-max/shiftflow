@@ -38,6 +38,8 @@ begin
   assert not has_column_privilege('authenticated', 'public.user_settings', 'next_first_pending', 'update'), '利用者が next_first_pending を書ける';
   assert not has_column_privilege('authenticated', 'public.user_settings', 'verified_at', 'update'), '利用者が verified_at を書ける';
   assert has_column_privilege('authenticated', 'public.user_settings', 'work_calendar_id', 'update'), '利用者が work_calendar_id を書けない';
+  assert has_column_privilege('authenticated', 'public.user_settings', 'offduty_calendar_id', 'update'), '利用者が offduty_calendar_id を書けない';
+  assert has_column_privilege('authenticated', 'public.user_settings', 'split_offduty_events', 'update'), '利用者が split_offduty_events を書けない';
 end
 $$;
 

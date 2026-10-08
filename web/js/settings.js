@@ -17,7 +17,7 @@ function updateGoInput() {
 
 // 利用者が書けるのは区所とカレンダーIDの列だけ(検証済みフラグは Edge Function が書く)
 async function saveSettings(values) {
-  const columns = "work_calendar_id, holiday_calendar_id, verified_at, office_id, split_day_events";
+  const columns = "work_calendar_id, holiday_calendar_id, offduty_calendar_id, verified_at, office_id, split_day_events, split_offduty_events";
   const { data, error } = settings
     ? await supabase.from("user_settings").update(values).eq("user_id", session.user.id).select(columns).single()
     : await supabase.from("user_settings").insert({ user_id: session.user.id, ...values }).select(columns).single();
@@ -55,6 +55,8 @@ async function main() {
     $("work-id").value = settings.work_calendar_id || "";
     $("holiday-id").value = settings.holiday_calendar_id || "";
     $("split-day").checked = !!settings.split_day_events;
+    $("split-offduty").checked = !!settings.split_offduty_events;
+    $("offduty-id").value = settings.offduty_calendar_id || "";
   }
   if (!isReady(settings)) $("first-time").classList.remove("hidden");
   if (isReady(settings)) message("result", "接続テスト済みです。", "ok");
@@ -67,10 +69,10 @@ async function main() {
     .catch((err) => ($("sa-email").value = "取得できませんでした: " + err.message));
   $("copy-sa").addEventListener("click", () => copyText($("sa-email").value, $("copy-sa")));
 
-  // 区所・ID・「出勤を2件で登録する」を変えたら、保存するまでテスト済みの表示と「勤務入力へ」を消す
+  // 区所・ID・「出勤を2件」「非番を2件」を変えたら、保存するまでテスト済みの表示と「勤務入力へ」を消す
   // (保存せずに勤務入力へ進むと、変えた設定が使われないため)
-  ["office", "work-id", "holiday-id", "split-day"].forEach((id) =>
-    $(id).addEventListener(id === "office" || id === "split-day" ? "change" : "input", () => {
+  ["office", "work-id", "holiday-id", "split-day", "split-offduty", "offduty-id"].forEach((id) =>
+    $(id).addEventListener(["office", "split-day", "split-offduty"].includes(id) ? "change" : "input", () => {
       message("result", "");
       $("go-input").classList.add("hidden");
     })
@@ -83,6 +85,8 @@ async function main() {
       work_calendar_id: $("work-id").value.trim(),
       holiday_calendar_id: $("holiday-id").value.trim(),
       split_day_events: $("split-day").checked,
+      split_offduty_events: $("split-offduty").checked,
+      offduty_calendar_id: $("offduty-id").value.trim(),
     };
     $("save").disabled = true;
     $("go-input").classList.add("hidden");

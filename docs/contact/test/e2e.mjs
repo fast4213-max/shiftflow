@@ -54,8 +54,14 @@ function backend(opts = {}) {
     }
     if (path === "/rest/v1/profiles" && opts.profileAbort) return route.abort("failed");
     if (path === "/rest/v1/profiles") return json(opts.profile ? [opts.profile] : []);
-    if (path === "/rest/v1/user_settings") return json([{ office_id: 1, work_calendar_id: "w", holiday_calendar_id: null, verified_at: "2026-10-01", split_day_events: false }]);
-    if (path === "/rest/v1/offices") return json([{ name: "A区所" }]);
+    if (path === "/rest/v1/user_settings") {
+      const row = { office_id: 1, work_calendar_id: "w", holiday_calendar_id: null, verified_at: "2026-10-01", split_day_events: false, ...opts.settings };
+      // 保存(PATCH)は、送った値を足した行を返す(.single() なので1件だけ)
+      if (req.method() === "PATCH") return json({ ...row, ...body, verified_at: null });
+      return json([row]);
+    }
+    if (path === "/functions/v1/verify-calendar") return json({ ok: true });
+    if (path === "/rest/v1/offices") return json([{ id: 1, name: "A区所" }]);
     if (path === "/rest/v1/rpc/admin_stats" && opts.statsAbort) return route.abort("failed");
     if (path === "/rest/v1/rpc/admin_stats" && opts.statsFail) return json({ message: "statement timeout" }, 500);
     if (path === "/rest/v1/rpc/admin_stats") return json({ users: 1, verified: 1, active_30d: 1, signups_7d: 0, signup_password_set: true, offices: [{ id: 1, name: "A区所", master_count: 1, user_count: 1 }], no_office: 0, users_list: [] });
@@ -262,6 +268,30 @@ await check("ログインの更新が遅れて「ログインが切れた」と�
   assert.ok(b.page.url().endsWith("settings.html"));
   assert.ok(await b.page.evaluate((k) => !!localStorage.getItem(k), key));
   await b.ctx.close();
+});
+
+await check("設定: 非番を2件・非番の時間用カレンダーIDを読み込み、保存で送る", async () => {
+  const { page, ctx, be, errors } = await open("settings.html", {
+    userId: "u1",
+    opts: { profile: USER, settings: { split_offduty_events: true, offduty_calendar_id: "off@group.calendar.google.com" } },
+  });
+  await page.waitForFunction(() => document.getElementById("offduty-id").value === "off@group.calendar.google.com");
+  assert.equal(await page.isChecked("#split-offduty"), true);
+  assert.equal(await page.isChecked("#split-day"), false);
+  await page.waitForSelector("#office option[value='1']", { state: "attached" });
+  await page.uncheck("#split-offduty");
+  // 変えたら、保存するまで「勤務入力へ」を出さない
+  assert.equal(await page.isVisible("#go-input"), false);
+  await page.fill("#offduty-id", "  off2@group.calendar.google.com ");
+  await page.click("#save");
+  await page.waitForSelector("#result.ok");
+  const saved = be.st.calls.find((c) => c.path === "/rest/v1/user_settings" && c.method === "PATCH").body;
+  assert.equal(saved.split_offduty_events, false);
+  assert.equal(saved.offduty_calendar_id, "off2@group.calendar.google.com");
+  assert.ok(be.st.calls.some((c) => c.path === "/functions/v1/verify-calendar"));
+  assert.deepEqual(errors, []);
+  await page.screenshot({ path: OUT + "settings-offduty.png", fullPage: true });
+  await ctx.close();
 });
 
 await check("ログアウトは、この端末だけ(scope=local。S5)", async () => {
