@@ -47,6 +47,10 @@
 - 7回目: **V1〜V3 は全部直した**(本人の判断 2026-10-08)。見送りは増えていない。残りは下の見送りだけ
 - 番号を引くときは DEBUG-LOG.md を読む。新しい回は DEBUG-LOG.md に節を足し、ここには見送りだけ足す
 
+次のデバッグで、ついでに直すもの(2026-10-08 の Actions のログに出た注意。今は動いている。本人の判断)
+- GitHub Actions の部品(`actions/configure-pages@v5`・`actions/deploy-pages@v4`・`actions/upload-pages-artifact` の中の upload-artifact)が Node.js 20 向けで、24 に置き換えて動かされている → Node.js 24 に対応した版に上げる(他の workflow の `actions/checkout` なども確かめる)
+- `ubuntu-latest` が 2026-10-19 から Ubuntu 26 に変わる → その後の実行で、Deno・psql・Supabase CLI の手順が通るか確かめる(落ちたら版を固定するか直す)
+
 見送り(リスクを承知で直さない。理由は DEBUG-LOG.md の表)
 
 | 番号 | 内容(要約) | 重さ |
@@ -75,6 +79,7 @@
 
 ## 6. 履歴(新しいものを上に1〜3行で足す)
 
+- 2026-10-08 7回目の修正を main へ反映(Pages 成功・本番の設定画面と PDF のリンクを確認)。Actions のログの注意2つ(Node.js 20 の部品・Ubuntu 26 への切り替え)は、次のデバッグでついでに直すと決めた(3章)
 - 2026-10-08 7回目のデバッグ(Opus。V1〜V3。DEBUG-LOG.md の 3-7)。3件とも直した: Pages が Deploy Supabase を待つ(V1)・非番の時間用カレンダーの説明(V2。設定画面の写真の撮り直しと PDF 14ページの作り直し)・消されたお知らせを「直しました」と出さない(V3)。使い方の PDF・画像のリンクに `?v=` を付け、古い PDF が出るのを防いだ(本人の報告)。Deno 167件・画面31項目が通る。GAS の貼り直し・migration は無し
 - 2026-10-08 非番を2件で登録する・非番の時間用カレンダー(3つ目のID)を追加(migration `20261008000000_offduty_events.sql`)。使い方・説明書 PDF(設定画面の写真2枚を撮り直し)も直した。Deno 167件・画面30項目・DB の権限の確認が通る。GAS の貼り直しは不要。main へ反映(Test・Deploy Supabase[db push・Functions]・Pages とも成功)
 - 2026-10-07 U1〜U3 を直した(使い方・説明書 PDF の「カレンダーを変えたい」の文、マスタ表の読み込み失敗時の表示、DESIGN.md の状態)。U4〜U7 は見送り。Deno 162件・画面29項目が通る。GAS の貼り直しは不要
