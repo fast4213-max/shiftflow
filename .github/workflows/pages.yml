@@ -43,7 +43,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 0 # 前の版と比べて、supabase/ が変わったかを見るため
+          fetch-depth: 0 # 前回公開した版と比べて、supabase/ が変わったかを見るため
       # 同じ push で DB・Edge Functions も変えたときは、Deploy Supabase が成功するまで公開しない(V1)。
       # 先に新しい画面を公開すると、DB にまだ無い列を画面が読み書きして、全員の保存などが失敗するため。
       # Deploy Supabase が失敗したら、ここも失敗にする(直して Deploy Supabase が成功したら、この workflow を手で動かす。手で動かしたときは待たない)
@@ -51,15 +51,28 @@ jobs:
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
-          BEFORE: ${{ github.event.before }}
         run: |
-          # Deploy Supabase(deploy-supabase.yml の paths)の対象が変わったか。前の版と比べられないときは、変わったものとして待つ
-          if git cat-file -e "$BEFORE^{commit}" 2>/dev/null &&
-             git diff --quiet "$BEFORE" "$GITHUB_SHA" -- supabase/ 'docs/contact/test/db_*' .github/workflows/deploy-supabase.yml; then
-            echo "supabase/ は変わっていないので待たない"; exit 0
+          # Deploy Supabase(deploy-supabase.yml の paths)の対象
+          paths=(supabase/ 'docs/contact/test/db_*' .github/workflows/deploy-supabase.yml)
+          # 前回「成功した」GitHub Pages の公開時点(main)。直前の push と比べると、
+          # 直前の Pages が取り消された(cancel-in-progress)ときに、supabase/ の変更を見落とすため
+          last=$(gh run list -R "$GITHUB_REPOSITORY" --workflow pages.yml --branch main --status success -L 1 \
+            --json headSha -q '.[0].headSha' || true)
+          # 公開済みの版から今回の版までのあいだで、対象を最後に変えたコミット(比べられないときは、履歴全体から探して待つ)
+          if [ -n "$last" ] && git cat-file -e "$last^{commit}" 2>/dev/null; then
+            target=$(git log -1 --format=%H "$last..$GITHUB_SHA" -- "${paths[@]}")
+            if [ -z "$target" ]; then
+              echo "前回の公開(${last::8})から supabase/ は変わっていないので待たない"; exit 0
+            fi
+          else
+            target=$(git log -1 --format=%H "$GITHUB_SHA" -- "${paths[@]}")
+            if [ -z "$target" ]; then
+              echo "supabase/ の履歴が無いので待たない"; exit 0
+            fi
           fi
+          echo "待つ Deploy Supabase: ${target::8} の push"
           for i in $(seq 1 90); do # 10秒おきに最大15分
-            state=$(gh run list -R "$GITHUB_REPOSITORY" --workflow deploy-supabase.yml --commit "$GITHUB_SHA" --event push \
+            state=$(gh run list -R "$GITHUB_REPOSITORY" --workflow deploy-supabase.yml --commit "$target" --event push \
               --json status,conclusion -q '.[0] | "\(.status) \(.conclusion)"')
             echo "Deploy Supabase: ${state:-(まだ始まっていない)}"
             case "$state" in
@@ -69,7 +82,7 @@ jobs:
             sleep 10
           done
           echo "::error::Deploy Supabase が15分で終わらなかったので、画面は公開しません。Deploy Supabase が成功したら、この workflow を手で動かしてください。"; exit 1
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
       # CSS/JS の URL の ?v=dev を公開のたびに変わる値にする。
       # スマホのブラウザが古い JS をキャッシュから使い続け、新しい画面と合わずに止まるのを防ぐ。
       - run: |
@@ -80,8 +93,8 @@ jobs:
           v="${GITHUB_SHA::8}"
           find web -name '*.html' -o -name '*.js' | xargs sed -i "s/?v=dev\"/?v=$v\"/g"
           if grep -rq '?v=dev"' web; then echo "::error::?v=dev が残っています"; exit 1; fi
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: web
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

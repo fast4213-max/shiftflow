@@ -81,7 +81,7 @@ jobs:
         uses: actions/checkout@v5
 
       - if: steps.check.outputs.ready == 'true'
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@v3
         with:
           # latest だと、最新版を調べるときに GitHub の回数制限で落ちることがあるので、版を固定する
           # (上げたいときは、ここを書き換える)
