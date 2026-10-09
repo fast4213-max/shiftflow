@@ -264,13 +264,29 @@ export function initCalendarSetup({ saveIds } = {}) {
 
       const names = created.map((c) => `「${c.name}」`).join("");
       const extra = offdutyMade ? "「非番を2件で登録する」もオンにしました。" : "";
-      const share = "次に、作ったカレンダーを登録用アドレスと共有してください。スマホは、Googleカレンダーのアプリの「≡」→「設定」→カレンダー名→「共有する相手」から行います(下の「共有を開く」は、スマホではブラウザが開くことがあります。そのときは「PC表示」にして進めるか、アプリで共有してください)。";
+      // いくつ共有するかが分かるように、数と名前を出す(X3)
+      const share = `次に、作った${created.length}つのカレンダー(${names})を、1つずつ登録用アドレスと共有してください。` +
+        "スマホは、Googleカレンダーのアプリの「≡」→「設定」→カレンダー名→「共有する相手」から行います(下の「共有を開く」は、スマホではブラウザが開くことがあります。そのときは「PC表示」にして進めるか、アプリで共有してください。" +
+        "パソコンで別のGoogleアカウントの画面が開いたときは、右上で、カレンダーを作ったアカウントに切り替えてください)。";
       const after = saved ? "共有できたら、このページに戻り、1. で区所を選んで「保存して接続テスト」を押してください。"
         : "IDを保存できませんでした。共有できたら、このページに戻り、1. で区所を選んで「保存して接続テスト」を押してください(その前にこのページを閉じたときは、IDがなくなるので、もう一度作ってください)。";
+      // 前からIDがあった人: 新しいカレンダーには、登録済みの月の予定がまだ入っていない。入れ替えた前のカレンダーの予定は残る(X1)
+      const used = new Set([values.work_calendar_id, values.holiday_calendar_id, values.offduty_calendar_id]);
+      const replaced = [...new Set([current.work, current.holiday, current.offduty])].filter((id) => id && !used.has(id));
+      const redo = current.work
+        ? "\n接続できたら、すでに登録した月は、勤務入力でもう一度「登録」してください(新しいカレンダーには、まだ予定が入っていません)。" +
+          (replaced.length ? "入れ替えた前のカレンダーの予定は、そのまま残ります。いらなければ、Googleカレンダーで前のカレンダーを削除してください。" : "")
+        : "";
       if (failure) {
-        result(`途中で失敗しました: ${failure.message || failure}\n作れたもの: ${names}\n作れなかったもの: ${failed.join("")}\n${keep ? "作れなかったものの欄は、今のIDのままです。" : "作れなかったものの欄は空にしました。"}${saved ? "作れたもののIDは保存しました。" : ""}もう一度ボタンを押すと、作れたものが重複します。重複したカレンダーは、Googleカレンダーで消せます。\n${share}${after}`, "error");
+        result(`途中で失敗しました: ${failure.message || failure}\n作れたもの: ${names}\n作れなかったもの: ${failed.join("")}\n${keep ? "作れなかったものの欄は、今のIDのままです。" : "作れなかったものの欄は空にしました。"}${saved ? "作れたもののIDは保存しました。" : ""}もう一度ボタンを押すと、作れたものが重複します。重複したカレンダーは、Googleカレンダーで消せます。\n${share}${after}${redo}`, "error");
       } else {
-        result(`カレンダーを作って、IDを下の欄に入れました${saved ? "(保存もしました)" : ""}。${extra}${share}${after}`, saved ? "ok" : "error");
+        result(`カレンダーを作って、IDを下の欄に入れました${saved ? "(保存もしました)" : ""}。${extra}${share}${after}${redo}`, saved ? "ok" : "error");
+      }
+      // 「そのまま使う」で作ったあとは、作るものを外しておく(続けて押しても、同じカレンダーが重複して作られないように。X2)
+      if (keep) {
+        $("auto-holiday").value = "keep";
+        $("auto-offduty").checked = false;
+        toggleNames();
       }
     } finally {
       $("auto-run").disabled = false;
