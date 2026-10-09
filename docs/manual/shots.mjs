@@ -1,4 +1,4 @@
-// 説明書・使い方ページの設定画面の写真(settings.png・settings-ok.png)を撮る。架空のデータ。Supabase は偽物(本番には接続しない)
+// 説明書・使い方ページの設定画面の写真(settings.png・settings-ok.png・settings-auto.png)を撮る。架空のデータ。Supabase は偽物(本番には接続しない)
 // 使い方: Playwright を入れて `node docs/manual/shots.mjs`(docs/manual/img/ と web/img/manual/ の両方を置き換える)
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
@@ -67,11 +67,14 @@ await page.selectOption("#office", "1");
 await page.fill("#work-id", WORK_ID);
 await page.evaluate(() => document.activeElement.blur());
 
+// かんたん設定のカードは、別の写真(settings-auto.png)にあるので、この2枚では隠す
+await page.addStyleTag({ content: "#auto-setup { display: none !important; }" });
 await mark(page, [["#office", 1], ["#copy-sa", 2], ["#work-id", 3], ["#save", 4]]);
 await page.screenshot({ path: IMG + "settings.png", fullPage: true });
 
 // 接続テストが通ったあと(枠を外して、結果の文に5を付ける)
 await page.reload();
+await page.addStyleTag({ content: "#auto-setup { display: none !important; }" });
 await page.waitForSelector("#office option[value='1']", { state: "attached" });
 await page.waitForFunction(() => document.getElementById("sa-email").value.includes("@"));
 await page.selectOption("#office", "1");
@@ -82,7 +85,27 @@ await page.evaluate(() => document.activeElement.blur());
 await mark(page, [["#result", 5]]);
 await page.screenshot({ path: IMG + "settings-ok.png", fullPage: true });
 
-for (const f of ["settings.png", "settings-ok.png"]) fs.copyFileSync(IMG + f, WEB + "img/manual/" + f);
+// かんたん設定(Google は偽物。カレンダーを作って、共有のリンクが出たところ)
+await page.route("https://accounts.google.com/gsi/client", (r) => r.fulfill({ contentType: "text/javascript",
+  body: "window.google={accounts:{oauth2:{initTokenClient:o=>({requestAccessToken:()=>o.callback({access_token:'t'})}),revoke:()=>{}}}}" }));
+let made = 0;
+await page.route("https://www.googleapis.com/**", (r) => {
+  const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "*" };
+  if (r.request().method() === "OPTIONS") return r.fulfill({ status: 200, headers: cors });
+  made++;
+  return r.fulfill({ status: 200, contentType: "application/json", headers: cors, body: JSON.stringify({ id: `sample${made}abc@group.calendar.google.com` }) });
+});
+await page.reload();
+await page.waitForSelector("#office option[value='1']", { state: "attached" });
+await page.waitForFunction(() => document.getElementById("sa-email").value.includes("@"));
+await page.selectOption("#auto-holiday", "work");
+await page.click("#auto-run");
+await page.waitForSelector("#auto-result.ok");
+await page.evaluate(() => document.activeElement.blur());
+await mark(page, [["#auto-run", 1], ["#auto-links a", 2]]);
+await page.locator("#auto-setup").screenshot({ path: IMG + "settings-auto.png" });
+
+for (const f of ["settings.png", "settings-ok.png", "settings-auto.png"]) fs.copyFileSync(IMG + f, WEB + "img/manual/" + f);
 await browser.close();
 server.kill();
 console.log("ok");

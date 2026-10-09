@@ -16,7 +16,6 @@ export const CONTACT_EMAIL = "shiftflow.kinmu@gmail.com";
 
 // 「Googleでカレンダーを自動で作る」(設定画面)の OAuth クライアント ID(ウェブアプリ用)。
 // 公開してよい値(秘密のクライアントシークレットは使わない)。空なら、設定画面にこの機能は出ない。
-// 試験のあいだは、設定画面の URL の最後に ?beta=1 を付けた人にだけ出す(calendar-setup.js)。
 // Google Cloud の「Google Auth Platform」→「クライアント」で作る。承認済みの JavaScript の生成元に
 // このサイトの URL(https://fast4213-max.github.io)を入れる。権限は calendar.app.created だけ。
 export const GOOGLE_CLIENT_ID = "3902891064-58j74ft9p5uceierkfopksumfdp34l3v.apps.googleusercontent.com";
