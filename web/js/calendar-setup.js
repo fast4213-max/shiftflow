@@ -139,12 +139,40 @@ export function initCalendarSetup({ saveIds } = {}) {
   const standalone = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
   if (standalone && $("auto-standalone")) $("auto-standalone").classList.remove("hidden");
 
+  // 勤務用のIDがもう入っている人は、勤務用はそのままにして、休日用・非番の時間用だけを後から作れる
+  // 選択は、画面を開いたときと、利用者がIDの欄を書き換えたときに出し入れする
+  // (かんたん設定で作った直後に、画面が切り替わって分かりにくくならないように)
+  const keepWork = () => !$("auto-work-row").classList.contains("hidden") && !!$("work-id").value.trim() && $("auto-work").value === "keep";
+  const toggleWorkRow = () => $("auto-work-row").classList.toggle("hidden", !$("work-id").value.trim());
+  let keepBefore = null;
   const toggleNames = () => {
+    const keep = keepWork();
+    $("auto-work-name-row").classList.toggle("hidden", keep);
+    // 休日の「今のまま」は、勤務用をそのまま使うときだけ選べる(切り替えたときは、それぞれのふだんの値にする)
+    // (iPhone の Safari は option の hidden が効かないので、足し引きする)
+    if (keep !== keepBefore) {
+      const select = $("auto-holiday");
+      const old = select.querySelector('option[value="keep"]');
+      if (keep && !old) {
+        const opt = document.createElement("option");
+        opt.value = "keep";
+        opt.textContent = "今のまま(変えない)";
+        select.appendChild(opt);
+        select.value = "keep";
+      } else if (!keep && old) {
+        if (select.value === "keep") select.value = "own";
+        old.remove();
+      }
+      keepBefore = keep;
+    }
     $("auto-holiday-name-row").classList.toggle("hidden", $("auto-holiday").value !== "own");
     $("auto-offduty-name-row").classList.toggle("hidden", !$("auto-offduty").checked);
   };
+  $("auto-work").addEventListener("change", toggleNames);
+  $("work-id").addEventListener("input", (e) => { if (e.isTrusted) { toggleWorkRow(); toggleNames(); } });
   $("auto-holiday").addEventListener("change", toggleNames);
   $("auto-offduty").addEventListener("change", toggleNames);
+  toggleWorkRow();
   toggleNames();
 
   const result = (text, kind) => {
@@ -160,15 +188,20 @@ export function initCalendarSetup({ saveIds } = {}) {
       if (loadState === "failed") { startLoading(); return result(LOAD_ERROR, "error"); }
       return result("準備中です。数秒待って、もう一度押してください。", "error");
     }
-    // すでにIDがあるときは、もう一度押してもらう(確認のダイアログを出すと、押した操作が切れて、許可の画面がブロックされることがあるため)
-    if ($("work-id").value.trim() && Date.now() - confirmAt > CONFIRM_MS) {
+    const keep = keepWork();
+    const current = { work: $("work-id").value.trim(), holiday: $("holiday-id").value.trim(), offduty: $("offduty-id").value.trim() };
+    const holiday = $("auto-holiday").value; // own | work | none | keep(勤務用をそのまま使うときだけ)
+    const wantOffduty = $("auto-offduty").checked;
+    if (keep && holiday !== "own" && !wantOffduty) {
+      return result("作るカレンダーがありません。休日の予定を「休日用のカレンダーを別に作る」にするか、「非番の時間用のカレンダーも作る」にチェックを入れてください。", "error");
+    }
+    // 入れ替えるときは、もう一度押してもらう(確認のダイアログを出すと、押した操作が切れて、許可の画面がブロックされることがあるため)
+    if (!keep && current.work && Date.now() - confirmAt > CONFIRM_MS) {
       confirmAt = Date.now();
       return result("すでにカレンダーIDが入っています。新しいカレンダーを作って入れ替えるときは、30秒以内に、もう一度ボタンを押してください(前のカレンダーは、Googleカレンダーに残ります)。", "error");
     }
     confirmAt = 0;
 
-    const holiday = $("auto-holiday").value; // own | work | none
-    const wantOffduty = $("auto-offduty").checked;
     $("auto-run").disabled = true;
     $("auto-links").innerHTML = "";
     let token = "";
@@ -176,7 +209,7 @@ export function initCalendarSetup({ saveIds } = {}) {
     const failed = []; // 作れなかった(作ろうとした)カレンダーの名前
     let failure = null;
     // 作る予定のもの(名前は押した時点のものを使う)
-    const plan = [{ key: "work", label: "勤務用", name: nameOf("auto-work-name", "勤務") }];
+    const plan = keep ? [] : [{ key: "work", label: "勤務用", name: nameOf("auto-work-name", "勤務") }];
     if (holiday === "own") plan.push({ key: "holiday", label: "休日用", name: nameOf("auto-holiday-name", "休日") });
     if (wantOffduty) plan.push({ key: "offduty", label: "非番の時間用", name: nameOf("auto-offduty-name", "非番の時間") });
     try {
@@ -206,12 +239,14 @@ export function initCalendarSetup({ saveIds } = {}) {
       if (failure) plan.filter((p) => !idOf(p.key)).forEach((p) => failed.push(`「${p.name}」`));
       if (!created.length) return result(failure ? failure.message || String(failure) : "カレンダーを作れませんでした。", "error");
 
-      // 入力欄は、最後にまとめて変える(途中で失敗しても、新旧のIDが混ざらないように)
-      const workId = idOf("work");
+      // 入力欄は、最後にまとめて変える(途中で失敗しても、新旧のIDが混ざらないように)。
+      // 勤務用をそのまま使うときは、作らなかったもの・作れなかったものは今のIDのまま
+      const workId = keep ? current.work : idOf("work");
+      const made = (key) => idOf(key) || (keep ? current[key] : "");
       const values = {
         work_calendar_id: workId,
-        holiday_calendar_id: holiday === "own" ? idOf("holiday") : holiday === "work" ? workId : "",
-        offduty_calendar_id: wantOffduty ? idOf("offduty") : "",
+        holiday_calendar_id: holiday === "own" ? made("holiday") : holiday === "work" ? workId : holiday === "keep" ? current.holiday : "",
+        offduty_calendar_id: wantOffduty ? made("offduty") : keep ? current.offduty : "",
       };
       setValue("work-id", values.work_calendar_id);
       setValue("holiday-id", values.holiday_calendar_id);
@@ -233,7 +268,7 @@ export function initCalendarSetup({ saveIds } = {}) {
       const after = saved ? "共有できたら、このページに戻り、1. で区所を選んで「保存して接続テスト」を押してください。"
         : "IDを保存できませんでした。共有できたら、このページに戻り、1. で区所を選んで「保存して接続テスト」を押してください(その前にこのページを閉じたときは、IDがなくなるので、もう一度作ってください)。";
       if (failure) {
-        result(`途中で失敗しました: ${failure.message || failure}\n作れたもの: ${names}\n作れなかったもの: ${failed.join("")}\n作れなかったものの欄は空にしました。${saved ? "作れたもののIDは保存しました。" : ""}もう一度ボタンを押すと、作れたものが重複します。重複したカレンダーは、Googleカレンダーで消せます。\n${share}${after}`, "error");
+        result(`途中で失敗しました: ${failure.message || failure}\n作れたもの: ${names}\n作れなかったもの: ${failed.join("")}\n${keep ? "作れなかったものの欄は、今のIDのままです。" : "作れなかったものの欄は空にしました。"}${saved ? "作れたもののIDは保存しました。" : ""}もう一度ボタンを押すと、作れたものが重複します。重複したカレンダーは、Googleカレンダーで消せます。\n${share}${after}`, "error");
       } else {
         result(`カレンダーを作って、IDを下の欄に入れました${saved ? "(保存もしました)" : ""}。${extra}${share}${after}`, saved ? "ok" : "error");
       }

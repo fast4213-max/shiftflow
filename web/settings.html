@@ -26,8 +26,17 @@
       <strong>かんたん設定(Googleでカレンダーを自動で作る)</strong>
       <p class="muted">Googleのログイン画面で許可すると、このアプリ用のカレンダーを新しく作り、そのIDを「3.」の欄に自動で入れて、保存します(IDを調べて貼る手順は、いりません)。許可は、アプリが作ったカレンダーだけです(メインのカレンダーは見られません)。許可はこの画面の中だけで使い、保存しません。<b>作ったあとの共有は、下の「2.」のアドレスで、ご自分で行います</b>(スマホは、Googleカレンダーのアプリから行います。先にアプリを入れておいてください。ボタンのあとに出るリンクは、スマホではブラウザが開くことがあります。そのときは「PC表示」で進めてください)。</p>
       <p id="auto-standalone" class="message error hidden">ホーム画面のアプリとして開いているようです。かんたん設定は、Safari や Chrome でこのページを開いて行ってください(Google の画面から、アプリに戻れないことがあります)。</p>
-      <label for="auto-work-name">勤務用のカレンダーの名前</label>
-      <input id="auto-work-name" maxlength="30" value="勤務" autocomplete="off">
+      <div id="auto-work-row" class="hidden">
+        <label for="auto-work">勤務用のカレンダー</label>
+        <select id="auto-work">
+          <option value="keep">今のものをそのまま使う(休日用・非番の時間用だけ作る)</option>
+          <option value="new">新しく作って入れ替える</option>
+        </select>
+      </div>
+      <div id="auto-work-name-row">
+        <label for="auto-work-name">勤務用のカレンダーの名前</label>
+        <input id="auto-work-name" maxlength="30" value="勤務" autocomplete="off">
+      </div>
       <label for="auto-holiday">休日の予定</label>
       <select id="auto-holiday">
         <option value="own">休日用のカレンダーを別に作る</option>
