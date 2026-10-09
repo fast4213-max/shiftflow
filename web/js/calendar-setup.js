@@ -1,6 +1,8 @@
 // 設定画面の「Googleでカレンダーを自動で作る」。
-// 利用者の Google アカウントで、このアプリ用のカレンダーを新しく作り、登録用アドレス(サービスアカウント)と共有する。
+// 利用者の Google アカウントで、このアプリ用のカレンダーを新しく作り、そのIDを入力欄に入れる。
 // 権限は calendar.app.created だけ(アプリが作ったカレンダーの中だけを触れる。メインのカレンダーは触れない)。
+// この権限では、登録用アドレス(サービスアカウント)との共有はできない(403)ので、共有は利用者が画面で行う。
+// 共有の画面へ直接行くリンクを出す。
 // 取った許可(アクセストークン)はこの画面の中だけで使い、サーバーには送らず、終わったら取り消す。
 import { GOOGLE_CLIENT_ID } from "./config.js?v=dev";
 import { friendlyText, $ } from "./app.js?v=dev";
@@ -46,30 +48,31 @@ async function googleApi(token, method, path, body) {
   return res.json();
 }
 
-// どこで失敗したかが分かるよう、段階の名前をエラーに付ける
-async function withStep(step, fn) {
+// 新しいカレンダーを作って、ID を返す
+async function createCalendar(token, name) {
   try {
-    return await fn();
+    const cal = await googleApi(token, "POST", "/calendars", { summary: name, timeZone: "Asia/Tokyo" });
+    return cal.id;
   } catch (err) {
-    err.message = `「${step}」で失敗: ${err.message}`;
+    err.message = `「カレンダーを作る」で失敗: ${err.message}`;
     throw err;
   }
 }
 
-// 新しいカレンダーを作り、登録用アドレスに「予定の変更権限」で共有して、ID を返す
-async function createShared(token, name, serviceEmail) {
-  const cal = await withStep("カレンダーを作る", () => googleApi(token, "POST", "/calendars", { summary: name, timeZone: "Asia/Tokyo" }));
-  // 共有の途中で失敗したときも、作れたカレンダーのIDを持ち帰れるよう、エラーにIDを付ける
-  try {
-    await withStep("登録用アドレスと共有する", () => googleApi(token, "POST", `/calendars/${encodeURIComponent(cal.id)}/acl?sendNotifications=false`, {
-      role: "writer",
-      scope: { type: "user", value: serviceEmail },
-    }));
-  } catch (err) {
-    err.message += `(カレンダー「${name}」は作られています。Googleカレンダーで確認してください)`;
-    throw err;
-  }
-  return cal.id;
+// そのカレンダーの「設定と共有」の画面へのリンク(共有する相手を足す画面)
+function shareUrl(id) {
+  return "https://calendar.google.com/calendar/u/0/r/settings/calendar/" + btoa(id).replace(/=+$/, "");
+}
+
+function addShareLink(name, id) {
+  const li = document.createElement("li");
+  const a = document.createElement("a");
+  a.href = shareUrl(id);
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.textContent = `「${name}」の共有を開く`;
+  li.appendChild(a);
+  $("auto-links").appendChild(li);
 }
 
 function setValue(id, value) {
@@ -110,6 +113,7 @@ export function initCalendarSetup() {
 
     const holiday = $("auto-holiday").value; // own | work | none
     $("auto-run").disabled = true;
+    $("auto-links").innerHTML = "";
     let token = "";
     try {
       result("Google の画面で、許可をしてください…");
@@ -117,23 +121,31 @@ export function initCalendarSetup() {
       token = await requestToken();
 
       result("勤務用のカレンダーを作っています…");
-      const workId = await createShared(token, nameOf("auto-work-name", "勤務"), serviceEmail);
+      const workName = nameOf("auto-work-name", "勤務");
+      const workId = await createCalendar(token, workName);
       setValue("work-id", workId);
+      addShareLink(workName, workId);
 
       if (holiday === "own") {
         result("休日用のカレンダーを作っています…");
-        setValue("holiday-id", await createShared(token, nameOf("auto-holiday-name", "休日"), serviceEmail));
+        const name = nameOf("auto-holiday-name", "休日");
+        const id = await createCalendar(token, name);
+        setValue("holiday-id", id);
+        addShareLink(name, id);
       } else {
         setValue("holiday-id", holiday === "work" ? workId : "");
       }
       if ($("auto-offduty").checked) {
         result("非番の時間用のカレンダーを作っています…");
-        setValue("offduty-id", await createShared(token, nameOf("auto-offduty-name", "非番の時間"), serviceEmail));
+        const name = nameOf("auto-offduty-name", "非番の時間");
+        const id = await createCalendar(token, name);
+        setValue("offduty-id", id);
+        addShareLink(name, id);
       }
-      result("カレンダーを作って、共有しました。下の「保存して接続テスト」を押してください。", "ok");
+      result("カレンダーを作って、IDを下の欄に入れました。次に、下の「共有を開く」で、作ったカレンダーを登録用アドレスと共有してください。", "ok");
     } catch (err) {
       // 途中まで作れたカレンダーのIDは、下の欄に入っている。作り直すと重複するので、そのまま保存するか、Google カレンダーで消す
-      const done = $("work-id").value.trim() ? "(作れたぶんのIDは、下の欄に入っています。足りないものは、もう一度ボタンを押す前に、Googleカレンダーで確認してください)" : "";
+      const done = $("work-id").value.trim() ? "(作れたぶんのIDは、下の欄に入っています。足りないものは、もう一度ボタンを押す前に、Googleカレンダーで確認してください。作ったカレンダーが重複したときは、Googleカレンダーで消せます)" : "";
       result((err.message || String(err)) + done, "error");
     } finally {
       // 許可は、ここで使い終わり。取り消しておく(サーバーには送っていない)
