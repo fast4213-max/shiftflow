@@ -674,6 +674,66 @@ Deno.test("受信メール: 件名だけ「Undeliverable」にした他人のメ
   assert(JSON.stringify(d.posts[0].payload).includes("違う人"));
 });
 
+Deno.test("受信メール: 違う人が件名の受付番号だけで送っても、問い合わせを延命しない(W10)。新着の印は付く", async () => {
+  const { deps, db } = setup({ discord: { configured: false } }); // Discord が未設定でも同じ
+  await submitInquiry(deps, guest({ reply_via: "mail", email: "taro@gmail.com" }), { ip: "1.1.1.1", userId: null });
+  await adminSetStatus(deps, { id: 1, status: "done" });
+  const old = new Date(Date.now() - 40 * 86400_000).toISOString();
+  Object.assign(db.inquiries[0], { last_activity_at: old, done_at: old });
+  const evil = mail({ from: "evil@example.com", thread_id: "ff0e10" });
+  await ingestMails(deps, { self: SELF, mails: [evil] });
+  assertEquals(db.inquiries[0].last_activity_at, old);
+  assertEquals(db.inquiries[0].done_at, old);
+  assertEquals(db.inquiries[0].status, "done"); // 対応済みは戻さない
+  assertEquals(db.inquiries[0].has_new_mail, true);
+  // 返信待ち(replied)のものは、気づけるよう要対応に戻すが、期限は延ばさない
+  await adminSetStatus(deps, { id: 1, status: "open" });
+  db.inquiries[0].status = "replied";
+  await ingestMails(deps, { self: SELF, mails: [mail({ from: "evil@example.com", thread_id: "ff0e11" })] });
+  assertEquals(db.inquiries[0].status, "open");
+  assertEquals(db.inquiries[0].last_activity_at, old);
+  // アドレスが同じ本人のメールは、今までどおり延命して要対応に戻す
+  await adminSetStatus(deps, { id: 1, status: "done" });
+  await ingestMails(deps, { self: SELF, mails: [mail({ from: "taro@gmail.com", thread_id: "ff0e12" })] });
+  assertEquals(db.inquiries[0].status, "open");
+  assertEquals(db.inquiries[0].done_at, null);
+  assert(db.inquiries[0].last_activity_at > old);
+});
+
+Deno.test("受信メール: 「違う人」の判断は取り込み時に保存する。スレッド・本物の届かなかった知らせは違う人にしない(W12)", async () => {
+  const { deps, db } = setup({ discord: { configured: false } });
+  await submitInquiry(deps, guest({ reply_via: "mail", email: "taro@gmail.com" }), { ip: "1.1.1.1", userId: null });
+  await adminReply(deps, { id: 1, body: "返事", via: "mail", request_key: key() }); // スレッド ff0123
+  const flag = async (extra: Record<string, unknown>) => {
+    const m = mail(extra);
+    await ingestMails(deps, { self: SELF, mails: [m] });
+    return db.messages.find((x) => x.gmail_message_id === m.id)!.mismatch;
+  };
+  assertEquals(await flag({ from: "other@example.com", thread_id: "ff0e20" }), true); // 件名の番号だけ・別のアドレス
+  assertEquals(await flag({ from: "taro@gmail.com", thread_id: "ff0e21" }), false);
+  assertEquals(await flag({ from: "other@example.com", thread_id: "ff0123" }), false); // こちらが送ったスレッド
+  assertEquals(await flag({ from: "Mail Delivery Subsystem <mailer-daemon@googlemail.com>", thread_id: "ff0e22", subject: "Undeliverable: お問い合わせ #0001" }), false);
+  assertEquals(await flag({ from: "evil@example.com", thread_id: "ff0e23", subject: "Undeliverable: お問い合わせ #0001" }), true);
+  // アドレスを消したあとは、スレッド以外はすべて「違う人」
+  db.inquiries[0].email = null;
+  assertEquals(await flag({ from: "taro@gmail.com", thread_id: "ff0e24" }), true);
+});
+
+Deno.test("受信メール: 引用が無くても長くて切ったときは、全文を残す(W13)", async () => {
+  const { deps, db } = setup({ discord: { configured: false } });
+  await submitInquiry(deps, guest({ reply_via: "mail", email: "taro@gmail.com" }), { ip: "1.1.1.1", userId: null });
+  const long = "あ".repeat(6000);
+  const m = mail({ from: "taro@gmail.com", thread_id: "ff0e30", body: long });
+  await ingestMails(deps, { self: SELF, mails: [m] });
+  const got = db.messages.find((x) => x.gmail_message_id === m.id)!;
+  assert(got.body.length < long.length);
+  assertEquals(got.body_full, long);
+  // 短くて引用も無いときは、全文は持たない
+  const short = mail({ from: "taro@gmail.com", thread_id: "ff0e31", body: "はい" });
+  await ingestMails(deps, { self: SELF, mails: [short] });
+  assertEquals(db.messages.find((x) => x.gmail_message_id === short.id)!.body_full, null);
+});
+
 Deno.test("受信メール: 要対応に戻せなかったときは、メールを入れずに次の回にやり直す(S6)", async () => {
   const { deps, db } = setup();
   await submitInquiry(deps, guest({ reply_via: "mail", email: "taro@gmail.com" }), { ip: "1.1.1.1", userId: null });

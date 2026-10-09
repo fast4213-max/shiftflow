@@ -12,6 +12,7 @@ import {
   eventsToRegister,
   listAppEvents,
   loadVerifiedCalendars,
+  nextFirstNewlyOffduty,
   splitDayEvents,
   splitOffdutyEvents,
   staleNextMonthRecords,
@@ -45,16 +46,16 @@ serve(async (req) => {
     const byDate = Object.fromEntries((recordsRes.data || []).map((r) => [r.date, r]));
     const master = indexMaster(masterRes.data || []);
 
-    const plan = buildPlan({
-      year,
-      month,
-      entries,
-      prevLastCode: codeOf(byDate[prevLast]),
-      nextFirstEntry: byDate[nextFirst],
-      master,
-      holidays,
-    });
+    const planOf = (nextFirstEntry: { code: string; memo: string } | undefined) =>
+      buildPlan({ year, month, entries, prevLastCode: codeOf(byDate[prevLast]), nextFirstEntry, master, holidays });
+    let plan = planOf(byDate[nextFirst]);
     const nextFirstOffduty = plan.events.some((e) => e.date === nextFirst && e.kind === "offduty");
+    // 月末が今回はじめて泊になったなら、翌月1日の番号の無いメモ(別の用事のメモ)を非番のメモに使わない(W6)。
+    // 画面が、月の中で新しく非番になった日のメモを消すのと同じ。前から泊なら、手で書いた非番のメモなのでそのまま使う
+    const newlyOffduty = nextFirstNewlyOffduty({ lastCode: codeOf(byDate[last]), nextFirstOffduty, master });
+    if (newlyOffduty && byDate[nextFirst] && !codeOf(byDate[nextFirst])) {
+      plan = planOf({ code: "", memo: "" });
+    }
 
     const saved = await ctx.db.rpc("save_month_records", { p_year: year, p_month: month, p_entries: plan.entries });
     if (saved.error) throw saved.error;
@@ -67,6 +68,7 @@ serve(async (req) => {
       nextFirstOffduty,
       nextFirstCode: codeOf(byDate[nextFirst]),
       master,
+      newlyOffduty,
     }));
 
     const existing = await listAppEvents(calendars, year, month);

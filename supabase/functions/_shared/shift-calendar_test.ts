@@ -9,6 +9,7 @@ import {
   isOffdutyTitle,
   isOffTitle,
   listAppEvents,
+  nextFirstNewlyOffduty,
   parseOffdutyTime,
   parseTimeRange,
   splitDayEvents,
@@ -166,6 +167,39 @@ Deno.test("staleNextMonthRecords: 月末の泊が変わって翌月1日の非番
   // もともと非番でなかった(月末が泊でない)なら、翌月1日のメモは本人が書いたものなので残す
   assertEquals(staleNextMonthRecords({ ...base, lastCode: "201", nextFirstOffduty: false, nextFirstCode: "" }), []);
   assertEquals(staleNextMonthRecords({ ...base, lastCode: "", nextFirstOffduty: false, nextFirstCode: "201" }), []);
+});
+
+Deno.test("W6: 月末が今回はじめて泊になったら、翌月1日のメモだけの記録は非番のメモに使わず消す", () => {
+  const master = indexMaster([
+    { code: "101", kind: "泊", weekday_start: "9:00", weekday_end: "9:30", stay: "A" },
+    { code: "201", kind: "日勤", weekday_start: "8:00", weekday_end: "17:00" },
+  ]);
+  const memoOnly = { code: "", memo: "健康診断" };
+  const entries = { "2026-10-31": { code: "101" } };
+  const run = (lastCode: string) => {
+    // register-month と同じ手順
+    let plan = buildPlan({ year: 2026, month: 10, entries, prevLastCode: "", nextFirstEntry: memoOnly, master, holidays: [] });
+    const nextFirstOffduty = plan.events.some((e) => e.date === "2026-11-01" && e.kind === "offduty");
+    const newlyOffduty = nextFirstNewlyOffduty({ lastCode, nextFirstOffduty, master });
+    if (newlyOffduty) plan = buildPlan({ year: 2026, month: 10, entries, prevLastCode: "", nextFirstEntry: { code: "", memo: "" }, master, holidays: [] });
+    const off = plan.events.find((e) => e.date === "2026-11-01");
+    const stale = staleNextMonthRecords({ nextFirst: "2026-11-01", lastCode, nextFirstOffduty, nextFirstCode: "", master, newlyOffduty });
+    return { off, stale, newlyOffduty };
+  };
+  // 前は泊でなかった(今回はじめて泊): メモは使わず退勤時間、メモだけの記録は消す。2件に分けると時間の予定も作られる
+  const fresh = run("201");
+  assertEquals(fresh.newlyOffduty, true);
+  assertEquals(fresh.off?.description, "9:30");
+  assertEquals(fresh.stale, [{ date: "2026-11-01", memoOnly: true }]);
+  assertEquals(splitOffdutyEvents(fresh.off ? [fresh.off] : [], master)[0].second?.title, "9:30");
+  assertEquals(run("").newlyOffduty, true);
+  // 前から泊だった(本人が非番のメモを手で書いた): 今のとおりメモを使い、消さない
+  const kept = run("101");
+  assertEquals(kept.newlyOffduty, false);
+  assertEquals(kept.off?.description, "健康診断");
+  assertEquals(kept.stale, []);
+  // 翌月1日が非番にならないなら、新しく非番になったことにはならない
+  assertEquals(nextFirstNewlyOffduty({ lastCode: "201", nextFirstOffduty: false, master }), false);
 });
 
 Deno.test("createEvents: 終日予定(終了日は翌日)に印を付けて作る", async () => {

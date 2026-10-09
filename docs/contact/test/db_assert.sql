@@ -71,4 +71,40 @@ begin
 end
 $$;
 
+-- 動き: アドレスを消すとき(対応済みから30日)、こちらの返事の行の送り先(from_email)も消える。
+-- 受信メール(sender = mail)の差出人は、アドレスを消したあとの返信に使うので残る(DESIGN.md A4)。mismatch 列がある(W11・W12)
+do $$
+declare
+  a bigint;
+  b bigint;
+begin
+  assert exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'inquiry_messages' and column_name = 'mismatch'),
+         'inquiry_messages.mismatch が無い';
+  -- 30日以上前に対応済み(消える) / 29日前に対応済み(まだ残る)
+  insert into public.inquiries (request_key, logged_in, employee_no, name, office_name, kind, reply_via, email, status, done_at, last_activity_at)
+    values ('bbbbbbbb-0000-4000-8000-000000000001', false, '1234567', 'x', 'y', 'login', 'mail', 'old@example.com', 'done', now() - interval '31 days', now() - interval '31 days')
+    returning id into a;
+  insert into public.inquiries (request_key, logged_in, employee_no, name, office_name, kind, reply_via, email, status, done_at, last_activity_at)
+    values ('bbbbbbbb-0000-4000-8000-000000000002', false, '1234567', 'x', 'y', 'login', 'mail', 'new@example.com', 'done', now() - interval '29 days', now() - interval '29 days')
+    returning id into b;
+  insert into public.inquiry_messages (inquiry_id, sender, channel, body, from_email) values
+    (a, 'admin', 'mail', 'r', 'old@example.com'), (a, 'mail', 'mail', 'm', 'old@example.com'),
+    (b, 'admin', 'mail', 'r', 'new@example.com');
+  perform public.purge_old_contact();
+  assert (select email from public.inquiries where id = a) is null, '30日たったアドレスが消えない';
+  assert (select from_email from public.inquiry_messages where inquiry_id = a and sender = 'admin') is null, '返事の行の送り先が消えない';
+  assert (select from_email from public.inquiry_messages where inquiry_id = a and sender = 'mail') = 'old@example.com', '受信メールの差出人まで消えた';
+  assert (select email from public.inquiries where id = b) = 'new@example.com', '29日のアドレスが消えた';
+  assert (select from_email from public.inquiry_messages where inquiry_id = b and sender = 'admin') = 'new@example.com', '29日の返事の送り先が消えた';
+  -- アドレスを消したあとに送った返事の行も、次の回に消える
+  insert into public.inquiry_messages (inquiry_id, sender, channel, body, from_email) values (a, 'admin', 'mail', 'late', 'thread@example.com');
+  perform public.purge_old_contact();
+  assert (select count(*) from public.inquiry_messages where inquiry_id = a and sender = 'admin' and from_email is not null) = 0, 'あとの返事の送り先が消えない';
+  -- 関数の権限は作り直したあとも元のまま
+  assert not has_function_privilege('authenticated', 'public.purge_old_contact()', 'execute'), 'purge_old_contact を authenticated が実行できる';
+  assert not has_function_privilege('anon', 'public.purge_old_contact()', 'execute'), 'purge_old_contact を anon が実行できる';
+  delete from public.inquiries where id in (a, b);
+end
+$$;
+
 select 'db_assert: all ok' as result;

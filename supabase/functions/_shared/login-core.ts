@@ -14,6 +14,7 @@ import {
   validatePin,
 } from "./accounts.ts";
 import { assertNotLocked, clearFailures, recordFailure } from "./attempts.ts";
+import { sanitizeDbError } from "./db-error.ts";
 import { AppError } from "./http.ts";
 
 export type Session = { access_token: string; refresh_token: string };
@@ -167,7 +168,7 @@ export async function signUp({ admin }: { admin: SupabaseClient }, body: Record<
   const key = `signup:${ip}`;
   await assertNotLocked(admin, key);
   const { data: check, error: checkError } = await admin.rpc("check_signup_password", { p_password: shared });
-  if (checkError) throw checkError;
+  if (checkError) throw sanitizeDbError(checkError);
   if (check === "not_set") {
     throw new AppError(503, "登録の受付をまだ開始していません。管理者に連絡してください。", "signup_closed");
   }
@@ -179,7 +180,7 @@ export async function signUp({ admin }: { admin: SupabaseClient }, body: Record<
 
   const { data: existing, error: existingError } = await admin
     .from("profiles").select("user_id").eq("employee_no", employeeNo).maybeSingle();
-  if (existingError) throw existingError;
+  if (existingError) throw sanitizeDbError(existingError);
   if (existing) {
     throw alreadyRegistered();
   }
@@ -195,7 +196,7 @@ export async function signUp({ admin }: { admin: SupabaseClient }, body: Record<
     // 同じ社員番号の登録が同時に進んで、相手がもうプロフィールまで作っていたら触らない
     const { data: owner, error: ownerError } = await admin
       .from("profiles").select("user_id").eq("user_id", left.id).maybeSingle();
-    if (ownerError) throw ownerError;
+    if (ownerError) throw sanitizeDbError(ownerError);
     if (owner) throw alreadyRegistered();
     const removed = await admin.auth.admin.deleteUser(left.id);
     if (removed.error) throw removed.error;
@@ -212,7 +213,9 @@ export async function signUp({ admin }: { admin: SupabaseClient }, body: Record<
   });
   if (profileError) {
     await admin.auth.admin.deleteUser(userId);
-    throw profileError;
+    // 同じ社員番号が同時に登録された(重複 23505)。エラーの details には社員番号が入っていてログに出るので、そのまま投げない(W14)
+    if ((profileError as { code?: string }).code === "23505") throw alreadyRegistered();
+    throw sanitizeDbError(profileError);
   }
   return { ok: true };
 }
@@ -238,7 +241,7 @@ export async function adminLogin(
   let userId: string | null = null;
   const { data: profile, error: profileError } = await admin
     .from("profiles").select("user_id").eq("role", "admin").maybeSingle();
-  if (profileError) throw profileError;
+  if (profileError) throw sanitizeDbError(profileError);
   userId = profile?.user_id ?? null;
 
   if (!userId) {
@@ -252,7 +255,7 @@ export async function adminLogin(
     }
     const { error } = await admin.from("profiles").insert({ user_id: userId, role: "admin" });
     // 同時に別のログインが先にプロフィールを作っていた(重複 23505)ときは、それを使う
-    if (error && (error as { code?: string }).code !== "23505") throw error;
+    if (error && (error as { code?: string }).code !== "23505") throw sanitizeDbError(error);
   }
 
   // ログインのたびに使い捨てのパスワードに変えて、そのパスワードでサインインする。

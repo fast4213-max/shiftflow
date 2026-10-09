@@ -65,6 +65,8 @@ export type Message = {
   subject: string | null;
   attachment_names: string | null;
   bounce: boolean;
+  // 件名の番号だけで当てはめた、問い合わせのアドレスと違う人からのメール(W12。取り込み時のサーバーの判断。古い行・当てはめていない行は null)
+  mismatch: boolean | null;
   gmail_message_id: string | null;
   gmail_thread_id: string | null;
   mail_status: "sending" | "sent" | "failed" | "unknown" | null;
@@ -621,12 +623,14 @@ export async function ingestMails(deps: Deps, body: Record<string, unknown>): Pr
         byThread = false;
       }
       const attachments = (Array.isArray(m.attachments) ? m.attachments : []).map((a) => String(a)).join(", ");
+      const shown = truncate(stripped || "(本文なし)", MAX_MAIL_BODY);
       const msg = await repo.insertMessage({
         inquiry_id: inquiryId,
         sender: "mail",
         channel: "mail",
-        body: truncate(stripped || "(本文なし)", MAX_MAIL_BODY),
-        body_full: full !== stripped ? full : null,
+        body: shown,
+        // 引用が無くても、長くて表示用に切ったときは全文を残す(W13)
+        body_full: full && full !== shown ? full : null,
         from_email: fromEmail,
         subject,
         attachment_names: attachments ? truncate(attachments, 1000) : null,
@@ -673,17 +677,26 @@ async function reopenAndNotify(
 ): Promise<void> {
   const { repo } = deps;
   const inq = await repo.getInquiry(inquiryId);
-  await repo.updateInquiry(inquiryId, {
-    has_new_mail: true,
-    status: "open",
-    done_at: null,
-    last_activity_at: new Date().toISOString(),
-  });
-  if (!deps.discord.configured) return;
   // スレッドではなく件名の番号で当てはめたときは、だれでも差し込めるので、アドレスが違えば知らせる(R9)。
   // 届かなかった知らせとして注意を省くのは、送り主がメールサーバーのときだけ(件名だけなら、だれでも付けられる。S7)
   const realBounce = m.bounce && isDaemonAddress(m.fromEmail);
   const mismatch = !m.byThread && !realBounce && (!inq?.email || m.fromEmail !== inq.email);
+  // 管理画面の注意もこの判断を使う(W12。画面で別に判断すると、スレッドで当てはまったものや届かなかった知らせとずれる)
+  await repo.updateMessage(msg.id, { mismatch });
+  if (mismatch) {
+    // 違う人からのメールは、問い合わせを延命させない(W10)。最後のやり取りの日・対応済みの日は変えない
+    // (変えると、件名に受付番号を書いて送り続けるだけで、90日の削除もアドレスの消去も止められる)。
+    // 新着の印は付ける。返信待ちのものは要対応に戻して気づけるようにする(期限は延びない)。対応済みのものは戻さない(Discord の通知で気づく)
+    await repo.updateInquiry(inquiryId, inq?.status === "replied" ? { has_new_mail: true, status: "open" } : { has_new_mail: true });
+  } else {
+    await repo.updateInquiry(inquiryId, {
+      has_new_mail: true,
+      status: "open",
+      done_at: null,
+      last_activity_at: new Date().toISOString(),
+    });
+  }
+  if (!deps.discord.configured) return;
   const res = await deps.discord.post(inboundMailPayload(inquiryId, {
     from_email: m.fromEmail,
     subject: m.subject,

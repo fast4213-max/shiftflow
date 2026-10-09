@@ -75,12 +75,15 @@ insert into public.inquiry_messages (inquiry_id, sender, channel, body, created_
 insert into public.inquiry_messages (inquiry_id, sender, channel, body) values (null, 'mail', 'mail', 'new unmatched');
 update public.inquiries set last_activity_at = now() - interval '91 days' where id = 1;
 update public.inquiries set status='done', done_at = now() - interval '31 days', last_activity_at = now() - interval '31 days' where request_key = 'aaaaaaaa-0000-0000-0000-000000000002';
+insert into public.inquiry_messages (inquiry_id, sender, channel, body, from_email) values
+ (2, 'admin', 'mail', 'reply', 's@example.com'), (2, 'mail', 'mail', 'incoming', 's@example.com');
 insert into public.rate_limits values ('old', now() - interval '2 days', 1);
 insert into public.discord_posts values ('d1', 1, now() - interval '121 days'), ('d2', 1, now() - interval '100 days');
 set role service_role;
 select 'purge: ' || public.purge_old_contact()::text;
 reset role;
 select 'remaining inquiries: ' || string_agg(id::text || ':' || coalesce(email, 'null'), ',') from public.inquiries;
+select 'inquiry 2 message from_email (admin erased, mail kept): ' || string_agg(sender || '=' || coalesce(from_email, 'null'), ',' order by sender) from public.inquiry_messages where inquiry_id = 2 and sender in ('admin', 'mail');
 select 'remaining unmatched: ' || string_agg(body, ',') from public.inquiry_messages where inquiry_id is null;
 select 'remaining discord: ' || string_agg(message_id, ',') from public.discord_posts;
 select 'rate old gone: ' || (not exists (select 1 from public.rate_limits where key = 'old'));

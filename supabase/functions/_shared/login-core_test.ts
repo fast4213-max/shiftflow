@@ -20,6 +20,7 @@ function fakes(
   opts: {
     sharedPassword?: string | null;
     failProfileInsert?: boolean;
+    profileInsertError?: Error;
     racingSignUp?: boolean;
     authStatus?: number;
     authCode?: string; // authStatus のエラーの code(Supabase Auth の error_code)
@@ -87,6 +88,7 @@ function fakes(
           return Promise.resolve({ data: row ?? null, error: null });
         },
         insert: (row: Profile) => {
+          if (opts.profileInsertError) return Promise.resolve({ error: opts.profileInsertError });
           if (opts.failProfileInsert) return Promise.resolve({ error: new Error("insert failed") });
           if (opts.racingAdminInsert && row.role === "admin" && !profiles.some((p) => p.role === "admin")) {
             profiles.push(row);
@@ -236,6 +238,25 @@ Deno.test("新規登録: プロフィールの作成に失敗したらユーザ�
   const f = fakes({ failProfileInsert: true });
   await assertRejects(() => signUp(f.deps, reg, "ip"));
   assertEquals(f.users.length, 0);
+});
+
+Deno.test("新規登録: 同時登録で社員番号が重複(23505)したら「登録済み」にし、ユーザーを消す。エラーに社員番号を出さない(W14)", async () => {
+  const f = fakes({
+    profileInsertError: Object.assign(new Error('duplicate key value violates unique constraint "profiles_employee_no_key"'), {
+      code: "23505",
+      details: "Key (employee_no)=(1234567) already exists.",
+    }),
+  });
+  assertEquals(await code(() => signUp(f.deps, reg, "ip")), "already_registered");
+  assertEquals(f.users.length, 0);
+  // ほかの DB エラーは、details(行の中身)を含まない形で投げる
+  const g = fakes({
+    profileInsertError: Object.assign(new Error("value too long\nsecond line"), { code: "22001", details: "Failing row contains (1234567, 山田)" }),
+  });
+  const err = await assertRejects(() => signUp(g.deps, reg, "ip"));
+  assertEquals((err as Error).message, "DB error 22001: value too long");
+  assert(!JSON.stringify(err, Object.getOwnPropertyNames(err)).includes("1234567"));
+  assertEquals(g.users.length, 0);
 });
 
 Deno.test("新規登録: 前回の途中で止まってユーザーだけ残っていたら、消して作り直して登録できる", async () => {

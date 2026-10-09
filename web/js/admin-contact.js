@@ -180,7 +180,8 @@ function mailStatusLine(m, inq) {
   if (m.mail_status === "sending" && minutesAgo(m.created_at) >= 2) m = { ...m, mail_status: "unknown", mail_error: "送信の途中で止まりました" };
   if (m.mail_status === "sent") {
     div.classList.add("ok");
-    div.textContent = `メールで送りました(${m.from_email || ""})`;
+    // 送り先は、アドレスを消したあと(対応済みから30日)は消えている
+    div.textContent = m.from_email ? `メールで送りました(${m.from_email})` : "メールで送りました(送り先のアドレスは消去済み)";
   } else if (m.mail_status === "sending") {
     div.textContent = "送信中…(しばらくたっても変わらないときは、読み直してください)";
   } else if (m.mail_status === "failed" || m.mail_status === "unknown") {
@@ -216,8 +217,10 @@ function messageBubble(m, inq) {
   head.appendChild(el("span", "tag " + (m.bounce ? "bounce" : m.sender === "mail" ? "in" : m.channel === "mail" ? "out" : "web"), tag));
   b.appendChild(head);
   if (m.sender === "mail" && m.subject) b.appendChild(el("div", "muted small", "件名: " + m.subject));
-  // 件名の番号で入ってきたメールで、問い合わせのアドレスと違う人から(R9)
-  if (inq && m.sender === "mail" && !m.bounce && (!inq.email || m.from_email !== inq.email)) {
+  // 件名の番号で入ってきたメールで、問い合わせのアドレスと違う人から(R9)。サーバーが取り込み時に判断した値(mismatch)を使う。
+  // 古い行(mismatch が null)だけ、画面で判断する(W12)
+  const mismatch = typeof m.mismatch === "boolean" ? m.mismatch : !m.bounce && (!inq || !inq.email || m.from_email !== inq.email);
+  if (inq && m.sender === "mail" && mismatch) {
     b.appendChild(el("div", "warn-text small", "⚠️ 問い合わせのメールアドレスと違う人からのメールです。本人か確かめてください。"));
   }
   const text = el("div", "bubble-text", m.body);

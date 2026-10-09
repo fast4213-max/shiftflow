@@ -220,23 +220,34 @@ export function eventsToRegister(
 //   翌月1日が非番になる: 翌月1日の番号(とそのメモ)を消す。残すと、あとで月末を泊から戻したとき、消えたはずの番号が戻る。
 //     その番号が泊なら翌月2日は非番でなくなるので、翌月2日の非番のために書き換えたメモ(番号の無い記録)も消す
 //   翌月1日が非番でなくなる(月末を泊から戻した・月をリセットした): 翌月1日の非番のために書き換えたメモ(番号の無い記録)を消す
+//     月末が今回はじめて泊になった(newlyOffduty)なら、番号の無い翌月1日のメモも消す(W6。画面が、新しく非番になった日のメモを消すのと同じ)。
+//     前から泊だった(利用者が非番のメモを手で書いた)ときは残す
 // lastCode は登録(リセット)する前の月末の番号。memoOnly の記録は、番号の無いものだけを消す
 export function staleNextMonthRecords(
-  { nextFirst, lastCode, nextFirstOffduty, nextFirstCode, master }: {
+  { nextFirst, lastCode, nextFirstOffduty, nextFirstCode, master, newlyOffduty = false }: {
     nextFirst: string;
     lastCode: string;
     nextFirstOffduty: boolean;
     nextFirstCode: string;
+    newlyOffduty?: boolean;
     master: Record<string, any>; // indexMaster() の結果
   },
 ): { date: string; memoOnly: boolean }[] {
   if (nextFirstOffduty) {
-    if (!nextFirstCode) return [];
+    if (!nextFirstCode) return newlyOffduty ? [{ date: nextFirst, memoOnly: true }] : [];
     const stale = [{ date: nextFirst, memoOnly: false }];
     if (master[nextFirstCode]?.type === "泊") stale.push({ date: addDays(nextFirst, 1), memoOnly: true });
     return stale;
   }
   return master[lastCode]?.type === "泊" ? [{ date: nextFirst, memoOnly: true }] : [];
+}
+
+// 翌月1日が今回はじめて非番になったか(登録する前の月末が泊でなく、今回の月末が泊)。
+// そのとき翌月1日の番号の無いメモは、非番のメモに使わない(W6)
+export function nextFirstNewlyOffduty(
+  { lastCode, nextFirstOffduty, master }: { lastCode: string; nextFirstOffduty: boolean; master: Record<string, any> },
+): boolean {
+  return nextFirstOffduty && master[lastCode]?.type !== "泊";
 }
 
 // staleNextMonthRecords の記録を消す(利用者の権限で消すので、本人の記録だけが対象)
