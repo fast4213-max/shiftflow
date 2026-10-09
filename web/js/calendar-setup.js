@@ -70,6 +70,8 @@ function nameOf(id, fallback) {
 
 export function initCalendarSetup() {
   if (!GOOGLE_CLIENT_ID) return;
+  // 試験のあいだは、URL の最後に ?beta=1 を付けた人にだけ出す(ふつうの利用者には今までの画面のまま)
+  if (new URLSearchParams(location.search).get("beta") !== "1") return;
   $("auto-setup").classList.remove("hidden");
 
   const toggleNames = () => {
