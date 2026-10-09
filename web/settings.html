@@ -50,22 +50,22 @@
 
     <div class="card">
       <strong>2. カレンダーを共有する</strong>
-      <p class="muted"><b>勤務用</b>の新しいカレンダー(休日の予定も分けたい人は<b>休日用</b>も、非番の時間の色を変えたい人は<b>非番の時間用</b>も)を作り、それぞれ下のアドレスと権限「<b>すべての予定の詳細の変更や表示ができます</b>」で共有します(自分のメインのカレンダーは使えません)。</p>
+      <p class="muted">作ったカレンダー(<b>勤務用</b>。休日用・非番の時間用も作った人は、それも。かんたん設定で作った人は、作った数だけ)を、<b>1つずつ</b>下のアドレスと共有します。権限は「<b>すべての予定の詳細の変更や表示ができます</b>」(アプリでは「すべての予定の詳細を変更・表示可能」)です。自分のメインのカレンダーは使えません。</p>
       <div class="row">
         <input id="sa-email" class="mono" readonly value="読み込み中…">
         <button id="copy-sa" type="button">コピー</button>
       </div>
       <p class="muted">
-        共有は、「Googleカレンダー」アプリ(「≡」→「設定」→カレンダー名→「共有する相手」)でできます。アプリに項目が見当たらないときや、カレンダーを手で作るとき・IDの確認は、ブラウザの「PC表示」の Googleカレンダーの画面で行います(スマホでもできます)。
-        <a href="https://calendar.google.com/calendar/u/0/r/settings" target="_blank" rel="noopener">Googleカレンダーの設定を開く</a><br>
-        スマホではリンクがカレンダーアプリで開いてしまうことがあります。そのときはブラウザで calendar.google.com を開き、「PC表示」(iPhone は「デスクトップ用Webサイトを表示」、Android は「PC版サイト」)に切り替えてください。
+        <b>スマホは、Googleカレンダーのアプリでできます</b>(「≡」→「設定」→カレンダー名→「共有する相手」→ 上のアドレスを追加して、権限を選んで保存)。
+        アプリに「共有する相手」が見当たらないときだけ、ブラウザで calendar.google.com を開き、「PC表示」(iPhone は「デスクトップ用Webサイトを表示」、Android は「PC版サイト」)にして行います。
+        パソコンは <a href="https://calendar.google.com/calendar/u/0/r/settings" target="_blank" rel="noopener">Googleカレンダーの設定</a> から。
         詳しい手順は <a href="help.html#share">使い方の「カレンダーを共有する」</a>。
       </p>
     </div>
 
     <div class="card">
       <strong>3. カレンダーIDを入力して接続テスト</strong>
-      <p class="muted">「設定と共有」の画面の下の方、「カレンダーの統合」にある「カレンダー ID」を貼り付けます。</p>
+      <p class="muted">かんたん設定で作った人は、IDがもう入っています。共有できたら、1. で区所を選んで、下の「保存して接続テスト」を押します。カレンダーを手で作った人は、「設定と共有」の画面の下の方、「カレンダーの統合」にある「カレンダー ID」を貼り付けます(使い方の手順4)。</p>
       <label for="work-id">勤務用カレンダーID</label>
       <input id="work-id" class="mono" maxlength="200" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="xxxx@group.calendar.google.com">
       <label for="holiday-id">休日用カレンダーID(なくてもよい)</label>
