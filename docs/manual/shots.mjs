@@ -99,6 +99,7 @@ await page.reload();
 await page.waitForSelector("#office option[value='1']", { state: "attached" });
 await page.waitForFunction(() => document.getElementById("sa-email").value.includes("@"));
 await page.selectOption("#auto-holiday", "work");
+await page.waitForTimeout(800); // ログイン部品の読み込み待ち
 await page.click("#auto-run");
 await page.waitForSelector("#auto-result.ok");
 await page.evaluate(() => document.activeElement.blur());

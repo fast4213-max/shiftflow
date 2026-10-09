@@ -69,7 +69,8 @@ async function main() {
     .then((config) => ($("sa-email").value = config.serviceAccountEmail))
     .catch((err) => ($("sa-email").value = "取得できませんでした: " + err.message));
   $("copy-sa").addEventListener("click", () => copyText($("sa-email").value, $("copy-sa")));
-  initCalendarSetup();
+  // かんたん設定で作ったIDは、すぐ保存する(区所などは上書きしない)
+  initCalendarSetup({ saveIds: (values) => saveSettings(values) });
 
   // 区所・ID・「出勤を2件」「非番を2件」を変えたら、保存するまでテスト済みの表示と「勤務入力へ」を消す
   // (保存せずに勤務入力へ進むと、変えた設定が使われないため)

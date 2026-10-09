@@ -49,7 +49,7 @@ web/                        画面(GitHub Pages で配信)
   help.html                 使い方(未ログインでも読める)
   contact.html              お問い合わせ(未ログインでも使える)
   notices.html              お知らせ(ログイン後)
-  js/config.js              Supabase の URL と公開キー(★自分の値を書く)
+  js/config.js              Supabase の URL と公開キー、OAuth クライアント ID(★自分の値を書く)
   js/plan.js                予定の組み立て(supabase/functions/_shared/plan.js と同じ内容)
 supabase/
   migrations/*.sql          テーブル・RLS・SQL関数
@@ -79,7 +79,7 @@ WORKLOG.md                  作業ログ(要約と現在の状態)。デバッ�
 ## セットアップ(はじめての人向け・ブラウザだけ)
 
 所要時間は1時間ほどです。途中で出てくる値のうち、**サービスアカウントの鍵(JSON)、各種パスワード、アクセストークンは、リポジトリに絶対に書かないでください。**
-画面に書いてよいのは、`web/js/config.js` に入れる Supabase の URL と公開用キーだけです。
+画面に書いてよいのは、`web/js/config.js` に入れる Supabase の URL・公開用キーと、かんたん設定用の OAuth クライアント ID(公開してよい値)だけです。
 
 必要なもの: Google アカウント、GitHub アカウント(このリポジトリを自分のアカウントに置いてあること)
 
@@ -151,6 +151,16 @@ Supabase の左メニュー「Edge Functions」→「Secrets」(または「Proj
 2. GitHub のリポジトリ →「Settings」→「Pages」→「Source」を **GitHub Actions** にする
 3. 「Actions」タブで「GitHub Pages」が成功するのを待つ(失敗していたら「Re-run jobs」)
    - アプリの URL: `https://<ユーザー名>.github.io/shiftflow/`
+
+### 5-2. (任意)設定画面の「かんたん設定」を使えるようにする
+
+利用者の Google アカウントで、このアプリ用のカレンダーを自動で作る機能です。使わないなら、この手順は飛ばしてください(`GOOGLE_CLIENT_ID` が空なら、カードは出ません)。
+
+1. Google Cloud コンソールで、プロジェクトを選ぶ(サービスアカウントと同じものでよい)。「Google Auth Platform」で同意画面(ブランディング)を設定する
+2. 「データアクセス」で、スコープ `https://www.googleapis.com/auth/calendar.app.created` を追加する(機微ではないスコープなので、Google の審査は不要)
+3. 「対象」の公開ステータスを **本番環境(In production)** にする(テストのままだと、登録したテストユーザーしか使えず、許可が7日で切れる)
+4. 「クライアント」→「クライアントを作成」で、種類は **ウェブ アプリケーション**。「承認済みの JavaScript 生成元」に、画面を公開している URL の生成元(例: `https://<ユーザー名>.github.io`。末尾の `/` や `/shiftflow/` は付けない)を入れる。リダイレクト URI は不要
+5. できた「クライアント ID」(`....apps.googleusercontent.com`)を、`web/js/config.js` の `GOOGLE_CLIENT_ID` に書く。クライアントシークレットは使わない(どこにも貼らない)
 
 ### 6. データベースと Edge Functions を反映する
 
