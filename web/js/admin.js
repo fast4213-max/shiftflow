@@ -246,15 +246,25 @@ function fillOfficeSelects() {
 
 // 区所を1つ上(-1)・下(+1)へ動かす。並びは sort_order で決まり、利用者の設定画面・お問い合わせの区所の一覧も同じ並びになる。
 // 抜け(削除したあと)や同じ数字があっても崩れないよう、動かすたびに全部を 1,2,3… に振り直す
+let movingOffice = false;
 async function moveOffice(index, delta) {
+  if (movingOffice) return; // 連打で、古い並びから計算した2回目が1回目を上書きしないように
   const list = stats.offices.slice();
   const target = index + delta;
   if (target < 0 || target >= list.length) return;
   [list[index], list[target]] = [list[target], list[index]];
-  const results = await Promise.all(list.map((o, i) => supabase.from("offices").update({ sort_order: i + 1 }).eq("id", o.id)));
-  const failed = results.find((r) => r.error);
-  if (failed) message(failed.error.message, "error");
-  await refresh();
+  movingOffice = true;
+  document.querySelectorAll("#offices button").forEach((b) => { b.disabled = true; });
+  try {
+    // 1つずつ順に送る(同時に送って一部だけ失敗すると、並びが重複・抜けになる)。失敗したら止めて、読み直す
+    for (let i = 0; i < list.length; i++) {
+      const { error } = await supabase.from("offices").update({ sort_order: i + 1 }).eq("id", list[i].id);
+      if (error) { message(error.message, "error"); break; }
+    }
+  } finally {
+    movingOffice = false;
+    await refresh();
+  }
 }
 
 function renderOffices() {

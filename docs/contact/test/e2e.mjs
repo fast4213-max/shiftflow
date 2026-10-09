@@ -34,7 +34,8 @@ const NOTICES = [
 
 // 偽の Supabase
 function backend(opts = {}) {
-  const st = { calls: [], inquiries: [], notices: [...NOTICES], nextNotice: 10 };
+  const st = { calls: [], inquiries: [], notices: [...NOTICES], nextNotice: 10,
+    offices: [{ id: 1, name: "A区所", sort_order: 1 }, { id: 2, name: "B区所", sort_order: 2 }, { id: 3, name: "C区所", sort_order: 3 }] };
   const handler = async (route) => {
     const req = route.request();
     const url = new URL(req.url());
@@ -61,12 +62,32 @@ function backend(opts = {}) {
       return json([row]);
     }
     if (path === "/functions/v1/verify-calendar") return json({ ok: true });
+    if (path === "/rest/v1/offices" && opts.twoOffices) {
+      // 区所の並び替え(Y1・Y5): sort_order を持つ偽物。PATCH は opts.officeDelay だけ遅らせ、opts.officeFailId の行は失敗させる
+      if (req.method() === "PATCH") {
+        if (opts.officeDelay) await new Promise((r) => setTimeout(r, opts.officeDelay));
+        const id = Number(url.searchParams.get("id").replace("eq.", ""));
+        if (id === opts.officeFailId) return json({ message: "boom" }, 500);
+        const o = st.offices.find((x) => x.id === id);
+        if (o) Object.assign(o, body);
+        return json(null, 204);
+      }
+      return json([...st.offices].sort((a, b) => a.sort_order - b.sort_order));
+    }
     if (path === "/rest/v1/offices") return json([{ id: 1, name: "A区所" }]);
     if (path === "/rest/v1/rpc/admin_stats" && opts.statsAbort) return route.abort("failed");
     if (path === "/rest/v1/rpc/admin_stats" && opts.statsFail) return json({ message: "statement timeout" }, 500);
+    if (path === "/rest/v1/rpc/admin_stats" && opts.twoOffices) {
+      const offices = [...st.offices].sort((a, b) => a.sort_order - b.sort_order).map((o) => ({ id: o.id, name: o.name, master_count: 1, user_count: 1 }));
+      return json({ users: 1, verified: 1, active_30d: 1, signups_7d: 0, signup_password_set: true, offices, no_office: 0, users_list: [] });
+    }
     if (path === "/rest/v1/rpc/admin_stats") return json({ users: 1, verified: 1, active_30d: 1, signups_7d: 0, signup_password_set: true, offices: [{ id: 1, name: "A区所", master_count: 1, user_count: 1 }], no_office: 0, users_list: [] });
     if (path === "/rest/v1/shift_master" && opts.masterFail) return json({ message: "boom" }, 500);
     if (path === "/rest/v1/shift_master") return json([]);
+    if (path === "/rest/v1/shift_records") return json([]);
+    if (path === "/rest/v1/holiday_years") return json([{ year: 2026 }, { year: 2027 }]);
+    if (path === "/rest/v1/holidays") return json([]);
+    if (path === "/functions/v1/sync-holidays") return json({ holidays: [] });
     if (path === "/rest/v1/notices") {
       if (req.method() === "GET") return json(st.notices);
       if (req.method() === "POST") { st.notices.unshift({ id: st.nextNotice++, ...body, updated_at: new Date().toISOString() }); return json(null, 201); }
@@ -310,6 +331,20 @@ await check("ログアウトは、この端末だけ(scope=local。S5)", async (
   await page.waitForURL(/index\.html/);
   const out = be.st.calls.find((c) => c.path === "/auth/v1/logout");
   assert.ok(out && out.search.includes("scope=local"), JSON.stringify(out && out.search));
+  await ctx.close();
+});
+
+await check("勤務入力: 登録していない変更があるときのログアウトは、確認が1回だけ(Y3)", async () => {
+  const { page, ctx, be } = await open("input.html", { userId: "u1", opts: { profile: USER } });
+  await page.waitForSelector("#register:not([disabled])");
+  await page.locator("td.memo input").first().fill("メモ"); // 入力すると、未登録の変更になる
+  page.removeAllListeners("dialog");
+  const asked = [];
+  page.on("dialog", (d) => { asked.push(d.message()); d.accept(); });
+  await page.click("text=ログアウト");
+  await page.waitForURL(/index\.html/);
+  assert.deepEqual(asked, ["登録していない変更があります。移動しますか？"]);
+  assert.ok(be.st.calls.some((c) => c.path === "/auth/v1/logout"));
   await ctx.close();
 });
 
@@ -807,6 +842,63 @@ await check("幅320px: 横にはみ出さない(N9)", async () => {
     await page.screenshot({ path: OUT + `w320-${path.replace(".html", "")}${userId ? "-member" : ""}.png`, fullPage: true });
     await ctx.close();
   }
+});
+
+
+// ---------- 区所の並び替え(Y1・Y5) ----------
+const officeNames = (page) => page.$$eval("#offices tr td:first-child", (tds) => tds.map((t) => t.textContent));
+const officeOrders = (be) => be.st.calls.filter((c) => c.method === "PATCH" && c.path === "/rest/v1/offices").map((c) => c.body.sort_order);
+
+await check("管理画面: 区所の↑↓で順が入れ替わる。端のボタンは押せない(Y5)", async () => {
+  const { page, ctx, be, errors } = await open("admin.html", { userId: "a1", opts: { profile: ADMIN, twoOffices: true }, viewport: { width: 1200, height: 900 } });
+  await page.click('.dtab[data-tab="import"]');
+  await page.waitForSelector("#offices tr td");
+  assert.deepEqual(await officeNames(page), ["A区所", "B区所", "C区所"]);
+  const rows = page.locator("#offices tr");
+  assert.equal(await rows.nth(0).locator("button", { hasText: "↑" }).isDisabled(), true);
+  assert.equal(await rows.nth(2).locator("button", { hasText: "↓" }).isDisabled(), true);
+  await rows.nth(1).locator("button", { hasText: "↑" }).click();
+  await page.waitForFunction(() => document.querySelector("#offices tr td").textContent === "B区所");
+  assert.deepEqual(await officeNames(page), ["B区所", "A区所", "C区所"]);
+  assert.deepEqual(be.st.offices.map((o) => [o.name, o.sort_order]).sort((a, b) => a[1] - b[1]), [["B区所", 1], ["A区所", 2], ["C区所", 3]]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("管理画面: 区所の並び替えを連打しても、2回目は送らない。送っている間はボタンを押せない(Y1)", async () => {
+  const { page, ctx, be } = await open("admin.html", { userId: "a1", opts: { profile: ADMIN, twoOffices: true, officeDelay: 300 }, viewport: { width: 1200, height: 900 } });
+  await page.click('.dtab[data-tab="import"]');
+  await page.waitForSelector("#offices tr td");
+  const down = page.locator("#offices tr").nth(0).locator("button", { hasText: "↓" });
+  await down.click();
+  await page.locator("#offices tr").nth(1).locator("button", { hasText: "↓" }).dispatchEvent("click"); // 無効のボタンでも、イベントを送って確かめる
+  assert.equal(await page.locator("#offices button").evaluateAll((bs) => bs.every((b) => b.disabled)), true);
+  await page.waitForFunction(() => document.querySelector("#offices tr td").textContent === "B区所");
+  assert.deepEqual(officeOrders(be), [1, 2, 3]); // 1回分(3件)だけ
+  assert.deepEqual(await officeNames(page), ["B区所", "A区所", "C区所"]);
+  await ctx.close();
+});
+
+await check("管理画面: 並び替えの途中で失敗したら、そこで止めて知らせ、並びを読み直す(Y1)", async () => {
+  const { page, ctx, be } = await open("admin.html", { userId: "a1", opts: { profile: ADMIN, twoOffices: true, officeFailId: 1 }, viewport: { width: 1200, height: 900 } });
+  await page.click('.dtab[data-tab="import"]');
+  await page.waitForSelector("#offices tr td");
+  await page.locator("#offices tr").nth(1).locator("button", { hasText: "↑" }).click();
+  await page.waitForSelector("#message.error");
+  // 並びは [B, A, C]。先頭の B(id=2)は成功し、次の A(id=1)で失敗して止まる。C へは送らない
+  assert.deepEqual(officeOrders(be), [1, 2]);
+  assert.equal(await page.locator("#offices button").first().isDisabled(), true); // 読み直したあとの先頭行の「↑」(端)
+  assert.ok(await page.locator("#offices button", { hasText: "削除" }).first().isEnabled()); // 読み直したら、ボタンは戻る
+  await ctx.close();
+});
+
+await check("幅320px: 管理画面の区所の行(↑ ↓ 名前変更 削除)が、はみ出さない(Y5)", async () => {
+  const { page, ctx } = await open("admin.html", { userId: "a1", opts: { profile: ADMIN, twoOffices: true }, viewport: { width: 320, height: 640 } });
+  await page.click('.dtab[data-tab="import"]');
+  await page.waitForSelector("#offices tr td");
+  const [sw, iw] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+  assert.ok(sw <= iw, `${sw} > ${iw}`);
+  await ctx.close();
 });
 
 await browser.close();

@@ -114,7 +114,8 @@ export function renderTopbar(current, { loggedIn = false, isAdmin = false } = {}
     out.addEventListener("click", async (ev) => {
       ev.preventDefault();
       // 月の移動ボタンの近くで、押し間違えてログアウトしないように
-      if (!confirm("ログアウトしますか？")) return;
+      // 勤務入力で「登録していない変更があります」の確認を済ませたときは、続けて聞かない(input.js)
+      if (!ev.leaveConfirmed && !confirm("ログアウトしますか？")) return;
       await logout();
     });
     bar.appendChild(out);

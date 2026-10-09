@@ -348,6 +348,7 @@ document.addEventListener("click", (ev) => {
   if (!link || !state.dirty) return;
   if (confirm("登録していない変更があります。移動しますか？")) {
     state.dirty = false; // 移ると決めたので、beforeunload でもう一度聞かない
+    ev.leaveConfirmed = true; // ログアウトの確認(app.js)で、続けて聞かない
     return;
   }
   ev.preventDefault();
