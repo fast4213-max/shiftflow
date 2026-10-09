@@ -2,6 +2,7 @@
 import {
   friendlyText, $, AUTOFILL_HINT, callFunction, copyText, isReady, loginLost, requireLogin, startSession, supabase, toHalfWidth,
 } from "./app.js?v=dev";
+import { initCalendarSetup } from "./calendar-setup.js?v=dev";
 
 let session = null;
 let settings = null; // user_settings の行(無ければ null)
@@ -68,6 +69,7 @@ async function main() {
     .then((config) => ($("sa-email").value = config.serviceAccountEmail))
     .catch((err) => ($("sa-email").value = "取得できませんでした: " + err.message));
   $("copy-sa").addEventListener("click", () => copyText($("sa-email").value, $("copy-sa")));
+  initCalendarSetup();
 
   // 区所・ID・「出勤を2件」「非番を2件」を変えたら、保存するまでテスト済みの表示と「勤務入力へ」を消す
   // (保存せずに勤務入力へ進むと、変えた設定が使われないため)
