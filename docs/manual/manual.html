@@ -74,7 +74,7 @@
   <div class="flow">
     <div><b class="n">1</b><span>新規登録する<br><small>社員番号・名前・PIN・共通パスワード(管理者から聞く)</small></span></div>
     <div><b class="n">2</b><span>設定画面の「かんたん設定」で、勤務用のカレンダーを作る<br><small>名前を決めてボタンを押すだけです</small></span></div>
-    <div><b class="n">3</b><span>そのカレンダーを、アプリの登録用アドレスと共有する<br><small>Googleカレンダーのアプリでできます</small></span></div>
+    <div><b class="n">3</b><span>作ったカレンダーを、アプリの登録用アドレスと共有する<br><small>作った数だけ(1〜3つ)。Googleカレンダーのアプリでできます</small></span></div>
     <div><b class="n">4</b><span>アプリの設定画面で、区所を選ぶ<br><small>IDは自動で入ります。「保存して接続テスト」で「接続できました」と出れば完了</small></span></div>
     <div><b class="n">5</b><span>勤務入力の画面で、番号を選んで「登録」<br><small>これを毎月くり返します</small></span></div>
   </div>
@@ -169,13 +169,20 @@
 <!-- 3. 共有 -->
 <section>
   <h2>3. カレンダーを、アプリの登録用アドレスと共有する</h2>
-  <p>作ったカレンダー(勤務用。休日用・非番の時間用も作った人は、それも)を、アプリの<b>登録用アドレス</b>と共有します。スマホは、下の「Googleカレンダーのアプリで共有する」で行います(先にアプリを入れておきます)。かんたん設定の「<b>共有を開く</b>」のリンクは、スマホでは、アプリではなくブラウザが開くことがあります。ブラウザが開いたときは、そのまま「PC表示」にして手順Aから進めるか、アプリを開いて共有してください。パソコンは、このリンクを押すと、共有の画面(手順Aの2番)が開きます。</p>
+  <p><b>作ったカレンダーは、1つずつ全部共有します(作った数だけ、1〜3回)。</b>かんたん設定のボタンの下に出た「共有を開く」のリンクの数が、共有するカレンダーの数です。</p>
+  <table class="t">
+    <tr><th>かんたん設定で選んだもの</th><th>共有するカレンダー</th></tr>
+    <tr><td>休日は「勤務用に、いっしょに入れる」か「登録しない」・非番の時間用はなし</td><td><b>1つ</b>(勤務)</td></tr>
+    <tr><td>休日は「別に作る」、または「非番の時間用も作る」にチェック</td><td><b>2つ</b>(勤務・休日、または 勤務・非番の時間)</td></tr>
+    <tr><td>休日は「別に作る」で、「非番の時間用も作る」にもチェック</td><td><b>3つ</b>(勤務・休日・非番の時間)</td></tr>
+  </table>
+  <p>共有の相手は、どれもアプリの<b>登録用アドレス</b>です(同じアドレスを、それぞれのカレンダーに追加します)。1つでも共有を忘れると、接続テストで「○○カレンダーに書き込めません」と出ます。スマホは、下の「Googleカレンダーのアプリで共有する」で行います(先にアプリを入れておきます)。かんたん設定の「<b>共有を開く</b>」のリンクは、スマホでは、アプリではなくブラウザが開くことがあります。ブラウザが開いたときは、そのまま「PC表示」にして手順Aから進めるか、アプリを開いて共有してください。パソコンは、このリンクを押すと、共有の画面(手順Aの2番)が開きます。</p>
   <div class="note">
     <b>登録用アドレスの見つけ方</b>: アプリの「設定」画面の、「2. カレンダーを共有する」の下の欄に表示されています。横の「<b>コピー</b>」を押してコピーします(手で打つと間違えやすいので、コピーがおすすめです)。
     <div style="margin-top:2mm;display:flex;gap:4mm;align-items:center"><span class="mono" style="font-size:9pt">shiftflow-…@…iam.gserviceaccount.com</span><span style="color:#5f6368;font-size:9pt">← こんな形のアドレスです</span></div>
   </div>
 
-  <p>休日用・非番の時間用のカレンダーも作った人は、それぞれ同じ手順(A〜B)を行います。</p>
+  <p>休日用・非番の時間用のカレンダーも作った人は、そのカレンダーでも同じ手順を行います(アプリなら下の1〜4、PC表示なら手順A〜B。作った数だけくり返します)。</p>
   <h3>Googleカレンダーのアプリで共有する(Android・iPhone 共通。スマホだけでできます)</h3>
   <p><b>Googleカレンダーのアプリを入れていない人は、先に入れてください</b>(Android は Google Play、iPhone は App Store。無料です)。作ったカレンダーを持つGoogleアカウントで、アプリにログインします。</p>
   <ol class="steps">
@@ -183,12 +190,13 @@
     <li>「<b>共有する相手</b>」の、人のマーク(図の <span class="n">2</span>)を押す</li>
     <li>上の「ユーザーまたはグループを追加」の欄に、コピーした<b>登録用アドレス</b>を貼り付けて、追加する</li>
     <li>追加した登録用アドレスを押すと、権限の一覧が出ます。上から4番目の「<b>すべての予定の詳細を変更・表示可能</b>」(一番右の図で、丸がついている項目)を選びます。選べたら、右上の「<b>保存</b>」を押す</li>
+    <li>休日用・非番の時間用も作った人は、「≡」→「設定」に戻り、次のカレンダーで1〜4をくり返す(作った数だけ)</li>
   </ol>
   <div class="cols" style="width:96%;margin:0 auto">
-    <figure><img src="img/g-app-settings.png" alt="" style="max-width:min(100%,150px)"><figcaption>設定 → 作ったカレンダー</figcaption></figure>
-    <figure><img src="img/g-app-calendar.png" alt="" style="max-width:min(100%,150px)"><figcaption>「共有する相手」の人のマーク</figcaption></figure>
-    <figure><img src="img/g-app-share.png" alt="" style="max-width:min(100%,150px)"><figcaption>追加したあとの状態</figcaption></figure>
-    <figure><img src="img/g-app-perm.png" alt="" style="max-width:min(100%,150px)"><figcaption>権限を選ぶ(上から4番目)</figcaption></figure>
+    <figure><img src="img/g-app-settings.png" alt="" style="max-width:min(100%,128px)"><figcaption>設定 → 作ったカレンダー</figcaption></figure>
+    <figure><img src="img/g-app-calendar.png" alt="" style="max-width:min(100%,128px)"><figcaption>「共有する相手」の人のマーク</figcaption></figure>
+    <figure><img src="img/g-app-share.png" alt="" style="max-width:min(100%,128px)"><figcaption>追加したあとの状態</figcaption></figure>
+    <figure><img src="img/g-app-perm.png" alt="" style="max-width:min(100%,128px)"><figcaption>権限を選ぶ(上から4番目)</figcaption></figure>
   </div>
   <p>Android・iPhone 共通の画面です。アプリに「共有する相手」の項目が見当たらないときは、ブラウザの「PC表示」で、下の手順A・Bで共有します(パソコンのブラウザでも同じです)。</p>
   <h3>手順A: 共有の画面を開く</h3>
@@ -204,7 +212,7 @@
     <li>「<b>送信</b>」を押す(一覧を開いていると隠れています。選ぶと閉じて、下に出ます)</li>
     <li>共有できると、「共有する相手」の欄に登録用アドレスが増え(図の <span class="n">3</span>)、権限が「すべての予定の詳細の変更や表示が…」になっています</li>
   </ol>
-  <div class="cols" style="width:62%;margin:0 auto">
+  <div class="cols" style="width:54%;margin:0 auto">
     <figure style="flex:1.7"><img src="img/g-share-list.png"><figcaption>共有する相手(登録用アドレスを追加したあとの状態)</figcaption></figure>
     <figure style="flex:1"><img src="img/g-share-dialog.png"><figcaption>アドレスと権限を選ぶ画面</figcaption></figure>
   </div>
