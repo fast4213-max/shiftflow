@@ -113,6 +113,8 @@ export function renderTopbar(current, { loggedIn = false, isAdmin = false } = {}
     out.textContent = "ログアウト";
     out.addEventListener("click", async (ev) => {
       ev.preventDefault();
+      // 月の移動ボタンの近くで、押し間違えてログアウトしないように
+      if (!confirm("ログアウトしますか？")) return;
       await logout();
     });
     bar.appendChild(out);

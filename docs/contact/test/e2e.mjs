@@ -298,6 +298,14 @@ await check("設定: 非番を2件・非番の時間用カレンダーIDを読�
 await check("ログアウトは、この端末だけ(scope=local。S5)", async () => {
   const { page, ctx, be } = await open("notices.html", { userId: "u1", opts: { profile: USER } });
   await page.waitForSelector("text=ログアウト");
+  // 押し間違い防止の確認が出る。キャンセルなら、ログアウトしない
+  page.removeAllListeners("dialog");
+  let asked = "";
+  page.once("dialog", (d) => { asked = d.message(); d.dismiss(); });
+  await page.click("text=ログアウト");
+  assert.equal(asked, "ログアウトしますか？");
+  assert.ok(!be.st.calls.some((c) => c.path === "/auth/v1/logout"));
+  page.once("dialog", (d) => d.accept());
   await page.click("text=ログアウト");
   await page.waitForURL(/index\.html/);
   const out = be.st.calls.find((c) => c.path === "/auth/v1/logout");
