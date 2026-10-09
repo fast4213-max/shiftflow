@@ -70,10 +70,16 @@ jobs:
               echo "supabase/ の履歴が無いので待たない"; exit 0
             fi
           fi
-          echo "待つ Deploy Supabase: ${target::8} の push"
+          # Deploy Supabase は push の先頭のコミットでしか動かない(まとめて push すると、target そのものの実行は無い)。
+          # target から今回の版までのどれかのコミットの実行(= target の変更を含む)のうち、いちばん新しいものを待つ
+          commits=" $({ git rev-list "$target~1..$GITHUB_SHA" 2>/dev/null || git rev-list "$GITHUB_SHA"; } | tr '\n' ' ') "
+          echo "待つ Deploy Supabase: ${target::8} 以降の push"
           for i in $(seq 1 90); do # 10秒おきに最大15分
-            state=$(gh run list -R "$GITHUB_REPOSITORY" --workflow deploy-supabase.yml --commit "$target" --event push \
-              --json status,conclusion -q '.[0] | "\(.status) \(.conclusion)"')
+            state=$(gh run list -R "$GITHUB_REPOSITORY" --workflow deploy-supabase.yml --branch main --event push -L 30 \
+              --json headSha,status,conclusion -q '.[] | "\(.headSha) \(.status) \(.conclusion)"' |
+              while read -r sha st co; do
+                if [[ "$commits" == *" $sha "* ]]; then echo "$st $co"; break; fi
+              done)
             echo "Deploy Supabase: ${state:-(まだ始まっていない)}"
             case "$state" in
               "completed success") exit 0 ;;
