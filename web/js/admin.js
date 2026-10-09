@@ -244,16 +244,37 @@ function fillOfficeSelects() {
   $("csv-download").disabled = stats.offices.length === 0;
 }
 
+// 区所を1つ上(-1)・下(+1)へ動かす。並びは sort_order で決まり、利用者の設定画面・お問い合わせの区所の一覧も同じ並びになる。
+// 抜け(削除したあと)や同じ数字があっても崩れないよう、動かすたびに全部を 1,2,3… に振り直す
+async function moveOffice(index, delta) {
+  const list = stats.offices.slice();
+  const target = index + delta;
+  if (target < 0 || target >= list.length) return;
+  [list[index], list[target]] = [list[target], list[index]];
+  const results = await Promise.all(list.map((o, i) => supabase.from("offices").update({ sort_order: i + 1 }).eq("id", o.id)));
+  const failed = results.find((r) => r.error);
+  if (failed) message(failed.error.message, "error");
+  await refresh();
+}
+
 function renderOffices() {
   const tbody = $("offices");
   tbody.innerHTML = "";
-  stats.offices.forEach((o) => {
+  stats.offices.forEach((o, index) => {
     const tr = document.createElement("tr");
     cell(tr, o.name);
     cell(tr, o.master_count + "件");
     cell(tr, o.user_count + "人");
     const actions = document.createElement("div");
+    const up = button("↑", () => moveOffice(index, -1));
+    const down = button("↓", () => moveOffice(index, 1));
+    up.disabled = index === 0;
+    down.disabled = index === stats.offices.length - 1;
+    up.title = "1つ上へ";
+    down.title = "1つ下へ";
     actions.append(
+      up,
+      down,
       button("名前変更", async () => {
         const name = prompt("新しい名前(60文字まで)", o.name);
         if (!name || !name.trim() || name.trim() === o.name) return;
