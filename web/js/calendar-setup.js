@@ -106,13 +106,13 @@ function shareUrl(id) {
   return "https://calendar.google.com/calendar/u/0/r/settings/calendar/" + btoa(id).replace(/=+$/, "");
 }
 
-function addShareLink(name, id) {
+function addShareLink(text, id) {
   const li = document.createElement("li");
   const a = document.createElement("a");
   a.href = shareUrl(id);
   a.target = "_blank";
   a.rel = "noopener";
-  a.textContent = `「${name}」の共有を開く`;
+  a.textContent = text;
   li.appendChild(a);
   $("auto-links").appendChild(li);
 }
@@ -221,7 +221,7 @@ export function initCalendarSetup({ saveIds } = {}) {
         try {
           const id = await createCalendar(token, item.name);
           created.push({ ...item, id });
-          addShareLink(item.name, id);
+          addShareLink(`「${item.name}」の共有を開く`, id);
         } catch (err) {
           failure = err;
           break;
@@ -275,8 +275,12 @@ export function initCalendarSetup({ saveIds } = {}) {
       const replaced = [...new Set([current.work, current.holiday, current.offduty])].filter((id) => id && !used.has(id));
       const redo = current.work
         ? "\n接続できたら、すでに登録した月は、勤務入力でもう一度「登録」してください(新しいカレンダーには、まだ予定が入っていません)。" +
-          (replaced.length ? "入れ替えた前のカレンダーの予定は、そのまま残ります。いらなければ、Googleカレンダーで前のカレンダーを削除してください。" : "")
+          (replaced.length ? "入れ替えた前のカレンダーの予定は、そのまま残ります。いらなければ、前のカレンダーを削除してください(カレンダーごと消せるのは、ブラウザの「PC表示」のGoogleカレンダーだけで、スマホのアプリからは消せません。下の「前のカレンダーの設定を開く」から、一番下の「カレンダーを削除」へ進めます。先に勤務入力の「リセット」で予定だけ消すこともできます)。" : "")
         : "";
+      // 前のカレンダーの設定画面へのリンク(削除はその画面の一番下)
+      replaced.forEach((id, i) => {
+        try { addShareLink(`前のカレンダーの設定を開く${replaced.length > 1 ? `(${i + 1})` : ""}`, id); } catch { /* 開けない形のIDはリンクを出さない */ }
+      });
       if (failure) {
         result(`途中で失敗しました: ${failure.message || failure}\n作れたもの: ${names}\n作れなかったもの: ${failed.join("")}\n${keep ? "作れなかったものの欄は、今のIDのままです。" : "作れなかったものの欄は空にしました。"}${saved ? "作れたもののIDは保存しました。" : ""}もう一度ボタンを押すと、作れたものが重複します。重複したカレンダーは、Googleカレンダーで消せます。\n${share}${after}${redo}`, "error");
       } else {
