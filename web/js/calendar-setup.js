@@ -46,13 +46,29 @@ async function googleApi(token, method, path, body) {
   return res.json();
 }
 
+// どこで失敗したかが分かるよう、段階の名前をエラーに付ける
+async function withStep(step, fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    err.message = `「${step}」で失敗: ${err.message}`;
+    throw err;
+  }
+}
+
 // 新しいカレンダーを作り、登録用アドレスに「予定の変更権限」で共有して、ID を返す
 async function createShared(token, name, serviceEmail) {
-  const cal = await googleApi(token, "POST", "/calendars", { summary: name, timeZone: "Asia/Tokyo" });
-  await googleApi(token, "POST", `/calendars/${encodeURIComponent(cal.id)}/acl?sendNotifications=false`, {
-    role: "writer",
-    scope: { type: "user", value: serviceEmail },
-  });
+  const cal = await withStep("カレンダーを作る", () => googleApi(token, "POST", "/calendars", { summary: name, timeZone: "Asia/Tokyo" }));
+  // 共有の途中で失敗したときも、作れたカレンダーのIDを持ち帰れるよう、エラーにIDを付ける
+  try {
+    await withStep("登録用アドレスと共有する", () => googleApi(token, "POST", `/calendars/${encodeURIComponent(cal.id)}/acl?sendNotifications=false`, {
+      role: "writer",
+      scope: { type: "user", value: serviceEmail },
+    }));
+  } catch (err) {
+    err.message += `(カレンダー「${name}」は作られています。Googleカレンダーで確認してください)`;
+    throw err;
+  }
   return cal.id;
 }
 
