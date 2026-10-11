@@ -55,6 +55,12 @@ function backend(opts = {}) {
     }
     if (path === "/rest/v1/profiles" && opts.profileAbort) return route.abort("failed");
     if (path === "/rest/v1/profiles") return json(opts.profile ? [opts.profile] : []);
+    if (path === "/rest/v1/user_settings" && opts.noSettingsRow) {
+      // 画面を開いたときは行が無く、保存(POST)は「もうできていた」の重複(R3)。そのあとの更新(PATCH)は通る
+      if (req.method() === "POST") return json({ code: "23505", message: 'duplicate key value violates unique constraint "user_settings_pkey"' }, 409);
+      if (req.method() === "PATCH") return json({ office_id: 1, work_calendar_id: "w", holiday_calendar_id: null, verified_at: null, ...body });
+      return json([]);
+    }
     if (path === "/rest/v1/user_settings") {
       const row = { office_id: 1, work_calendar_id: "w", holiday_calendar_id: null, verified_at: "2026-10-01", split_day_events: false, ...opts.settings };
       // 保存(PATCH)は、送った値を足した行を返す(.single() なので1件だけ)
@@ -72,7 +78,14 @@ function backend(opts = {}) {
         if (o) Object.assign(o, body);
         return json(null, 204);
       }
-      return json([...st.offices].sort((a, b) => a.sort_order - b.sort_order));
+      if (req.method() === "POST") {
+        st.offices.push({ id: st.offices.length + 10, ...body });
+        return json(null, 201);
+      }
+      const sorted = [...st.offices].sort((a, b) => a.sort_order - b.sort_order);
+      // 区所を足すときの「いちばん大きい並びの番号」の問い合わせ(R8)
+      if (url.searchParams.get("select") === "sort_order") return json(sorted.slice(-1).map((o) => ({ sort_order: o.sort_order })));
+      return json(sorted);
     }
     if (path === "/rest/v1/offices") return json([{ id: 1, name: "A区所" }]);
     if (path === "/rest/v1/rpc/admin_stats" && opts.statsAbort) return route.abort("failed");
@@ -292,6 +305,20 @@ await check("ログインの更新が遅れて「ログインが切れた」と�
   await b.ctx.close();
 });
 
+await check("設定: 行が無いまま開いて保存したとき、もう行ができていても(重複)、更新でやり直して保存できる(R3)", async () => {
+  const { page, ctx, be, errors } = await open("settings.html", { userId: "u1", opts: { profile: USER, noSettingsRow: true } });
+  await page.waitForSelector("#office option[value='1']", { state: "attached" });
+  await page.selectOption("#office", "1");
+  await page.fill("#work-id", "w@group.calendar.google.com");
+  await page.click("#save");
+  await page.waitForSelector("#result.ok");
+  const methods = be.st.calls.filter((c) => c.path === "/rest/v1/user_settings").map((c) => c.method);
+  assert.ok(methods.includes("POST") && methods.includes("PATCH"), methods.join());
+  assert.ok(!(await page.textContent("#result")).includes("duplicate"));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await check("設定: 非番を2件・非番の時間用カレンダーIDを読み込み、保存で送る", async () => {
   const { page, ctx, be, errors } = await open("settings.html", {
     userId: "u1",
@@ -483,7 +510,7 @@ await check("お問い合わせ: メールを選ぶと欄と迷惑メールの�
   assert.equal(await page.isVisible("#email-risky"), false);
   await page.fill("#email2", "taro@gmail.co");
   await page.click("#submit");
-  assert.equal(await page.textContent("#message"), "メールアドレスが2回で一致しません。");
+  assert.equal(await page.textContent("#message"), "メールアドレスが1回目と2回目で違います。");
   await page.fill("#email2", "ｔａｒｏ＠gmail.com");
   await page.screenshot({ path: OUT + "contact-mail.png", fullPage: true });
   await page.check('input[name="reply-via"][value="screen"]');
@@ -906,6 +933,20 @@ await check("管理画面: 区所の↑↓で順が入れ替わる。端のボ�
   await page.waitForFunction(() => document.querySelector("#offices tr td").textContent === "B区所");
   assert.deepEqual(await officeNames(page), ["B区所", "A区所", "C区所"]);
   assert.deepEqual(be.st.offices.map((o) => [o.name, o.sort_order]).sort((a, b) => a[1] - b[1]), [["B区所", 1], ["A区所", 2], ["C区所", 3]]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("管理画面: 区所を足すと、今の最大の並びの番号+1 で入る(区所の数+1 ではない。R8)", async () => {
+  const { page, ctx, be, errors } = await open("admin.html", { userId: "a1", opts: { profile: ADMIN, twoOffices: true }, viewport: { width: 1200, height: 900 } });
+  be.st.offices[2].sort_order = 7; // 途中の区所を消したあと、のつもり(1・2・7)
+  await page.click('.dtab[data-tab="import"]');
+  await page.waitForSelector("#offices tr td");
+  await page.fill("#new-office", "D区所");
+  await page.click("#add-office");
+  await page.waitForFunction(() => document.getElementById("message").textContent.includes("区所を追加しました"));
+  const posted = be.st.calls.find((c) => c.method === "POST" && c.path === "/rest/v1/offices").body;
+  assert.deepEqual([posted.name, posted.sort_order], ["D区所", 8]);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

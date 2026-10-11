@@ -100,7 +100,7 @@ async function save() {
   if ([...title].length > 100) return setMessage("タイトルは100文字以内にしてください。", "error");
   if ([...body].length > 1000) return setMessage("本文は1000文字以内にしてください。", "error");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startsOn) || (endsOn && !/^\d{4}-\d{2}-\d{2}$/.test(endsOn))) {
-    return setMessage("日付の形が正しくありません。", "error");
+    return setMessage("日付の形式が正しくありません。", "error");
   }
   if (endsOn && endsOn < startsOn) return setMessage("終わりの日は、始まりの日と同じか、それより後にしてください(終わりの日は、その日いっぱい表示されます)。", "error");
   $("notice-save").disabled = true;

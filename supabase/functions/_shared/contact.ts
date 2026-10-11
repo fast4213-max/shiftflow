@@ -141,7 +141,7 @@ export function encodeBase64(bytes: Uint8Array): string {
 // 画面から来た画像([{data: base64}])を確かめる。JPEG / PNG の印が無いもの、大きすぎるものは受け付けない
 export function validateImages(v: unknown): ImageInput[] {
   if (v == null) return [];
-  if (!Array.isArray(v)) throw new AppError(400, "画像の形が正しくありません。", "bad_image");
+  if (!Array.isArray(v)) throw new AppError(400, "画像の形式が正しくありません。", "bad_image");
   if (v.length > MAX_IMAGES) throw new AppError(400, `画像は${MAX_IMAGES}枚までです。`, "bad_image");
   let total = 0;
   return v.map((item, i) => {

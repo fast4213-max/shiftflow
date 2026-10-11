@@ -11,11 +11,11 @@ const SCOPE = "https://www.googleapis.com/auth/calendar.app.created";
 const API = "https://www.googleapis.com/calendar/v3";
 const NAME_MAX = 30;
 
-const LOAD_ERROR = "Google のログイン部品を読み込めませんでした。電波の良いところで、もう一度お試しください。広告ブロックを使っているときは、このサイトではオフにしてください。";
+const LOAD_ERROR = "Google のログインの仕組みを読み込めませんでした。電波の良いところで、もう一度お試しください。広告ブロックを使っているときは、このサイトではオフにしてください。";
 const TOKEN_TIMEOUT_MS = 3 * 60 * 1000;
 const CONFIRM_MS = 30 * 1000;
 
-// Google のログイン部品は、ページを開いたときに読み込んでおく
+// Google のログインの仕組みは、ページを開いたときに読み込んでおく
 // (ボタンを押してから読むと、押した操作が切れて、許可の画面がブロックされることがあるため)
 let client = null; // 許可を取る部品(読み込めたら1回だけ作る)
 let loadState = "idle"; // idle | loading | ready | failed
@@ -37,7 +37,7 @@ function makeClient() {
       if (res.error) {
         settlePending("reject", new Error(res.error === "access_denied"
           ? "許可されませんでした。もう一度ボタンを押して、Google の画面で「次へ」(許可)を選んでください。"
-          : "Google の許可を受けられませんでした(" + (res.error_description || res.error) + ")。もう一度お試しください。"));
+          : "Google の許可が得られませんでした(" + (res.error_description || res.error) + ")。もう一度お試しください。"));
       } else if (typeof window.google.accounts.oauth2.hasGrantedAllScopes === "function" && !window.google.accounts.oauth2.hasGrantedAllScopes(res, SCOPE)) {
         settlePending("reject", new Error("許可されませんでした。もう一度ボタンを押して、Google の画面で「次へ」(許可)を選んでください。"));
       } else {
@@ -50,7 +50,7 @@ function makeClient() {
         ? "Google の画面を開けませんでした。ポップアップがブロックされています。このサイトでポップアップを許可するか、Safari / Chrome でこのページを開いて、もう一度お試しください。"
         : type === "popup_closed"
           ? "Google の画面が閉じられました。もう一度お試しください。"
-          : "Google の許可を受けられませんでした" + (type ? `(${type})` : "") + "。もう一度お試しください。"));
+          : "Google の許可が得られませんでした" + (type ? `(${type})` : "") + "。もう一度お試しください。"));
     },
   });
 }
@@ -70,7 +70,7 @@ function startLoading() {
 // ボタンを押した操作の中で、すぐに呼ぶ(この前に await を入れない)
 function requestToken() {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => settlePending("reject", new Error("Google の許可が3分間ありませんでした。もう一度ボタンを押してください。")), TOKEN_TIMEOUT_MS);
+    const timer = setTimeout(() => settlePending("reject", new Error("3分たっても Google の許可がなかったので、止めました。もう一度ボタンを押してください。")), TOKEN_TIMEOUT_MS);
     pending = { resolve, reject, timer };
     client.requestAccessToken();
   });
@@ -263,7 +263,11 @@ export function initCalendarSetup({ saveIds } = {}) {
       if (saveIds) { try { await saveIds(values); } catch { saved = false; } }
 
       const names = created.map((c) => `「${c.name}」`).join("");
-      const extra = offdutyMade ? "「非番を2件で登録する」もオンにしました。" : "";
+      // 「勤務を時間つきの予定で登録する」がオンのあいだは、「非番を2件」も非番の時間用カレンダーも使われない(R7)
+      const timedOn = !!$("timed-events") && $("timed-events").checked;
+      const extra = !offdutyMade ? "" : timedOn
+        ? "「非番を2件で登録する」もオンにしましたが、「勤務を時間つきの予定で登録する」がオンのあいだは使われません。"
+        : "「非番を2件で登録する」もオンにしました。";
       // いくつ共有するかが分かるように、数と名前を出す(X3)
       const share = `次に、作った${created.length}つのカレンダー(${names})を、1つずつ登録用アドレスと共有してください。` +
         "スマホは、Googleカレンダーのアプリの「≡」→「設定」→カレンダー名→「共有する相手」から行います(下の「共有を開く」は、スマホではブラウザが開くことがあります。そのときは、ブラウザは使わず、Googleカレンダーのアプリを開いて共有してください。" +

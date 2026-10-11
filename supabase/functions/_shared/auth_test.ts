@@ -3,7 +3,7 @@
 
 import { assertEquals, assertRejects } from "jsr:@std/assert@1";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.117.2";
-import { isTransientAuthError, memberFromToken } from "./auth.ts";
+import { isTransientAuthError, key, memberFromToken } from "./auth.ts";
 import { AppError, entriesFrom } from "./http.ts";
 
 function fakeAdmin(opts: {
@@ -95,4 +95,31 @@ Deno.test("登録の入力(entries): 無い・配列・文字は 400。空のオ
     tooMany = e as AppError;
   }
   assertEquals(tooMany?.status, 400);
+});
+
+Deno.test("鍵: 新方式(SUPABASE_*_KEYS)を優先し、無ければ旧方式を使う(R2)", () => {
+  const names = ["TEST_NEW_KEYS", "TEST_OLD_KEY"];
+  const saved = names.map((n) => Deno.env.get(n));
+  try {
+    Deno.env.set("TEST_OLD_KEY", "old");
+    assertEquals(key("TEST_OLD_KEY", "TEST_NEW_KEYS"), "old");
+    Deno.env.set("TEST_NEW_KEYS", JSON.stringify({ default: "new" }));
+    assertEquals(key("TEST_OLD_KEY", "TEST_NEW_KEYS"), "new");
+    Deno.env.set("TEST_NEW_KEYS", JSON.stringify({ a: "first" }));
+    assertEquals(key("TEST_OLD_KEY", "TEST_NEW_KEYS"), "first");
+    Deno.env.set("TEST_NEW_KEYS", "plain-key");
+    assertEquals(key("TEST_OLD_KEY", "TEST_NEW_KEYS"), "plain-key");
+    Deno.env.set("TEST_NEW_KEYS", "{}");
+    assertEquals(key("TEST_OLD_KEY", "TEST_NEW_KEYS"), "old");
+    Deno.env.delete("TEST_OLD_KEY");
+    let err = "";
+    try {
+      key("TEST_OLD_KEY", "TEST_NEW_KEYS");
+    } catch (e) {
+      err = (e as Error).message;
+    }
+    assertEquals(err.includes("TEST_NEW_KEYS"), true);
+  } finally {
+    names.forEach((n, i) => (saved[i] === undefined ? Deno.env.delete(n) : Deno.env.set(n, saved[i]!)));
+  }
 });

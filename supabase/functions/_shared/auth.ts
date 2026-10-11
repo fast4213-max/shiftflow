@@ -19,11 +19,10 @@ function env(name: string): string {
   return v;
 }
 
-// 鍵は旧方式(SUPABASE_SERVICE_ROLE_KEY / SUPABASE_ANON_KEY)を優先し、
-// 無ければ新方式(SUPABASE_SECRET_KEYS / SUPABASE_PUBLISHABLE_KEYS: {"default": "..."} の JSON)から取る
-function key(legacy: string, keys: string): string {
-  const v = Deno.env.get(legacy);
-  if (v) return v;
+// 鍵は新方式(SUPABASE_SECRET_KEYS / SUPABASE_PUBLISHABLE_KEYS: {"default": "..."} の JSON)を優先し、
+// 無ければ旧方式(SUPABASE_SERVICE_ROLE_KEY / SUPABASE_ANON_KEY)を使う。
+// 旧方式の鍵は Supabase が廃止する予定で、無効にされると旧方式の鍵では動かなくなるため(R2)
+export function key(legacy: string, keys: string): string {
   const raw = Deno.env.get(keys);
   if (raw) {
     try {
@@ -34,7 +33,9 @@ function key(legacy: string, keys: string): string {
       return raw;
     }
   }
-  throw new Error(`環境変数 ${legacy} / ${keys} がありません`);
+  const v = Deno.env.get(legacy);
+  if (v) return v;
+  throw new Error(`環境変数 ${keys} / ${legacy} がありません`);
 }
 
 export function adminClient(): SupabaseClient {

@@ -14,6 +14,7 @@ import {
   listAppEvents,
   loadVerifiedCalendars,
   nextFirstNewlyOffduty,
+  shouldKeepTimedNextFirst,
   splitDayEvents,
   splitOffdutyEvents,
   staleNextMonthRecords,
@@ -78,7 +79,16 @@ serve(async (req) => {
     const pendingRes = await ctx.admin.from("user_settings").select("next_first_pending").eq("user_id", ctx.userId).maybeSingle();
     if (pendingRes.error) throw pendingRes.error;
     const retryNextFirst = pendingRes.data?.next_first_pending === nextFirst;
-    const registered = eventsToRegister(plan.events, existing, nextFirst, retryNextFirst);
+    // 時間つきの設定で、翌月1日に時間つきのアプリの予定が(翌月の登録で)すでにあるときは、翌月1日を作り直さない(R1)
+    const keepNextFirst = shouldKeepTimedNextFirst({
+      timedEvents: !!calendars.timedEvents,
+      nextFirstOffduty,
+      retryNextFirst,
+      existing,
+      nextFirst,
+    });
+    const registered = eventsToRegister(plan.events, existing, nextFirst, retryNextFirst)
+      .filter((e) => !keepNextFirst || e.date !== nextFirst);
     // 勤務を時間つきの予定で登録する設定の人は、泊を出勤から翌日の退勤までの1件に、日勤を出勤から退勤までにする
     // (「2件で登録」「名前に時間」は使わない)
     let events;

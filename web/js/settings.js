@@ -19,11 +19,14 @@ function updateGoInput() {
 // 利用者が書けるのは区所とカレンダーIDの列だけ(検証済みフラグは Edge Function が書く)
 async function saveSettings(values) {
   const columns = "work_calendar_id, holiday_calendar_id, offduty_calendar_id, verified_at, office_id, split_day_events, split_offduty_events, title_day_time, title_offduty_time, timed_events";
-  const { data, error } = settings
-    ? await supabase.from("user_settings").update(values).eq("user_id", session.user.id).select(columns).single()
+  const update = () => supabase.from("user_settings").update(values).eq("user_id", session.user.id).select(columns).single();
+  let res = settings
+    ? await update()
     : await supabase.from("user_settings").insert({ user_id: session.user.id, ...values }).select(columns).single();
-  if (error) throw error;
-  settings = data;
+  // 画面を開いたときは行が無かったが、別のタブやかんたん設定の自動保存で、もうできていたときは、更新でやり直す(R3)
+  if (!settings && res.error && res.error.code === "23505") res = await update();
+  if (res.error) throw res.error;
+  settings = res.data;
 }
 
 async function loadOffices() {
@@ -133,7 +136,7 @@ async function main() {
     const current = toHalfWidth($("pin-current").value);
     const next = toHalfWidth($("pin-new").value);
     if (!/^\d{4}$/.test(next)) return message("pin-result", "新しいPINは4桁の数字で入力してください。", "error");
-    if (next !== toHalfWidth($("pin-new2").value)) return message("pin-result", "新しいPINが2回で一致しません。", "error");
+    if (next !== toHalfWidth($("pin-new2").value)) return message("pin-result", "新しいPINが1回目と2回目で違います。", "error");
     $("pin-save").disabled = true;
     try {
       const result = await callFunction("change-pin", { current_pin: current, new_pin: next }, { timeoutMs: 60000 });

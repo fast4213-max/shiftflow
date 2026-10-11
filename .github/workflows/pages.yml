@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.x
+          deno-version: 2.9.7
       - run: deno lint
         working-directory: supabase/functions
       - run: deno check */index.ts
@@ -73,16 +73,24 @@ jobs:
           # Deploy Supabase は push の先頭のコミットでしか動かない(まとめて push すると、target そのものの実行は無い)。
           # target から今回の版までのどれかのコミットの実行(= target の変更を含む)のうち、いちばん新しいものを待つ
           commits=" $({ git rev-list "$target~1..$GITHUB_SHA" 2>/dev/null || git rev-list "$GITHUB_SHA"; } | tr '\n' ' ') "
+          # 待っているあいだに、あとの push が来て、待ち中の実行が取り消される(concurrency)ことがある。
+          # あとの push の実行も target の変更を含むので、target の子孫のコミットの実行も数える(R4)
+          counts() {
+            [[ "$commits" == *" $1 "* ]] && return 0
+            git cat-file -e "$1^{commit}" 2>/dev/null || git fetch -q origin main 2>/dev/null || true
+            git cat-file -e "$1^{commit}" 2>/dev/null && git merge-base --is-ancestor "$target" "$1"
+          }
           echo "待つ Deploy Supabase: ${target::8} 以降の push"
           for i in $(seq 1 90); do # 10秒おきに最大15分
             state=$(gh run list -R "$GITHUB_REPOSITORY" --workflow deploy-supabase.yml --branch main --event push -L 30 \
               --json headSha,status,conclusion -q '.[] | "\(.headSha) \(.status) \(.conclusion)"' |
               while read -r sha st co; do
-                if [[ "$commits" == *" $sha "* ]]; then echo "$st $co"; break; fi
+                if counts "$sha"; then echo "$st $co"; break; fi
               done)
             echo "Deploy Supabase: ${state:-(まだ始まっていない)}"
             case "$state" in
               "completed success") exit 0 ;;
+              "completed cancelled") ;; # あとの push の実行が引き継ぐので、そちらを待つ
               completed*) echo "::error::Deploy Supabase が成功しなかったので、画面は公開しません。Deploy Supabase を直して成功させてから、この workflow(GitHub Pages)を手で動かしてください。"; exit 1 ;;
             esac
             sleep 10

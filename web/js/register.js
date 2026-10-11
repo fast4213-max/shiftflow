@@ -16,7 +16,7 @@ function problem() {
   if (!$("family-name").value.trim()) return "名字を入力してください。";
   if (!$("given-name").value.trim()) return "名前を入力してください。";
   if (!/^\d{4}$/.test(toHalfWidth($("pin").value))) return "PINは4桁の数字で入力してください。";
-  if (toHalfWidth($("pin").value) !== toHalfWidth($("pin2").value)) return "PINが2回で一致しません。";
+  if (toHalfWidth($("pin").value) !== toHalfWidth($("pin2").value)) return "PINが1回目と2回目で違います。";
   if (!$("shared").value) return "共通パスワードを入力してください。";
   return sharedPasswordProblem($("shared").value);
 }
@@ -62,7 +62,7 @@ $("form").addEventListener("submit", async (ev) => {
     go("settings.html");
   } catch (err) {
     // 登録はできている(もう一度「登録する」を押すと「すでに登録されています」になる)ので、ログイン画面へ案内する
-    setMessage("登録はできました。続けてのログインに失敗したので、下の「ログインに戻る」から社員番号とPINでログインしてください。(" +
+    setMessage("登録はできました。続けてログインできなかったので、下の「ログインに戻る」から社員番号とPINでログインしてください。(" +
       (err.message || String(err)) + ")", "error");
   }
 });

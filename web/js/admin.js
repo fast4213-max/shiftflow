@@ -315,7 +315,10 @@ $("add-office").addEventListener("click", async () => {
   const name = $("new-office").value.trim();
   if (!name) return;
   if ([...name].length > OFFICE_NAME_MAX) return message(`区所の名前は${OFFICE_NAME_MAX}文字までにしてください。`, "error");
-  const { error } = await supabase.from("offices").insert({ name, sort_order: stats.offices.length + 1 });
+  // 並びの番号は「今の最大 + 1」にする(区所を消したあとに足しても、いちばん下に入る。R8)
+  const top = await supabase.from("offices").select("sort_order").order("sort_order", { ascending: false }).limit(1);
+  if (top.error) return message(top.error.message, "error");
+  const { error } = await supabase.from("offices").insert({ name, sort_order: (top.data[0]?.sort_order ?? 0) + 1 });
   if (error) return message(error.code === "23505" ? "同じ名前の区所があります。" : error.message, "error");
   $("new-office").value = "";
   message("区所を追加しました。下の「CSV を取り込む」でこの区所のマスタを入れてください。", "ok");

@@ -83,7 +83,7 @@ function label(calendars: Calendars, id: string): string {
 // このアプリが作った予定(印の付いた終日予定)
 // carried: 前の月から対象月の1日にまたがる、時間つきの予定(時間つきで登録した月末の泊)。
 // 対象月の予定ではないので、削除の対象にはしない。対象月の1日の「〜」を作るかどうかを決めるためだけに使う(Z1)
-export type AppEvent = { calendarId: string; eventId: string; date: string; tag: string; carried?: boolean };
+export type AppEvent = { calendarId: string; eventId: string; date: string; tag: string; carried?: boolean; timed?: boolean };
 
 // 対象月と翌月1日・2日の、このアプリが作った予定の一覧。手で入れた予定(印が無いもの)は含めない
 // (翌月2日は、翌月1日が非番になって、翌月2日が非番でなくなったときに、残った非番を消すため)
@@ -117,7 +117,7 @@ export async function listAppEvents(calendars: Calendars, year: number, month: n
         }
         continue;
       }
-      found.push({ calendarId, eventId: ev.id, date, tag });
+      found.push({ calendarId, eventId: ev.id, date, tag, ...(ev.start?.dateTime ? { timed: true } : {}) });
     }
   }
   return found;
@@ -244,6 +244,21 @@ export function eventsToRegister(
 //     月末が今回はじめて泊になった(newlyOffduty)なら、番号の無い翌月1日のメモも消す(W6。画面が、新しく非番になった日のメモを消すのと同じ)。
 //     前から泊だった(利用者が非番のメモを手で書いた)ときは残す
 // lastCode は登録(リセット)する前の月末の番号。memoOnly の記録は、番号の無いものだけを消す
+// 時間つきの設定で、翌月1日に時間つきのアプリの予定が(翌月の登録で)すでにあるか(R1)。あるときは、この月の登録で翌月1日を作り直さない。
+// 翌月1日の泊の1件は、翌月2日の退勤時間と組になっているので、この月の登録だけでは作り直せず、終日の泊に戻ってしまうため。
+// 翌月1日が非番になるとき(この月の月末が泊)・前の登録が途中で止まったあとは、今までどおり作り直す
+export function shouldKeepTimedNextFirst(
+  { timedEvents, nextFirstOffduty, retryNextFirst, existing, nextFirst }: {
+    timedEvents: boolean;
+    nextFirstOffduty: boolean;
+    retryNextFirst: boolean;
+    existing: AppEvent[];
+    nextFirst: string;
+  },
+): boolean {
+  return timedEvents && !nextFirstOffduty && !retryNextFirst && existing.some((e) => e.date === nextFirst && !!e.timed);
+}
+
 export function staleNextMonthRecords(
   { nextFirst, lastCode, nextFirstOffduty, nextFirstCode, master, newlyOffduty = false }: {
     nextFirst: string;

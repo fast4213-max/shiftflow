@@ -245,8 +245,8 @@ function problem() {
   if (chars($("body").value.trim()) > MAX_BODY) return `内容は${MAX_BODY}文字以内にしてください。`;
   if (replyVia() === "mail") {
     const email = normalizeEmail($("email").value);
-    if (!email) return "メールアドレスの形が正しくありません。";
-    if (normalizeEmail($("email2").value) !== email) return "メールアドレスが2回で一致しません。";
+    if (!email) return "メールアドレスの形式が正しくありません。";
+    if (normalizeEmail($("email2").value) !== email) return "メールアドレスが1回目と2回目で違います。";
   }
   if (preparing) return "画像を準備しています。少し待ってください。";
   return "";

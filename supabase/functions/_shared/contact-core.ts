@@ -176,9 +176,9 @@ export async function submitInquiry(
   let email: string | null = null;
   if (replyVia === "mail") {
     email = normalizeEmail(body.email);
-    if (!email) throw new AppError(400, "メールアドレスの形が正しくありません。", "bad_email");
+    if (!email) throw new AppError(400, "メールアドレスの形式が正しくありません。", "bad_email");
     if (body.email2 !== undefined && normalizeEmail(body.email2) !== email) {
-      throw new AppError(400, "メールアドレスが2回で一致しません。", "bad_email");
+      throw new AppError(400, "メールアドレスが1回目と2回目で違います。", "bad_email");
     }
   }
 

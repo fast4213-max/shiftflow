@@ -68,7 +68,7 @@ export function clientIp(req: Request): string {
 export function entriesFrom(body: Record<string, unknown>): Record<string, unknown> {
   const v = body.entries;
   if (!v || typeof v !== "object" || Array.isArray(v)) {
-    throw new AppError(400, "入力の形が正しくありません。ページを読み直して、もう一度お試しください。", "bad_entries");
+    throw new AppError(400, "入力の形式が正しくありません。ページを読み直して、もう一度お試しください。", "bad_entries");
   }
   if (Object.keys(v).length > 62) throw new AppError(400, "入力が多すぎます。", "bad_entries");
   return v as Record<string, unknown>;

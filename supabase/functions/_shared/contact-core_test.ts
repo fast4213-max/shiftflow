@@ -294,11 +294,11 @@ Deno.test("入力の検査: 種類・内容・受け取り方・メール・社�
   await assertRejects(() => submitInquiry(deps, guest({ body: " " }), ctx), AppError, "内容を入力");
   await assertRejects(() => submitInquiry(deps, guest({ body: "あ".repeat(1001) }), ctx), AppError, "1000文字以内");
   await assertRejects(() => submitInquiry(deps, guest({ reply_via: "fax" }), ctx), AppError, "受け取り方");
-  await assertRejects(() => submitInquiry(deps, guest({ reply_via: "mail", email: "taro@gmail" }), ctx), AppError, "形が正しくありません");
+  await assertRejects(() => submitInquiry(deps, guest({ reply_via: "mail", email: "taro@gmail" }), ctx), AppError, "形式が正しくありません");
   await assertRejects(
     () => submitInquiry(deps, guest({ reply_via: "mail", email: "a@b.com", email2: "a@c.com" }), ctx),
     AppError,
-    "2回で一致しません",
+    "1回目と2回目で違います",
   );
   await assertRejects(() => submitInquiry(deps, guest({ employee_no: "123456" }), ctx), AppError, "7桁");
   await assertRejects(() => submitInquiry(deps, guest({ name: "" }), ctx), AppError, "名前を入力");

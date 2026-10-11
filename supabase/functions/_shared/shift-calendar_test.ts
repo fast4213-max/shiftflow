@@ -13,6 +13,7 @@ import {
   nextFirstNewlyOffduty,
   parseOffdutyTime,
   parseTimeRange,
+  shouldKeepTimedNextFirst,
   splitDayEvents,
   splitOffdutyEvents,
   staleNextMonthRecords,
@@ -702,7 +703,7 @@ Deno.test("splitOffdutyEvents: 自動の非番と手入力の非番に、退勤�
     undefined,
     undefined,
   ]);
-  // 1件目はそのまま(勤務用の終日の「〜」・メモも今まで通り)
+  // 1件目はそのまま(勤務用の終日の「〜」・メモも今までどおり)
   assertEquals(out[0].calendar, "work");
   assertEquals(out[0].description, "9:02");
   // マスタにある番号は手入力ではないので分けない
@@ -741,7 +742,7 @@ Deno.test("createEvents: 非番の時間の予定は非番の時間用カレン�
   const where = (summary: string) => posted.filter((p) => p.body.summary === summary).map((p) => p.calendar);
   assertEquals(where("〜"), [work]);
   assertEquals(where("9:30"), [offduty]);
-  assertEquals(where("10:00〜18:30"), [work]); // 出勤の時間の予定は今まで通り勤務用
+  assertEquals(where("10:00〜18:30"), [work]); // 出勤の時間の予定は今までどおり勤務用
   const timed = posted.find((p) => p.body.summary === "9:30")!.body;
   assertEquals(timed.start, { dateTime: "2026-10-03T09:30:00", timeZone: "Asia/Tokyo" });
   assertEquals(timed.end, { dateTime: "2026-10-03T10:30:00", timeZone: "Asia/Tokyo" });
@@ -978,4 +979,25 @@ Deno.test("listAppEvents: 前の月から1日にまたがる時間つきの予�
   assertEquals(listed.map((e) => [e.eventId, !!e.carried]), [["stay", true], ["a", false]]);
   await deleteAppEvents({ work, holiday: "" }, 2026, 10, { existing: listed });
   assertEquals(calls.filter((c) => c.method === "DELETE").map((c) => c.url.pathname.split("/").pop()), ["a"]);
+});
+
+Deno.test("listAppEvents: 時間つきの予定には timed が付く。shouldKeepTimedNextFirst は翌月1日の時間つきの予定を残す(R1)", async () => {
+  const work = "work@group.calendar.google.com";
+  mockFetch((c) => {
+    if (c.method !== "GET") return;
+    return Response.json({
+      items: [
+        { id: "stay", start: { dateTime: "2026-11-01T10:00:00+09:00" }, end: { dateTime: "2026-11-02T09:00:00+09:00" }, extendedProperties: tag("day") },
+        { id: "allday", start: { date: "2026-10-05" }, end: { date: "2026-10-06" }, extendedProperties: tag("day") },
+      ],
+    });
+  });
+  const listed = await listAppEvents({ work, holiday: "" }, 2026, 10);
+  assertEquals(listed.map((e) => [e.eventId, !!e.timed]), [["stay", true], ["allday", false]]);
+  const base = { timedEvents: true, nextFirstOffduty: false, retryNextFirst: false, existing: listed, nextFirst: "2026-11-01" };
+  assertEquals(shouldKeepTimedNextFirst(base), true);
+  assertEquals(shouldKeepTimedNextFirst({ ...base, timedEvents: false }), false); // 時間つきの設定でない
+  assertEquals(shouldKeepTimedNextFirst({ ...base, nextFirstOffduty: true }), false); // 月末が泊: 翌月1日は非番として作り直す
+  assertEquals(shouldKeepTimedNextFirst({ ...base, retryNextFirst: true }), false); // 前の登録が途中で止まった
+  assertEquals(shouldKeepTimedNextFirst({ ...base, existing: [listed[1]] }), false); // 翌月1日に時間つきの予定が無い
 });
