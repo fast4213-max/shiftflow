@@ -20,7 +20,7 @@
 - 非番を2件で登録・非番の時間用カレンダー: **本番に反映済み(2026-10-08)**。本物の Google カレンダーでも本人が確認済み(2026-10-08)。設計と決めたことは [`docs/offduty/DESIGN.md`](docs/offduty/DESIGN.md)
 - かんたん設定(Googleでカレンダーを自動で作る): **本番に反映済み(2026-10-09)**。設定画面の「1. 区所を選ぶ」の下のカード(`web/js/calendar-setup.js`)。同意画面は「本番」。本人が本物の Google(Android)で、作成と共有まで通した。8回目のデバッグの修正(作ったIDをすぐ保存など)は、まだ実機で通していない。決めたことは2章
 - 予定の名前に時間を付ける(出勤「1(10:00)」・非番「〜(9:00)」): **本番に反映済み(2026-10-11)**。デバッグ(X1〜X4)の修正も反映済み。本物の Google カレンダーでの確認はまだ(5章)。設計と決めたことは [`docs/title-time/DESIGN.md`](docs/title-time/DESIGN.md)
-- 勤務を時間つきの予定で登録する(泊は出勤から翌日の退勤まで1件・日勤は出勤〜退勤): **実装済み・まだ main に反映していない(2026-10-12。ブランチ `ccr-dacc143c-wzn4vb`)**。本物の Google カレンダー・TimeTree での確認はまだ。設計と決めたことは [`docs/timed/DESIGN.md`](docs/timed/DESIGN.md)
+- 勤務を時間つきの予定で登録する(泊は出勤から翌日の退勤まで1件・日勤は出勤〜退勤): **本番に反映済み(2026-10-12)**。本物の Google カレンダー・TimeTree での確認はまだ。設計と決めたことは [`docs/timed/DESIGN.md`](docs/timed/DESIGN.md)
 - テスト: Deno 180件(2026-10-12)・lint・型チェック、PostgreSQL 16 で migration と権限、Chromium で画面38項目、GAS の偽物で12項目が通る
 
 ## 2. 決めたこと(変えるときは理由を読む)
@@ -89,7 +89,8 @@
 
 ## 6. 履歴(新しいものを上に1〜3行で足す)
 
-- 2026-10-12 勤務を時間つきの予定で登録する設定を追加(本人の知人の要望。TimeTree で泊を2日にまたがる1件で見たい。migration `20261012000000_timed_events.sql`)。設定画面・使い方・`docs/timed/DESIGN.md`。Deno 180件・lint・型チェック・PostgreSQL 16 の migration と権限・e2e 38項目が通る。使い方(手順5・手順6の各節)・README・docs/DESIGN.md も更新。ブランチ `ccr-dacc143c-wzn4vb` に push(main は未反映)
+- 2026-10-12 「時間つきで登録」の説明から「TimeTree などで見る人向け」を外し、機能の説明だけにした(本人の指示。設定画面・使い方)。Deno 180件・DB・e2e が通るのを確かめて main へ反映
+- 2026-10-12 勤務を時間つきの予定で登録する設定を追加(本人の知人の要望。TimeTree で泊を2日にまたがる1件で見たい。migration `20261012000000_timed_events.sql`)。設定画面・使い方・`docs/timed/DESIGN.md`。Deno 180件・lint・型チェック・PostgreSQL 16 の migration と権限・e2e 38項目が通る。使い方(手順5・手順6の各節)・README・docs/DESIGN.md も更新。main へ反映
 - 2026-10-11 名前に時間を付ける機能をデバッグ(X1〜X4)して直した: 手入力で「1(10:00)」と書いた名前に二重に付けない(X1)、メモの「10:00 早出」のように時間のあとに言葉があっても先頭の時間を付ける(X2。「2件で登録」の読み方は変えない)、e2e に設定のチェック2つの項目(X3)、この WORKLOG(X4)。Deno 175件・e2e 全項目が通る。main へ反映(Test・Deploy Supabase・Pages とも成功)
 - 2026-10-11 予定の名前に時間を付ける設定(出勤「1(10:00)」・非番「〜(9:00)」の2つのチェック)を追加(本人の要望。migration `20261011000000_title_time.sql`)。設定画面・使い方・DESIGN を更新。Deno 174件・lint・型チェック・PostgreSQL 16 の migration と権限が通る。main へ反映(Test・Deploy Supabase・Pages とも成功)
 - 2026-10-09 説明書の元データ(`docs/manual/` の manual.html・写真・README・shots.mjs)を削除した(本人の指示)。使い方ページ(help.html)が使う写真(`web/img/manual/`)は残してある。設定画面の写真を撮り直すスクリプトも無くなった(必要なら git の履歴から戻せる)
