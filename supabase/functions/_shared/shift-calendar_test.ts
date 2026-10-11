@@ -3,6 +3,7 @@
 
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
 import {
+  addTimeToTitles,
   createEvents,
   deleteAppEvents,
   eventsToRegister,
@@ -776,4 +777,41 @@ Deno.test("deleteAppEvents: 非番の時間用カレンダーの予定も消す(
   calls.length = 0;
   await deleteAppEvents({ work, holiday: "", offduty }, 2026, 10, { clearNextFirst: true, clearNextSecondOffduty: true });
   assertEquals(deleted(), ["o-10", "o-next-1", "o-next-1-day", "o-next-2", "w-10"]);
+});
+
+Deno.test("addTimeToTitles: 出勤は番号のあとに出勤時間、非番は「〜」のあとに退勤時間を半角の括弧で付ける(メモは変えない)", () => {
+  const master = { "1": { type: "泊" }, "25": { type: "日勤" }, "特休": { type: "休日" } };
+  const ev = (title: string, kind: string, description: string, calendar = "work") => ({ date: "2026-11-10", calendar, kind, title, description });
+  const events = [
+    ev("1", "day", "10:00\n品川"), // 泊
+    ev("25", "day", "10:15〜19:02"), // 日勤は出勤時間だけ
+    ev("〜", "offduty", "9:00"), // 自動の非番
+    ev("〜", "day", "8:30〜9:30"), // 手入力の非番(後ろを退勤とみなす)
+    ev("非番", "day", "９：０５"), // 全角も読む
+    ev("2001", "day", "10:00-23:00"), // マスタにない手入力の番号は日勤と同じ
+    ev("公休", "day", "9:30"), // 休みは付けない
+    ev("25", "day", "研修"), // 時間でないメモ
+    ev("〜", "offduty", "24:30"), // 24時以降
+    ev("特休", "day", "9:30", "holiday"), // 休日用カレンダー
+  ];
+  const both = addTimeToTitles(events, master, { day: true, offduty: true });
+  assertEquals(both.map((e) => e.title), ["1(10:00)", "25(10:15)", "〜(9:00)", "〜(9:30)", "非番(9:05)", "2001(10:00)", "公休", "25", "〜", "特休"]);
+  assertEquals(both.map((e) => e.description), events.map((e) => e.description));
+  // 出勤だけ・非番だけ・どちらもオフ
+  assertEquals(addTimeToTitles(events, master, { day: true }).map((e) => e.title).slice(0, 6), ["1(10:00)", "25(10:15)", "〜", "〜", "非番", "2001(10:00)"]);
+  assertEquals(addTimeToTitles(events, master, { offduty: true }).map((e) => e.title).slice(0, 6), ["1", "25", "〜(9:00)", "〜(9:30)", "非番(9:05)", "2001"]);
+  assertEquals(addTimeToTitles(events, master, {}), events);
+});
+
+Deno.test("addTimeToTitles: 2件で登録するときも、終日の予定のタイトルだけが変わり、時間の予定はそのまま", () => {
+  const master = { "1": { type: "泊" } };
+  const events = [
+    { date: "2026-11-09", calendar: "work", kind: "day", title: "1", description: "10:00\n品川" },
+    { date: "2026-11-10", calendar: "work", kind: "offduty", title: "〜", description: "9:00" },
+  ];
+  const split = splitOffdutyEvents(splitDayEvents(events, master), master);
+  const out = addTimeToTitles(split, master, { day: true, offduty: true });
+  assertEquals(out.map((e) => e.title), ["1(10:00)", "〜(9:00)"]);
+  assertEquals(out.map((e) => e.second?.title), ["10:00", "9:00"]);
+  assertEquals(out.map((e) => e.second?.calendar ?? "work"), ["work", "offduty"]);
 });

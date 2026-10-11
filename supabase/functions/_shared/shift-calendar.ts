@@ -15,6 +15,8 @@ export type Calendars = {
   officeId?: number | null;
   splitDayEvents?: boolean;
   splitOffdutyEvents?: boolean;
+  titleDayTime?: boolean;
+  titleOffdutyTime?: boolean;
 };
 
 // 非番の時間の予定を入れるカレンダー(非番用が空なら勤務用)
@@ -30,7 +32,7 @@ const WORK_BUDGET_MS = 120_000;
 export async function loadVerifiedCalendars(ctx: Context): Promise<Calendars> {
   const { data, error } = await ctx.db
     .from("user_settings")
-    .select("work_calendar_id, holiday_calendar_id, offduty_calendar_id, verified_at, office_id, split_day_events, split_offduty_events")
+    .select("work_calendar_id, holiday_calendar_id, offduty_calendar_id, verified_at, office_id, split_day_events, split_offduty_events, title_day_time, title_offduty_time")
     .eq("user_id", ctx.userId)
     .maybeSingle();
   if (error) throw error;
@@ -47,6 +49,8 @@ export async function loadVerifiedCalendars(ctx: Context): Promise<Calendars> {
     officeId: data.office_id,
     splitDayEvents: !!data.split_day_events,
     splitOffdutyEvents: !!data.split_offduty_events,
+    titleDayTime: !!data.title_day_time,
+    titleOffdutyTime: !!data.title_offduty_time,
   };
 }
 
@@ -355,6 +359,31 @@ export function parseOffdutyTime(text: string): number | null {
   const [h, min] = [Number(m[1]), Number(m[2])];
   if (h > 23 || min > 59) return null;
   return h * 60 + min;
+}
+
+// タイトルに時間を付ける設定のとき、勤務用の終日の予定のタイトルの後ろに、メモの1行目の時間を半角の括弧で付ける。
+//   出勤(day): 日勤・泊の番号に出勤時間(例「1(10:00)」。日勤も出勤時間だけ)。対象は splitDayEvents と同じ
+//   非番(offduty): 自動の非番と手入力の非番に退勤時間(例「〜(9:00)」)。対象は splitOffdutyEvents と同じ
+// メモは変えない。時間は「H:MM」にそろえる(全角で書いても半角)。時間として読めないメモの日は番号のまま。
+// 番号でマスタを引くので、splitDayEvents・splitOffdutyEvents のあとに通す(2件目の予定はそのまま)
+export function addTimeToTitles(
+  events: PlannedEvent[],
+  master: Record<string, any>,
+  { day = false, offduty = false }: { day?: boolean; offduty?: boolean },
+): PlannedEvent[] {
+  return events.map((e) => {
+    if (e.calendar !== "work") return e;
+    const firstLine = e.description.split("\n")[0];
+    const manual = e.kind === "day" && !master[e.title];
+    let min: number | null = null;
+    if (e.kind === "offduty" || (manual && isOffdutyTitle(e.title))) {
+      if (offduty) min = parseOffdutyTime(firstLine);
+    } else if (e.kind === "day" && day && !(manual && isOffTitle(e.title))) {
+      const type = master[e.title]?.type ?? "日勤";
+      if (type === "日勤" || type === "泊") min = parseTimeRange(firstLine)?.start ?? null;
+    }
+    return min === null ? e : { ...e, title: `${e.title}(${formatMinutes(min)})` };
+  });
 }
 
 function formatMinutes(min: number): string {

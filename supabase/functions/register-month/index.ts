@@ -6,6 +6,7 @@ import { loadHolidays } from "../_shared/holidays.ts";
 import { AppError, entriesFrom, readBody, serve, yearMonthOf } from "../_shared/http.ts";
 import { addDays, buildPlan, codeOf, dateKey, daysInMonth, indexMaster } from "../_shared/plan.js";
 import {
+  addTimeToTitles,
   createEvents,
   deleteAppEvents,
   deleteRecords,
@@ -80,7 +81,10 @@ serve(async (req) => {
     // 出勤を終日2件(番号・時間)に分ける設定の人は、次回の登録から時間の予定も作る。
     // 非番を2件(「〜」・退勤時間)に分ける設定の人も同じ(時間の予定は非番の時間用カレンダーへ)
     const daySplit = calendars.splitDayEvents ? splitDayEvents(registered, master) : registered;
-    const events = calendars.splitOffdutyEvents ? splitOffdutyEvents(daySplit, master) : daySplit;
+    const split = calendars.splitOffdutyEvents ? splitOffdutyEvents(daySplit, master) : daySplit;
+    // タイトルに時間を付ける設定の人は、番号のあとに出勤時間・「〜」のあとに退勤時間を付ける(例「1(10:00)」「〜(9:00)」)。
+    // 番号でマスタを引くので、2件に分けたあとに通す
+    const events = addTimeToTitles(split, master, { day: calendars.titleDayTime, offduty: calendars.titleOffdutyTime });
     // 翌月1日の予定(月末が泊なら非番、泊でなければ翌月1日の記録の予定)を作るときは、
     // 翌月1日にあるアプリの予定を全部消してから作り直す(重ならないように)。
     // 翌月1日が非番なら翌月2日は非番にならないので、翌月2日に残った非番(翌月1日が泊だったとき)も消す

@@ -18,7 +18,7 @@ function updateGoInput() {
 
 // 利用者が書けるのは区所とカレンダーIDの列だけ(検証済みフラグは Edge Function が書く)
 async function saveSettings(values) {
-  const columns = "work_calendar_id, holiday_calendar_id, offduty_calendar_id, verified_at, office_id, split_day_events, split_offduty_events";
+  const columns = "work_calendar_id, holiday_calendar_id, offduty_calendar_id, verified_at, office_id, split_day_events, split_offduty_events, title_day_time, title_offduty_time";
   const { data, error } = settings
     ? await supabase.from("user_settings").update(values).eq("user_id", session.user.id).select(columns).single()
     : await supabase.from("user_settings").insert({ user_id: session.user.id, ...values }).select(columns).single();
@@ -57,6 +57,8 @@ async function main() {
     $("holiday-id").value = settings.holiday_calendar_id || "";
     $("split-day").checked = !!settings.split_day_events;
     $("split-offduty").checked = !!settings.split_offduty_events;
+    $("title-day").checked = !!settings.title_day_time;
+    $("title-offduty").checked = !!settings.title_offduty_time;
     $("offduty-id").value = settings.offduty_calendar_id || "";
   }
   if (!isReady(settings)) $("first-time").classList.remove("hidden");
@@ -72,10 +74,11 @@ async function main() {
   // かんたん設定で作ったIDは、すぐ保存する(区所などは上書きしない)
   initCalendarSetup({ saveIds: (values) => saveSettings(values) });
 
-  // 区所・ID・「出勤を2件」「非番を2件」を変えたら、保存するまでテスト済みの表示と「勤務入力へ」を消す
+  // 区所・ID・「出勤を2件」「非番を2件」・タイトルの時間を変えたら、保存するまでテスト済みの表示と「勤務入力へ」を消す
   // (保存せずに勤務入力へ進むと、変えた設定が使われないため)
-  ["office", "work-id", "holiday-id", "split-day", "split-offduty", "offduty-id"].forEach((id) =>
-    $(id).addEventListener(["office", "split-day", "split-offduty"].includes(id) ? "change" : "input", () => {
+  const checks = ["office", "split-day", "split-offduty", "title-day", "title-offduty"];
+  [...checks, "work-id", "holiday-id", "offduty-id"].forEach((id) =>
+    $(id).addEventListener(checks.includes(id) ? "change" : "input", () => {
       message("result", "");
       $("go-input").classList.add("hidden");
     })
@@ -89,6 +92,8 @@ async function main() {
       holiday_calendar_id: $("holiday-id").value.trim(),
       split_day_events: $("split-day").checked,
       split_offduty_events: $("split-offduty").checked,
+      title_day_time: $("title-day").checked,
+      title_offduty_time: $("title-offduty").checked,
       offduty_calendar_id: $("offduty-id").value.trim(),
     };
     $("save").disabled = true;
