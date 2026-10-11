@@ -365,6 +365,8 @@ export function parseOffdutyTime(text: string): number | null {
 //   出勤(day): 日勤・泊の番号に出勤時間(例「1(10:00)」。日勤も出勤時間だけ)。対象は splitDayEvents と同じ
 //   非番(offduty): 自動の非番と手入力の非番に退勤時間(例「〜(9:00)」)。対象は splitOffdutyEvents と同じ
 // メモは変えない。時間は「H:MM」にそろえる(全角で書いても半角)。時間として読めないメモの日は番号のまま。
+// 時間のあとに言葉があっても(「10:00 早出」)、先頭の時間を読む(titleTimeOf)。
+// 名前がもう「(10:00)」のような時間で終わっているとき(手入力で括弧まで書いた)は、二重にしない。
 // 番号でマスタを引くので、splitDayEvents・splitOffdutyEvents のあとに通す(2件目の予定はそのまま)
 export function addTimeToTitles(
   events: PlannedEvent[],
@@ -372,18 +374,33 @@ export function addTimeToTitles(
   { day = false, offduty = false }: { day?: boolean; offduty?: boolean },
 ): PlannedEvent[] {
   return events.map((e) => {
-    if (e.calendar !== "work") return e;
+    if (e.calendar !== "work" || TITLE_TIME_END.test(e.title)) return e;
     const firstLine = e.description.split("\n")[0];
     const manual = e.kind === "day" && !master[e.title];
     let min: number | null = null;
     if (e.kind === "offduty" || (manual && isOffdutyTitle(e.title))) {
-      if (offduty) min = parseOffdutyTime(firstLine);
+      if (offduty) min = titleTimeOf(firstLine, true);
     } else if (e.kind === "day" && day && !(manual && isOffTitle(e.title))) {
       const type = master[e.title]?.type ?? "日勤";
-      if (type === "日勤" || type === "泊") min = parseTimeRange(firstLine)?.start ?? null;
+      if (type === "日勤" || type === "泊") min = titleTimeOf(firstLine, false);
     }
     return min === null ? e : { ...e, title: `${e.title}(${formatMinutes(min)})` };
   });
+}
+
+// 名前の終わりの「(10:00)」(全角の括弧・数字も)。手入力でもう時間を付けている
+const TITLE_TIME_END = /[(（]\s*[0-9０-９]{1,2}\s*[:：]\s*[0-9０-９]{2}\s*[)）]$/;
+
+// 名前に付ける時間(その日の0時からの分)。メモの1行目の先頭の時間を読み、後ろの言葉は見ない(「10:00 早出」→ 10:00)。
+// 出勤は最初の時間(「10:15〜19:02」→ 10:15)。非番は退勤時間で、「8:30〜9:02」のように2つあれば後ろ、先頭の「〜」も読む。
+// 全角・「～」「-」なども parseTimeRange と同じに読む。24時以降・時間で始まらないものは null
+function titleTimeOf(text: string, offduty: boolean): number | null {
+  const s = normalizeTimeText(text);
+  const m = offduty ? s.match(/^〜?(?:\d{1,2}:\d{2}〜(?=\d))?(\d{1,2}):(\d{2})(?!\d)/) : s.match(/^(\d{1,2}):(\d{2})(?!\d)/);
+  if (!m) return null;
+  const [h, min] = [Number(m[1]), Number(m[2])];
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
 }
 
 function formatMinutes(min: number): string {

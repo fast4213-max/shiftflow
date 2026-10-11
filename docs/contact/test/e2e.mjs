@@ -316,6 +316,27 @@ await check("設定: 非番を2件・非番の時間用カレンダーIDを読�
   await ctx.close();
 });
 
+await check("設定: 名前に時間を付ける(出勤・非番)を読み込み、保存で送る", async () => {
+  const { page, ctx, be, errors } = await open("settings.html", {
+    userId: "u1",
+    opts: { profile: USER, settings: { title_day_time: true, title_offduty_time: false } },
+  });
+  await page.waitForFunction(() => document.getElementById("title-day").checked);
+  assert.equal(await page.isChecked("#title-offduty"), false);
+  await page.waitForSelector("#office option[value='1']", { state: "attached" });
+  await page.uncheck("#title-day");
+  await page.check("#title-offduty");
+  // 変えたら、保存するまで「勤務入力へ」を出さない
+  assert.equal(await page.isVisible("#go-input"), false);
+  await page.click("#save");
+  await page.waitForSelector("#result.ok");
+  const saved = be.st.calls.find((c) => c.path === "/rest/v1/user_settings" && c.method === "PATCH").body;
+  assert.equal(saved.title_day_time, false);
+  assert.equal(saved.title_offduty_time, true);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await check("ログアウトは、この端末だけ(scope=local。S5)", async () => {
   const { page, ctx, be } = await open("notices.html", { userId: "u1", opts: { profile: USER } });
   await page.waitForSelector("text=ログアウト");

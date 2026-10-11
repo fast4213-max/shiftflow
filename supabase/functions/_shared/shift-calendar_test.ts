@@ -815,3 +815,27 @@ Deno.test("addTimeToTitles: 2件で登録するときも、終日の予定のタ
   assertEquals(out.map((e) => e.second?.title), ["10:00", "9:00"]);
   assertEquals(out.map((e) => e.second?.calendar ?? "work"), ["work", "offduty"]);
 });
+
+Deno.test("addTimeToTitles: メモの時間のあとに言葉があっても先頭の時間を付ける。名前がもう時間で終わっていれば二重にしない", () => {
+  const master = { "1": { type: "泊" }, "25": { type: "日勤" } };
+  const ev = (title: string, kind: string, description: string) => ({ date: "2026-11-10", calendar: "work", kind, title, description });
+  const events = [
+    ev("25", "day", "10:00 早出"),
+    ev("25", "day", "10:00〜19:00 早出"),
+    ev("25", "day", "１０：００から"),
+    ev("〜", "offduty", "9:00 帰宅"),
+    ev("〜", "offduty", "8:30〜9:02 帰宅"),
+    ev("〜", "offduty", "〜 9:05"),
+    ev("〜", "offduty", "9:10から休み"),
+    ev("25", "day", "早出 10:00"), // 時間で始まらない
+    ev("25", "day", "10:005"), // 時間ではない
+    ev("〜", "offduty", "24:10 帰宅"), // 24時以降
+    ev("1(10:00)", "day", "10:00"), // 手入力で括弧まで書いた
+    ev("1（１０：００）", "day", "10:00"),
+    ev("〜(9:00)", "day", "9:00"),
+  ];
+  assertEquals(addTimeToTitles(events, master, { day: true, offduty: true }).map((e) => e.title), [
+    "25(10:00)", "25(10:00)", "25(10:00)", "〜(9:00)", "〜(9:02)", "〜(9:05)", "〜(9:10)",
+    "25", "25", "〜", "1(10:00)", "1（１０：００）", "〜(9:00)",
+  ]);
+});
