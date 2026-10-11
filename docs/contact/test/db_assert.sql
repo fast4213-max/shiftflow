@@ -42,6 +42,7 @@ begin
   assert has_column_privilege('authenticated', 'public.user_settings', 'split_offduty_events', 'update'), '利用者が split_offduty_events を書けない';
   assert has_column_privilege('authenticated', 'public.user_settings', 'title_day_time', 'update'), '利用者が title_day_time を書けない';
   assert has_column_privilege('authenticated', 'public.user_settings', 'title_offduty_time', 'update'), '利用者が title_offduty_time を書けない';
+  assert has_column_privilege('authenticated', 'public.user_settings', 'timed_events', 'update'), '利用者が timed_events を書けない';
 end
 $$;
 

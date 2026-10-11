@@ -18,7 +18,7 @@ function updateGoInput() {
 
 // 利用者が書けるのは区所とカレンダーIDの列だけ(検証済みフラグは Edge Function が書く)
 async function saveSettings(values) {
-  const columns = "work_calendar_id, holiday_calendar_id, offduty_calendar_id, verified_at, office_id, split_day_events, split_offduty_events, title_day_time, title_offduty_time";
+  const columns = "work_calendar_id, holiday_calendar_id, offduty_calendar_id, verified_at, office_id, split_day_events, split_offduty_events, title_day_time, title_offduty_time, timed_events";
   const { data, error } = settings
     ? await supabase.from("user_settings").update(values).eq("user_id", session.user.id).select(columns).single()
     : await supabase.from("user_settings").insert({ user_id: session.user.id, ...values }).select(columns).single();
@@ -59,6 +59,7 @@ async function main() {
     $("split-offduty").checked = !!settings.split_offduty_events;
     $("title-day").checked = !!settings.title_day_time;
     $("title-offduty").checked = !!settings.title_offduty_time;
+    $("timed-events").checked = !!settings.timed_events;
     $("offduty-id").value = settings.offduty_calendar_id || "";
   }
   if (!isReady(settings)) $("first-time").classList.remove("hidden");
@@ -74,9 +75,15 @@ async function main() {
   // かんたん設定で作ったIDは、すぐ保存する(区所などは上書きしない)
   initCalendarSetup({ saveIds: (values) => saveSettings(values) });
 
-  // 区所・ID・「出勤を2件」「非番を2件」・タイトルの時間を変えたら、保存するまでテスト済みの表示と「勤務入力へ」を消す
+  // 時間つきで登録するあいだは、「2件で登録」「名前に時間」は使われないので押せなくする(チェックは残す)
+  const timedOnly = ["split-day", "split-offduty", "title-day", "title-offduty"];
+  const updateTimed = () => timedOnly.forEach((id) => ($(id).disabled = $("timed-events").checked));
+  $("timed-events").addEventListener("change", updateTimed);
+  updateTimed();
+
+  // 区所・ID・「出勤を2件」「非番を2件」・タイトルの時間・時間つきを変えたら、保存するまでテスト済みの表示と「勤務入力へ」を消す
   // (保存せずに勤務入力へ進むと、変えた設定が使われないため)
-  const checks = ["office", "split-day", "split-offduty", "title-day", "title-offduty"];
+  const checks = ["office", "split-day", "split-offduty", "title-day", "title-offduty", "timed-events"];
   [...checks, "work-id", "holiday-id", "offduty-id"].forEach((id) =>
     $(id).addEventListener(checks.includes(id) ? "change" : "input", () => {
       message("result", "");
@@ -94,6 +101,7 @@ async function main() {
       split_offduty_events: $("split-offduty").checked,
       title_day_time: $("title-day").checked,
       title_offduty_time: $("title-offduty").checked,
+      timed_events: $("timed-events").checked,
       offduty_calendar_id: $("offduty-id").value.trim(),
     };
     $("save").disabled = true;

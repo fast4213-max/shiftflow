@@ -17,6 +17,7 @@ export type Calendars = {
   splitOffdutyEvents?: boolean;
   titleDayTime?: boolean;
   titleOffdutyTime?: boolean;
+  timedEvents?: boolean;
 };
 
 // 非番の時間の予定を入れるカレンダー(非番用が空なら勤務用)
@@ -32,7 +33,7 @@ const WORK_BUDGET_MS = 120_000;
 export async function loadVerifiedCalendars(ctx: Context): Promise<Calendars> {
   const { data, error } = await ctx.db
     .from("user_settings")
-    .select("work_calendar_id, holiday_calendar_id, offduty_calendar_id, verified_at, office_id, split_day_events, split_offduty_events, title_day_time, title_offduty_time")
+    .select("work_calendar_id, holiday_calendar_id, offduty_calendar_id, verified_at, office_id, split_day_events, split_offduty_events, title_day_time, title_offduty_time, timed_events")
     .eq("user_id", ctx.userId)
     .maybeSingle();
   if (error) throw error;
@@ -51,6 +52,7 @@ export async function loadVerifiedCalendars(ctx: Context): Promise<Calendars> {
     splitOffdutyEvents: !!data.split_offduty_events,
     titleDayTime: !!data.title_day_time,
     titleOffdutyTime: !!data.title_offduty_time,
+    timedEvents: !!data.timed_events,
   };
 }
 
@@ -160,6 +162,8 @@ export type PlannedEvent = {
   // 番号の予定のあとに続けて作る、時間の予定(出勤・非番を2件に分ける設定のとき)
   // (時間つき。startMin / endMin はその日の0時からの分。calendar が "offduty" なら非番の時間用カレンダー、ほかは勤務用)
   second?: { title: string; description: string; startMin: number; endMin: number; calendar?: "work" | "offduty" };
+  // 終日ではなく時間つきで作るとき(勤務を時間つきの予定で登録する設定。startMin / endMin は date の0時からの分。翌日にまたがってよい)
+  timed?: { startMin: number; endMin: number };
 };
 
 // 予定を作る。休日用のカレンダーが無い人の「休日」の予定は作らない(skipped に数える)。
@@ -172,6 +176,10 @@ export async function createEvents(
   const insert = async (e: PlannedEvent, title: string, description: string) => {
     const calendarId = e.calendar === "holiday" ? calendars.holiday : calendars.work;
     try {
+      if (e.timed) {
+        await insertTimedEvent(calendarId, { date: e.date, ...e.timed, title, description, kind: e.kind });
+        return;
+      }
       await insertAllDayEvent(calendarId, {
         date: e.date,
         endDate: addDays(e.date, 1),
@@ -405,4 +413,91 @@ function titleTimeOf(text: string, offduty: boolean): number | null {
 
 function formatMinutes(min: number): string {
   return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, "0")}`;
+}
+
+// 勤務を時間つきの予定で登録する設定のとき、勤務用の出勤の予定を、終日ではなく時間つきにする
+// (TimeTree など、時間つきの予定で勤務を見る人向け)。「2件で登録」「名前に時間」の設定は使わない。
+//   泊: 出勤時間から翌日の非番の退勤時間までの1件。タイトルは番号、メモは泊地(メモの1行目の時間のあとの言葉と、2行目)。
+//       翌日の非番(「〜」)は作らない。月末の泊は、翌月1日の退勤時間までの1件(翌月1日の非番は作らない)。
+//   日勤: 出勤時間から退勤時間まで。メモは今のまま(「10:15〜19:02」)。退勤が出勤より前なら翌日の退勤まで。
+//   手入力の番号(マスタにない): メモに「10:00〜18:00」なら日勤と同じ。メモが出勤時間だけ(「10:00 大阪」)で、
+//       翌日が手入力の非番(「〜」「非番」など)でメモに退勤時間があれば、泊と同じ1件(メモは時間のあとの言葉)。
+//       月末の手入力の泊(翌日が翌月1日)はまとめない(翌月の登録からは、前の月の手入力の泊かどうか分からないため)。
+//   月の1日の非番(前の月の月末が泊)は、退勤時間が読めれば作らない(前の月の登録で、泊の1件が1日の朝まで入るため)。
+//   時間として読めない日(メモを手で書き換えたとき・24時以降の出勤)は、今までどおり終日。泊は泊・非番の2件とも終日のまま。
+//   休日・休日用カレンダーの予定・手入力の休み(「公休」など)は終日のまま
+export function toTimedEvents(
+  events: PlannedEvent[],
+  master: Record<string, any>,
+  { first, nextFirst }: { first: string; nextFirst: string },
+): PlannedEvent[] {
+  const byDate = new Map(events.filter((e) => e.calendar === "work").map((e) => [e.date, e]));
+  const dropped = new Set<PlannedEvent>();
+  const out: PlannedEvent[] = [];
+  for (const e of events) {
+    if (dropped.has(e)) continue;
+    if (e.calendar !== "work") {
+      out.push(e);
+      continue;
+    }
+    if (e.kind === "offduty") {
+      // 前の月の月末の泊から続く非番は、前の月の登録の泊の1件に入っている
+      if (e.date === first && offdutyEndOf(e) !== null) continue;
+      out.push(e);
+      continue;
+    }
+    const manual = !master[e.title];
+    if (e.kind !== "day" || (manual && isOffTitle(e.title))) {
+      out.push(e);
+      continue;
+    }
+    const type = master[e.title]?.type ?? "日勤";
+    const lines = e.description.split("\n");
+    const head = leadingTime(lines[0], parseTimeRange);
+    if (!head || (type !== "日勤" && type !== "泊")) {
+      out.push(e);
+      continue;
+    }
+    const range = head.value;
+    const next = byDate.get(addDays(e.date, 1));
+    const stay = type === "泊" || (manual && range.end === null && next?.date !== nextFirst);
+    if (stay) {
+      // 泊: 翌日の非番(マスタの泊なら自動の非番、手入力なら手入力の非番)の退勤時間まで
+      const pair = type === "泊"
+        ? next?.kind === "offduty"
+        : next?.kind === "day" && !master[next.title] && isOffdutyTitle(next.title);
+      const end = pair && next ? offdutyEndOf(next) : null;
+      if (end === null || !next) {
+        out.push(e);
+        continue;
+      }
+      dropped.add(next);
+      const description = [head.rest, ...lines.slice(1)].map((l) => l.trim()).filter(Boolean).join("\n");
+      out.push({ ...e, description, timed: { startMin: range.start, endMin: 1440 + end } });
+      continue;
+    }
+    if (range.end === null) {
+      out.push(e);
+      continue;
+    }
+    const endMin = range.end <= range.start ? range.end + 1440 : range.end;
+    out.push({ ...e, timed: { startMin: range.start, endMin } });
+  }
+  return out;
+}
+
+// 非番の予定のメモの1行目の退勤時間(分)。読めなければ null
+function offdutyEndOf(e: PlannedEvent): number | null {
+  return leadingTime(e.description.split("\n")[0], parseOffdutyTime)?.value ?? null;
+}
+
+// 1行の先頭の時間と、そのあとの言葉(「10:00 大阪」→ 10:00 と「大阪」)。時間と言葉は空白(全角も)で区切る。
+// 「10:00 〜 18:00 早出」のように時間の中に空白があっても、読める一番長い先頭を時間とみなす
+function leadingTime<T>(line: string, parse: (text: string) => T | null): { value: T; rest: string } | null {
+  const words = line.trim().split(/\s+/);
+  for (let k = words.length; k >= 1; k--) {
+    const value = parse(words.slice(0, k).join(""));
+    if (value !== null) return { value, rest: words.slice(k).join(" ") };
+  }
+  return null;
 }

@@ -16,6 +16,7 @@ import {
   splitDayEvents,
   splitOffdutyEvents,
   staleNextMonthRecords,
+  toTimedEvents,
 } from "./shift-calendar.ts";
 import { AppError, entriesFrom, yearMonthOf } from "./http.ts";
 import {
@@ -838,4 +839,101 @@ Deno.test("addTimeToTitles: メモの時間のあとに言葉があっても先�
     "25(10:00)", "25(10:00)", "25(10:00)", "〜(9:00)", "〜(9:02)", "〜(9:05)", "〜(9:10)",
     "25", "25", "〜", "1(10:00)", "1（１０：００）", "〜(9:00)",
   ]);
+});
+
+// ---------- 勤務を時間つきの予定で登録する ----------
+
+const timedMaster = indexMaster([
+  { code: "25", kind: "日勤", weekday_start: "10:15", weekday_end: "19:02", holiday_start: "", holiday_end: "", stay: "" },
+  { code: "5", kind: "泊", weekday_start: "10:00", weekday_end: "9:00", holiday_start: "", holiday_end: "", stay: "大阪" },
+  { code: "公休", kind: "休日", weekday_start: "", weekday_end: "", holiday_start: "", holiday_end: "", stay: "" },
+]);
+const timedPlan = (entries: Record<string, { code: string; memo: string }>, opts: Record<string, any> = {}) =>
+  buildPlan({ year: 2026, month: 10, prevLastCode: "", nextFirstEntry: null, master: timedMaster, holidays: [], entries, ...opts }).events;
+const timedOf = (events: any[]) =>
+  toTimedEvents(events, timedMaster, { first: "2026-10-01", nextFirst: "2026-11-01" })
+    .map((e) => [e.date, e.calendar, e.title, e.description, e.timed?.startMin, e.timed?.endMin]);
+
+Deno.test("toTimedEvents: 泊は出勤から翌日の退勤までの1件(メモは泊地・翌日の「〜」は作らない)。日勤は出勤〜退勤(メモはそのまま)。休日は終日", () => {
+  const events = timedPlan({
+    "2026-10-05": { code: "25", memo: "" },
+    "2026-10-11": { code: "5", memo: "" },
+    "2026-10-14": { code: "公休", memo: "" },
+  });
+  assertEquals(timedOf(events), [
+    ["2026-10-05", "work", "25", "10:15〜19:02", 615, 1142],
+    ["2026-10-11", "work", "5", "大阪", 600, 1440 + 540],
+    ["2026-10-14", "holiday", "公休", "", undefined, undefined],
+  ]);
+});
+
+Deno.test("toTimedEvents: 手で書き換えた時間を使う(泊の出勤・非番の退勤)。読めないメモなら泊・非番とも終日のまま", () => {
+  // 泊の日のメモを「10:30 早出」、非番のメモを「〜9:20」に書き換えた
+  const edited = timedPlan({ "2026-10-11": { code: "5", memo: "10:30 早出" }, "2026-10-12": { code: "", memo: "〜９：２０" } });
+  assertEquals(timedOf(edited), [["2026-10-11", "work", "5", "早出\n大阪", 630, 1440 + 560]]);
+  // 非番のメモを時間でない言葉に書き換えた → 2件とも終日
+  const unreadable = timedPlan({ "2026-10-11": { code: "5", memo: "" }, "2026-10-12": { code: "", memo: "早上がり" } });
+  assertEquals(timedOf(unreadable), [
+    ["2026-10-11", "work", "5", "10:00\n大阪", undefined, undefined],
+    ["2026-10-12", "work", "〜", "早上がり", undefined, undefined],
+  ]);
+  // 日勤のメモを時間でない言葉に → 終日。退勤が出勤より前 → 翌日の退勤まで
+  const day = timedPlan({ "2026-10-05": { code: "25", memo: "研修" }, "2026-10-06": { code: "25", memo: "22:00〜6:00" } });
+  assertEquals(timedOf(day), [
+    ["2026-10-05", "work", "25", "研修", undefined, undefined],
+    ["2026-10-06", "work", "25", "22:00〜6:00", 1320, 1440 + 360],
+  ]);
+});
+
+Deno.test("toTimedEvents: 手入力の泊(メモ「10:00 大阪」+ 翌日「〜」にメモ「9:00」)は1件。手入力の日勤は出勤〜退勤", () => {
+  const events = timedPlan({
+    "2026-10-11": { code: "9001", memo: "10:00 大阪" },
+    "2026-10-12": { code: "〜", memo: "9:00" },
+    "2026-10-15": { code: "9002", memo: "１０：００　京都" }, // 全角の空白・数字
+    "2026-10-16": { code: "非番", memo: "8:30〜9:10" },
+    "2026-10-20": { code: "9003", memo: "10:00〜18:00 早出" },
+    "2026-10-21": { code: "〜", memo: "9:00" }, // 前の日が日勤の形なので、まとめない
+    "2026-10-24": { code: "9004", memo: "10:00" }, // 翌日が「〜」でない → 終わりが分からないので終日
+    "2026-10-25": { code: "年休", memo: "" },
+  });
+  assertEquals(timedOf(events), [
+    ["2026-10-11", "work", "9001", "大阪", 600, 1440 + 540],
+    ["2026-10-15", "work", "9002", "京都", 600, 1440 + 550],
+    ["2026-10-20", "work", "9003", "10:00〜18:00 早出", 600, 1080],
+    ["2026-10-21", "work", "〜", "9:00", undefined, undefined],
+    ["2026-10-24", "work", "9004", "10:00", undefined, undefined],
+    ["2026-10-25", "work", "年休", "", undefined, undefined],
+  ]);
+});
+
+Deno.test("toTimedEvents: 月末の泊は翌月1日の退勤までの1件。月の1日の非番(前の月の泊)は作らない。月末の手入力の泊は終日のまま", () => {
+  const monthEnd = timedPlan({ "2026-10-31": { code: "5", memo: "" } }, { nextFirstEntry: { code: "", memo: "9:15" } });
+  assertEquals(timedOf(monthEnd), [["2026-10-31", "work", "5", "大阪", 600, 1440 + 555]]);
+  const first = timedPlan({ "2026-10-02": { code: "25", memo: "" } }, { prevLastCode: "5" });
+  assertEquals(timedOf(first), [["2026-10-02", "work", "25", "10:15〜19:02", 615, 1142]]);
+  const manual = timedPlan({ "2026-10-31": { code: "9001", memo: "10:00 大阪" } }, { nextFirstEntry: { code: "〜", memo: "9:00" } });
+  assertEquals(timedOf(manual), [
+    ["2026-10-31", "work", "9001", "10:00 大阪", undefined, undefined],
+    ["2026-11-01", "work", "〜", "9:00", undefined, undefined],
+  ]);
+});
+
+Deno.test("createEvents: 時間つきの予定は、翌日にまたがる時間で1件作る(印つき)", async () => {
+  const posted: any[] = [];
+  mockFetch((c) => {
+    if (c.method === "POST") {
+      posted.push(c.body);
+      return Response.json({ id: "x" });
+    }
+  });
+  const result = await createEvents({ work: "w@group.calendar.google.com", holiday: "" }, [
+    { date: "2026-10-31", calendar: "work", kind: "day", title: "5", description: "大阪", timed: { startMin: 600, endMin: 1440 + 540 } },
+  ]);
+  assertEquals(result, { created: 1, skipped: 0 });
+  assertEquals(posted.length, 1);
+  assertEquals(posted[0].summary, "5");
+  assertEquals(posted[0].description, "大阪");
+  assertEquals(posted[0].start, { dateTime: "2026-10-31T10:00:00", timeZone: "Asia/Tokyo" });
+  assertEquals(posted[0].end, { dateTime: "2026-11-01T09:00:00", timeZone: "Asia/Tokyo" });
+  assertEquals(posted[0].extendedProperties, tag("day"));
 });

@@ -337,6 +337,30 @@ await check("設定: 名前に時間を付ける(出勤・非番)を読み込み
   await ctx.close();
 });
 
+await check("設定: 時間つきで登録するを読み込み、オンのあいだは「2件」「名前に時間」を押せない。保存で送る", async () => {
+  const { page, ctx, be, errors } = await open("settings.html", {
+    userId: "u1",
+    opts: { profile: USER, settings: { timed_events: true, split_day_events: true } },
+  });
+  await page.waitForFunction(() => document.getElementById("timed-events").checked);
+  for (const id of ["#split-day", "#split-offduty", "#title-day", "#title-offduty"]) {
+    assert.equal(await page.isDisabled(id), true, id);
+  }
+  // チェックは残す(外したときに元の設定に戻る)
+  assert.equal(await page.isChecked("#split-day"), true);
+  await page.waitForSelector("#office option[value='1']", { state: "attached" });
+  await page.uncheck("#timed-events");
+  assert.equal(await page.isDisabled("#split-day"), false);
+  assert.equal(await page.isVisible("#go-input"), false);
+  await page.click("#save");
+  await page.waitForSelector("#result.ok");
+  const saved = be.st.calls.find((c) => c.path === "/rest/v1/user_settings" && c.method === "PATCH").body;
+  assert.equal(saved.timed_events, false);
+  assert.equal(saved.split_day_events, true);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await check("ログアウトは、この端末だけ(scope=local。S5)", async () => {
   const { page, ctx, be } = await open("notices.html", { userId: "u1", opts: { profile: USER } });
   await page.waitForSelector("text=ログアウト");

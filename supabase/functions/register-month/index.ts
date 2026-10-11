@@ -17,6 +17,7 @@ import {
   splitDayEvents,
   splitOffdutyEvents,
   staleNextMonthRecords,
+  toTimedEvents,
   withUserLock,
 } from "../_shared/shift-calendar.ts";
 
@@ -78,17 +79,25 @@ serve(async (req) => {
     if (pendingRes.error) throw pendingRes.error;
     const retryNextFirst = pendingRes.data?.next_first_pending === nextFirst;
     const registered = eventsToRegister(plan.events, existing, nextFirst, retryNextFirst);
-    // 出勤を終日2件(番号・時間)に分ける設定の人は、次回の登録から時間の予定も作る。
-    // 非番を2件(「〜」・退勤時間)に分ける設定の人も同じ(時間の予定は非番の時間用カレンダーへ)
-    const daySplit = calendars.splitDayEvents ? splitDayEvents(registered, master) : registered;
-    const split = calendars.splitOffdutyEvents ? splitOffdutyEvents(daySplit, master) : daySplit;
-    // タイトルに時間を付ける設定の人は、番号のあとに出勤時間・「〜」のあとに退勤時間を付ける(例「1(10:00)」「〜(9:00)」)。
-    // 番号でマスタを引くので、2件に分けたあとに通す
-    const events = addTimeToTitles(split, master, { day: calendars.titleDayTime, offduty: calendars.titleOffdutyTime });
+    // 勤務を時間つきの予定で登録する設定の人は、泊を出勤から翌日の退勤までの1件に、日勤を出勤から退勤までにする
+    // (「2件で登録」「名前に時間」は使わない)
+    let events;
+    if (calendars.timedEvents) {
+      events = toTimedEvents(registered, master, { first, nextFirst });
+    } else {
+      // 出勤を終日2件(番号・時間)に分ける設定の人は、次回の登録から時間の予定も作る。
+      // 非番を2件(「〜」・退勤時間)に分ける設定の人も同じ(時間の予定は非番の時間用カレンダーへ)
+      const daySplit = calendars.splitDayEvents ? splitDayEvents(registered, master) : registered;
+      const split = calendars.splitOffdutyEvents ? splitOffdutyEvents(daySplit, master) : daySplit;
+      // タイトルに時間を付ける設定の人は、番号のあとに出勤時間・「〜」のあとに退勤時間を付ける(例「1(10:00)」「〜(9:00)」)。
+      // 番号でマスタを引くので、2件に分けたあとに通す
+      events = addTimeToTitles(split, master, { day: calendars.titleDayTime, offduty: calendars.titleOffdutyTime });
+    }
     // 翌月1日の予定(月末が泊なら非番、泊でなければ翌月1日の記録の予定)を作るときは、
     // 翌月1日にあるアプリの予定を全部消してから作り直す(重ならないように)。
+    // 月末が泊なら、時間つきの設定で翌月1日の非番を作らない(泊の1件が翌月1日の朝まで入る)ときも同じ。
     // 翌月1日が非番なら翌月2日は非番にならないので、翌月2日に残った非番(翌月1日が泊だったとき)も消す
-    const clearNextFirst = events.some((e) => e.date === nextFirst);
+    const clearNextFirst = nextFirstOffduty || events.some((e) => e.date === nextFirst);
     // 翌月1日のアプリの予定を消す前に印を残す(消したあとで作り直しに失敗しても、やり直したときに作り直せる)
     if (existing.some((e) => e.date === nextFirst)) {
       const marked = await ctx.admin.from("user_settings").update({ next_first_pending: nextFirst }).eq("user_id", ctx.userId);
