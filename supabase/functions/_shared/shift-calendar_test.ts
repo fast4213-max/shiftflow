@@ -850,8 +850,8 @@ const timedMaster = indexMaster([
 ]);
 const timedPlan = (entries: Record<string, { code: string; memo: string }>, opts: Record<string, any> = {}) =>
   buildPlan({ year: 2026, month: 10, prevLastCode: "", nextFirstEntry: null, master: timedMaster, holidays: [], entries, ...opts }).events;
-const timedOf = (events: any[]) =>
-  toTimedEvents(events, timedMaster, { first: "2026-10-01", nextFirst: "2026-11-01" })
+const timedOf = (events: any[], prevStayTimed = false) =>
+  toTimedEvents(events, timedMaster, { first: "2026-10-01", nextFirst: "2026-11-01", prevStayTimed })
     .map((e) => [e.date, e.calendar, e.title, e.description, e.timed?.startMin, e.timed?.endMin]);
 
 Deno.test("toTimedEvents: 泊は出勤から翌日の退勤までの1件(メモは泊地・翌日の「〜」は作らない)。日勤は出勤〜退勤(メモはそのまま)。休日は終日", () => {
@@ -906,11 +906,16 @@ Deno.test("toTimedEvents: 手入力の泊(メモ「10:00 大阪」+ 翌日「〜
   ]);
 });
 
-Deno.test("toTimedEvents: 月末の泊は翌月1日の退勤までの1件。月の1日の非番(前の月の泊)は作らない。月末の手入力の泊は終日のまま", () => {
+Deno.test("toTimedEvents: 月末の泊は翌月1日の退勤までの1件。月の1日の非番は、前の月の時間つきの泊があるときだけ作らない。月末の手入力の泊は終日のまま", () => {
   const monthEnd = timedPlan({ "2026-10-31": { code: "5", memo: "" } }, { nextFirstEntry: { code: "", memo: "9:15" } });
   assertEquals(timedOf(monthEnd), [["2026-10-31", "work", "5", "大阪", 600, 1440 + 555]]);
   const first = timedPlan({ "2026-10-02": { code: "25", memo: "" } }, { prevLastCode: "5" });
-  assertEquals(timedOf(first), [["2026-10-02", "work", "25", "10:15〜19:02", 615, 1142]]);
+  assertEquals(timedOf(first, true), [["2026-10-02", "work", "25", "10:15〜19:02", 615, 1142]]);
+  // 前の月の泊が終日で登録されている(メモが時間でない・時間つきにする前に登録した)ときは、1日の「〜」を作る(Z1)
+  assertEquals(timedOf(first, false), [
+    ["2026-10-01", "work", "〜", "9:00", undefined, undefined],
+    ["2026-10-02", "work", "25", "10:15〜19:02", 615, 1142],
+  ]);
   const manual = timedPlan({ "2026-10-31": { code: "9001", memo: "10:00 大阪" } }, { nextFirstEntry: { code: "〜", memo: "9:00" } });
   assertEquals(timedOf(manual), [
     ["2026-10-31", "work", "9001", "10:00 大阪", undefined, undefined],
@@ -936,4 +941,41 @@ Deno.test("createEvents: 時間つきの予定は、翌日にまたがる時間�
   assertEquals(posted[0].start, { dateTime: "2026-10-31T10:00:00", timeZone: "Asia/Tokyo" });
   assertEquals(posted[0].end, { dateTime: "2026-11-01T09:00:00", timeZone: "Asia/Tokyo" });
   assertEquals(posted[0].extendedProperties, tag("day"));
+});
+
+Deno.test("toTimedEvents: 非番のメモの時間のあとの言葉・2行目は、泊の1件のメモに続ける(Z2)。空白なしの「10:00大阪」も読む(Z3)", () => {
+  const events = timedPlan({
+    "2026-10-05": { code: "5", memo: "" },
+    "2026-10-06": { code: "", memo: "9:00 歯医者" },
+    "2026-10-11": { code: "9001", memo: "10:00大阪" },
+    "2026-10-12": { code: "〜", memo: "９：３０病院" },
+    "2026-10-15": { code: "9002", memo: "9:00〜18:00早出" },
+    "2026-10-18": { code: "9003", memo: "10:005" }, // 時間ではない
+  });
+  assertEquals(timedOf(events), [
+    ["2026-10-05", "work", "5", "大阪\n歯医者", 600, 1440 + 540],
+    ["2026-10-11", "work", "9001", "大阪\n病院", 600, 1440 + 570],
+    ["2026-10-15", "work", "9002", "9:00〜18:00早出", 540, 1080],
+    ["2026-10-18", "work", "9003", "10:005", undefined, undefined],
+  ]);
+});
+
+Deno.test("listAppEvents: 前の月から1日にまたがる時間つきの予定は carried(Z1)。deleteAppEvents では消さない", async () => {
+  const work = "work@group.calendar.google.com";
+  const calls = mockFetch((c) => {
+    if (c.method !== "GET") return;
+    return Response.json({
+      items: [
+        { id: "stay", start: { dateTime: "2026-09-30T10:00:00+09:00" }, end: { dateTime: "2026-10-01T09:00:00+09:00" }, extendedProperties: tag("day") },
+        { id: "day", start: { dateTime: "2026-09-30T10:00:00+09:00" }, end: { dateTime: "2026-09-30T19:00:00+09:00" }, extendedProperties: tag("day") },
+        { id: "allday", start: { date: "2026-09-30" }, end: { date: "2026-10-01" }, extendedProperties: tag("day") },
+        { id: "manual", start: { dateTime: "2026-09-30T10:00:00+09:00" }, end: { dateTime: "2026-10-01T09:00:00+09:00" } },
+        { id: "a", start: { date: "2026-10-02" }, extendedProperties: tag("day") },
+      ],
+    });
+  });
+  const listed = await listAppEvents({ work, holiday: "" }, 2026, 10);
+  assertEquals(listed.map((e) => [e.eventId, !!e.carried]), [["stay", true], ["a", false]]);
+  await deleteAppEvents({ work, holiday: "" }, 2026, 10, { existing: listed });
+  assertEquals(calls.filter((c) => c.method === "DELETE").map((c) => c.url.pathname.split("/").pop()), ["a"]);
 });

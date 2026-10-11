@@ -83,7 +83,9 @@ serve(async (req) => {
     // (「2件で登録」「名前に時間」は使わない)
     let events;
     if (calendars.timedEvents) {
-      events = toTimedEvents(registered, master, { first, nextFirst });
+      // 1日の「〜」は、前の月の月末から続く時間つきの泊の1件がカレンダーにあるときだけ作らない(Z1)
+      const prevStayTimed = existing.some((e) => e.carried);
+      events = toTimedEvents(registered, master, { first, nextFirst, prevStayTimed });
     } else {
       // 出勤を終日2件(番号・時間)に分ける設定の人は、次回の登録から時間の予定も作る。
       // 非番を2件(「〜」・退勤時間)に分ける設定の人も同じ(時間の予定は非番の時間用カレンダーへ)

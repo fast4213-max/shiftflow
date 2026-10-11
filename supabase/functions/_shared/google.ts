@@ -222,6 +222,7 @@ export type CalendarEvent = {
   id: string;
   summary?: string;
   start?: { date?: string; dateTime?: string };
+  end?: { date?: string; dateTime?: string };
   extendedProperties?: { private?: Record<string, string> };
 };
 

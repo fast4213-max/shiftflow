@@ -81,7 +81,9 @@ function label(calendars: Calendars, id: string): string {
 }
 
 // このアプリが作った予定(印の付いた終日予定)
-export type AppEvent = { calendarId: string; eventId: string; date: string; tag: string };
+// carried: 前の月から対象月の1日にまたがる、時間つきの予定(時間つきで登録した月末の泊)。
+// 対象月の予定ではないので、削除の対象にはしない。対象月の1日の「〜」を作るかどうかを決めるためだけに使う(Z1)
+export type AppEvent = { calendarId: string; eventId: string; date: string; tag: string; carried?: boolean };
 
 // 対象月と翌月1日・2日の、このアプリが作った予定の一覧。手で入れた予定(印が無いもの)は含めない
 // (翌月2日は、翌月1日が非番になって、翌月2日が非番でなくなったときに、残った非番を消すため)
@@ -107,7 +109,14 @@ export async function listAppEvents(calendars: Calendars, year: number, month: n
       const tag = ev.extendedProperties?.private?.[APP_TAG];
       // 終日の予定はその日付、時間つきの予定(出勤を2件で登録したときの2件目)は日本時間の日付
       const date = ev.start?.date || ev.start?.dateTime?.slice(0, 10);
-      if (!tag || !date || date < first || date > nextSecond) continue;
+      if (!tag || !date || date > nextSecond) continue;
+      if (date < first) {
+        const end = ev.end?.dateTime;
+        if (ev.start?.dateTime && end && Date.parse(end) > Date.parse(`${first}T00:00:00+09:00`)) {
+          found.push({ calendarId, eventId: ev.id, date, tag, carried: true });
+        }
+        continue;
+      }
       found.push({ calendarId, eventId: ev.id, date, tag });
     }
   }
@@ -137,7 +146,7 @@ export async function deleteAppEvents(
   // 非番の時間の予定(非番を2件で登録したときの2件目)は、非番の時間用カレンダーにある
   const isOffduty = (e: AppEvent) =>
     e.tag === "offduty" && (e.calendarId === calendars.work || e.calendarId === offdutyCalendarOf(calendars));
-  const targets = events.filter((e) =>
+  const targets = events.filter((e) => !e.carried).filter((e) =>
     e.date < nextFirst ||
     (e.date === nextFirst && (clearNextFirst || isOffduty(e))) ||
     (e.date === nextSecond && clearNextSecondOffduty && isOffduty(e))
@@ -423,13 +432,14 @@ function formatMinutes(min: number): string {
 //   手入力の番号(マスタにない): メモに「10:00〜18:00」なら日勤と同じ。メモが出勤時間だけ(「10:00 大阪」)で、
 //       翌日が手入力の非番(「〜」「非番」など)でメモに退勤時間があれば、泊と同じ1件(メモは時間のあとの言葉)。
 //       月末の手入力の泊(翌日が翌月1日)はまとめない(翌月の登録からは、前の月の手入力の泊かどうか分からないため)。
-//   月の1日の非番(前の月の月末が泊)は、退勤時間が読めれば作らない(前の月の登録で、泊の1件が1日の朝まで入るため)。
+//   月の1日の非番(前の月の月末が泊)は、前の月の月末から1日にまたがる時間つきの泊の1件がカレンダーにあるとき
+//   (prevStayTimed。listAppEvents の carried)だけ作らない。前の月の泊が終日で登録されているときは作る(Z1)。
 //   時間として読めない日(メモを手で書き換えたとき・24時以降の出勤)は、今までどおり終日。泊は泊・非番の2件とも終日のまま。
 //   休日・休日用カレンダーの予定・手入力の休み(「公休」など)は終日のまま
 export function toTimedEvents(
   events: PlannedEvent[],
   master: Record<string, any>,
-  { first, nextFirst }: { first: string; nextFirst: string },
+  { first, nextFirst, prevStayTimed = false }: { first: string; nextFirst: string; prevStayTimed?: boolean },
 ): PlannedEvent[] {
   const byDate = new Map(events.filter((e) => e.calendar === "work").map((e) => [e.date, e]));
   const dropped = new Set<PlannedEvent>();
@@ -442,7 +452,7 @@ export function toTimedEvents(
     }
     if (e.kind === "offduty") {
       // 前の月の月末の泊から続く非番は、前の月の登録の泊の1件に入っている
-      if (e.date === first && offdutyEndOf(e) !== null) continue;
+      if (e.date === first && prevStayTimed && offdutyEndOf(e) !== null) continue;
       out.push(e);
       continue;
     }
@@ -466,13 +476,17 @@ export function toTimedEvents(
       const pair = type === "泊"
         ? next?.kind === "offduty"
         : next?.kind === "day" && !master[next.title] && isOffdutyTitle(next.title);
-      const end = pair && next ? offdutyEndOf(next) : null;
-      if (end === null || !next) {
+      const nextLines = next ? next.description.split("\n") : [];
+      const off = pair ? leadingTime(nextLines[0], parseOffdutyTime) : null;
+      if (!off || !next) {
         out.push(e);
         continue;
       }
+      const end = off.value;
       dropped.add(next);
-      const description = [head.rest, ...lines.slice(1)].map((l) => l.trim()).filter(Boolean).join("\n");
+      // メモは泊地(泊の日のメモの時間のあとの言葉と2行目)のあとに、非番のメモの時間のあとの言葉と2行目を続ける(Z2)
+      const description = [head.rest, ...lines.slice(1), off.rest, ...nextLines.slice(1)]
+        .map((l) => l.trim()).filter(Boolean).join("\n");
       out.push({ ...e, description, timed: { startMin: range.start, endMin: 1440 + end } });
       continue;
     }
@@ -492,12 +506,21 @@ function offdutyEndOf(e: PlannedEvent): number | null {
 }
 
 // 1行の先頭の時間と、そのあとの言葉(「10:00 大阪」→ 10:00 と「大阪」)。時間と言葉は空白(全角も)で区切る。
-// 「10:00 〜 18:00 早出」のように時間の中に空白があっても、読める一番長い先頭を時間とみなす
+// 「10:00 〜 18:00 早出」のように時間の中に空白があっても、読める一番長い先頭を時間とみなす。
+// 空白が無くても(「10:00大阪」「9:00〜18:00早出」)、先頭の時間(と「〜」で続く時間)を読む(Z3)
 function leadingTime<T>(line: string, parse: (text: string) => T | null): { value: T; rest: string } | null {
   const words = line.trim().split(/\s+/);
   for (let k = words.length; k >= 1; k--) {
     const value = parse(words.slice(0, k).join(""));
     if (value !== null) return { value, rest: words.slice(k).join(" ") };
   }
-  return null;
+  const m = line.trim().match(LEADING_TIME);
+  if (!m) return null;
+  const value = parse(m[1]);
+  return value === null ? null : { value, rest: m[2].trim() };
 }
+
+// 先頭の時間(「〜」で続くもう1つの時間も)と、そのあと。数字は全角も。時間のすぐあとに数字が続くもの(「10:005」)は読まない
+const TIME = "[0-9０-９]{1,2}\\s*[:：]\\s*[0-9０-９]{2}(?![0-9０-９])";
+const SEP = "(?:から|[〜～~∼〰\\-－−ー―—–‐‑‒─ｰ→⇒])";
+const LEADING_TIME = new RegExp(`^((?:${SEP}\\s*)?${TIME}(?:\\s*${SEP}\\s*${TIME})?)(.*)$`);
