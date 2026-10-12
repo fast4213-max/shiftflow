@@ -243,38 +243,38 @@ Deno.test("web/js/plan.js は _shared/plan.js と同じ内容", async () => {
 });
 
 Deno.test("翌休泊: 泊の翌日(非番の日)が休日なら翌休泊、平日なら泊。翌休泊が空なら今までどおり", () => {
+  // 架空のマスタ(実データは書かない)
   const m = indexMaster([
-    { code: "52", kind: "泊", weekday_start: "9:02", weekday_end: "9:59", holiday_start: "9:01", holiday_end: "10:07", stay: "北伊丹", stay_next_holiday: "大阪" },
-    { code: "53", kind: "泊", weekday_start: "9:21", weekday_end: "10:43", holiday_start: "9:22", holiday_end: "9:50", stay: "新三田" },
+    { code: "301", kind: "泊", weekday_start: "9:00", weekday_end: "9:30", holiday_start: "9:10", holiday_end: "9:40", stay: "泊地A", stay_next_holiday: "泊地B" },
+    { code: "302", kind: "泊", weekday_start: "10:00", weekday_end: "8:45", holiday_start: "10:10", holiday_end: "8:55", stay: "泊地C" },
   ]);
   // 2026-10: 1(木) 2(金) 3(土) 4(日) 5(月) 12(祝)
   const p = buildPlan({
     year: 2026, month: 10, prevLastCode: "", nextFirstEntry: null, master: m, holidays: ["2026-10-12"],
     entries: {
-      "2026-10-01": { code: "52", memo: "" }, // 翌日は平日の金曜
-      "2026-10-02": { code: "", memo: "" },
-      "2026-10-08": { code: "52", memo: "" }, // 翌日は金曜
-      "2026-10-09": { code: "52", memo: "" }, // 非番の日(番号は無視)
-      "2026-10-16": { code: "52", memo: "" }, // 翌日は土曜
-      "2026-10-11": { code: "52", memo: "変更" }, // 翌日は祝日。手で直したメモでも泊地は2行目
-      "2026-10-23": { code: "53", memo: "" }, // 翌日は土曜でも、翌休泊が空なら泊
+      "2026-10-01": { code: "301", memo: "" }, // 翌日は平日の金曜
+      "2026-10-08": { code: "301", memo: "" }, // 翌日は金曜
+      "2026-10-09": { code: "301", memo: "" }, // 非番の日(番号は無視)
+      "2026-10-16": { code: "301", memo: "" }, // 翌日は土曜
+      "2026-10-11": { code: "301", memo: "変更" }, // 翌日は祝日。手で直したメモでも泊地は2行目
+      "2026-10-23": { code: "302", memo: "" }, // 翌日は土曜でも、翌休泊が空なら泊
     },
   });
   const desc = (d: string) => p.events.find((e: { date: string }) => e.date === d)?.description;
-  assertEquals(desc("2026-10-01"), "9:02\n北伊丹");
-  assertEquals(desc("2026-10-08"), "9:02\n北伊丹");
-  assertEquals(desc("2026-10-16"), "9:02\n大阪");
-  assertEquals(desc("2026-10-11"), "変更\n大阪");
-  assertEquals(desc("2026-10-23"), "9:21\n新三田");
+  assertEquals(desc("2026-10-01"), "9:00\n泊地A");
+  assertEquals(desc("2026-10-08"), "9:00\n泊地A");
+  assertEquals(desc("2026-10-16"), "9:00\n泊地B");
+  assertEquals(desc("2026-10-11"), "変更\n泊地B");
+  assertEquals(desc("2026-10-23"), "10:00\n泊地C");
 });
 
 Deno.test("翌休泊: 月末の泊は、翌月1日の平休で選ぶ", () => {
   const m = indexMaster([
-    { code: "54", kind: "泊", weekday_start: "12:47", weekday_end: "9:37", holiday_start: "11:23", holiday_end: "9:36", stay: "網干", stay_next_holiday: "姫路" },
+    { code: "303", kind: "泊", weekday_start: "12:00", weekday_end: "9:00", holiday_start: "11:00", holiday_end: "9:00", stay: "泊地D", stay_next_holiday: "泊地E" },
   ]);
   // 2026-10-31 は土曜、翌11-01 は日曜(休日)。2026-09-30 は水曜、翌10-01 は木曜(平日)
-  const oct = buildPlan({ year: 2026, month: 10, prevLastCode: "", nextFirstEntry: null, master: m, holidays: [], entries: { "2026-10-31": { code: "54", memo: "" } } });
-  assertEquals(oct.events.find((e: { date: string }) => e.date === "2026-10-31")?.description.split("\n")[1], "姫路");
-  const sep = buildPlan({ year: 2026, month: 9, prevLastCode: "", nextFirstEntry: null, master: m, holidays: [], entries: { "2026-09-30": { code: "54", memo: "" } } });
-  assertEquals(sep.events.find((e: { date: string }) => e.date === "2026-09-30")?.description.split("\n")[1], "網干");
+  const oct = buildPlan({ year: 2026, month: 10, prevLastCode: "", nextFirstEntry: null, master: m, holidays: [], entries: { "2026-10-31": { code: "303", memo: "" } } });
+  assertEquals(oct.events.find((e: { date: string }) => e.date === "2026-10-31")?.description.split("\n")[1], "泊地E");
+  const sep = buildPlan({ year: 2026, month: 9, prevLastCode: "", nextFirstEntry: null, master: m, holidays: [], entries: { "2026-09-30": { code: "303", memo: "" } } });
+  assertEquals(sep.events.find((e: { date: string }) => e.date === "2026-09-30")?.description.split("\n")[1], "泊地D");
 });

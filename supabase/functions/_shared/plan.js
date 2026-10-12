@@ -134,7 +134,7 @@ export function offdutyMemo(prevEntry, prevDayType, dayType) {
   return (cross && prevEntry.end[cross]) || pickTime(prevEntry.end, dayType);
 }
 
-// 泊地。泊の翌日(nextDayType)が休日で「翌休泊」があれば、そちら(「翌土休日は大阪泊り」のような行路)
+// 泊地。泊の翌日(nextDayType)が休日で「翌休泊」があれば、そちら(「翌土休日は○○泊り」のような行路)
 export function stayOf(entry, nextDayType) {
   if (!entry || entry.type !== "泊") return "";
   return (nextDayType === "休日" && entry.stayNextHoliday) || entry.stay || "";
