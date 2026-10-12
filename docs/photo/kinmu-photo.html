@@ -70,6 +70,9 @@ details.help[open] summary::before { content: "− "; }
 .list { flex: 1; overflow: auto; background: var(--card); -webkit-overflow-scrolling: touch; }
 .who { margin: 0; padding: 6px 16px 0; font-size: 0.95rem; }
 .who.warn { color: var(--danger); }
+.monthwarn { margin: 6px 16px 0; padding: 8px 10px; border: 1px solid var(--danger); border-radius: 6px; color: var(--danger); font-size: 0.88rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.monthwarn span { flex: 1 1 12em; }
+.monthwarn button { padding: 6px 12px; border-color: var(--danger); color: var(--danger); font-weight: bold; }
 .summary { margin: 0; padding: 6px 16px; font-size: 0.8rem; line-height: 1.5; color: var(--muted); border-bottom: 1px solid var(--line); }
 table.shift { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .shift th { white-space: nowrap; position: sticky; top: 0; background: var(--bg); color: var(--muted); font-size: 0.8rem; font-weight: normal; padding: 6px 4px; text-align: center; border-bottom: 1px solid var(--line); z-index: 1; }
@@ -126,7 +129,7 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
       <h2>「勤務入力に反映」で開けないとき</h2>
       <p>「コピー」を押してから、shiftflow の勤務入力画面の「貼り付けで取込」に貼り付けます。</p>
       <p>「勤務入力に反映」で開いた画面で shiftflow のログインを聞かれたら、一度ログインしてください。次からは聞かれません。</p>
-      <p><b>iPhone で、shiftflow をホーム画面に追加して使っている人</b>は、「勤務入力に反映」が Safari で開き、ログインし直すことになります。「コピー」→ ホーム画面の shiftflow の「貼り付けで取込」のほうが簡単です。</p>
+      <p><b>shiftflow をホーム画面に追加して使っている人</b>は、写真取込のときはブラウザ(Chrome・Safari)で shiftflow を開くと、ログインし直しが少なくて済みます。</p>
     </div>
   </details>
 
@@ -173,6 +176,7 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
   </div>
   <div class="list">
     <p class="who" id="wholine"></p>
+    <div class="monthwarn" id="monthwarn" hidden><span id="monthwarntext"></span><button id="monthfix" type="button"></button></div>
     <p class="summary" id="summary"></p>
     <table class="shift">
       <thead><tr><th>日</th><th>曜</th><th>平/休</th><th>番号</th></tr></thead>
@@ -382,9 +386,10 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
     // 見つかったと言っても、全部の日が空なら読み取れていない(反映すると月が空になる。K6)
     if (rows.every((r) => !r.code)) return "表の文字を読み取れませんでした。明るい所で、表に対してまっすぐ撮り直してから、もう一度「読み取る」を押してください。";
     const holidays = new Set((Array.isArray(res.holidays) ? res.holidays : []).map(Number).filter((d) => d >= 1 && d <= n));
-    const warn = (res.sheetYear && res.sheetMonth && (Number(res.sheetYear) !== y || Number(res.sheetMonth) !== m))
-      ? `写真の表は ${res.sheetYear}年${res.sheetMonth}月 のようです。選んだ月(${y}年${m}月)と合っているか確かめてください。` : "";
-    return { year: y, month: m, rows, holidays, who: String(res.name || "").slice(0, 40), asked: $("who").value.trim(), warn };
+    // 表に書かれた月(読めたとき)。選んだ月と違えば、確認画面で赤く知らせて切り替えられるようにする(L2)
+    const sy = Number(res.sheetYear), sm = Number(res.sheetMonth);
+    const sheet = Number.isInteger(sy) && Number.isInteger(sm) && sm >= 1 && sm <= 12 && (sy !== y || sm !== m) ? { y: sy, m: sm } : null;
+    return { year: y, month: m, rows, holidays, who: String(res.name || "").slice(0, 40), asked: $("who").value.trim(), sheet };
   }
 
   function normCode(v) {
@@ -446,8 +451,8 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
       if (!same) wl.append(`(入れた名前「${state.asked}」と違います。本人の行か、写真で確かめてください)`);
     }
     wl.className = "who" + (same ? "" : " warn");
+    showMonthWarn();
     $("summary").textContent = [
-      state.warn,
       unsure ? `読みにくかった日が${unsure}日分あります(黄色)。写真と見比べてください。` : "写真と見比べて、違うところは直してください。",
       "変・臨時などの時間は、shiftflow の勤務入力で入れます。「読み直す」は、より丁寧に読みます。",
     ].filter(Boolean).join(" ");
@@ -459,6 +464,37 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
     $("barmsg").textContent = "";
     $("copybox").hidden = true;
   }
+
+  // 表の月と選んだ月が違うとき(L2)。表の月が選べる月(今月〜再来月)なら、その月に切り替えるボタンを出す
+  function showMonthWarn() {
+    const box = $("monthwarn");
+    const sh = state.sheet;
+    box.hidden = !sh;
+    if (!sh) return;
+    const option = [...$("month").options].find((o) => o.value === `${sh.y}-${sh.m}`);
+    $("monthwarntext").textContent = `写真の表は ${sh.y}年${sh.m}月のようです(選んだのは ${state.year}年${state.month}月)。` +
+      (option ? "表の月で反映するときは、右のボタンを押してください。" : "月を確かめてください(この月は選べません)。");
+    $("monthfix").hidden = !option;
+    $("monthfix").textContent = `${sh.m}月にする`;
+  }
+
+  $("monthfix").addEventListener("click", () => {
+    const sh = state.sheet;
+    if (!sh) return;
+    const n = daysIn(sh.y, sh.m);
+    const rows = state.rows.slice(0, n);
+    for (let d = rows.length + 1; d <= n; d++) rows.push({ d, code: "", memo: "", note: "", unsure: true });
+    state.rows = rows;
+    state.year = sh.y;
+    state.month = sh.m;
+    state.sheet = null;
+    $("month").value = `${sh.y}-${sh.m}`;
+    $("title").textContent = `${state.month}月の確認`;
+    showMonthWarn();
+    renderRows();
+    updateLink();
+    $("barmsg").textContent = `${sh.m}月として反映します。`;
+  });
 
   function renderRows() {
     const tb = $("rows");

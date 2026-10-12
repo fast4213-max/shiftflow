@@ -454,6 +454,8 @@ await check("写真取込: リンク(#import=)で開くと、確認のあとそ�
   assert.equal(await row(9).locator(".pick").textContent(), "25"); // 全角は一覧の番号に
   assert.equal(await page.locator("#list tr.imported").count(), 5);
   assert.ok((await page.textContent("#status")).includes("時間の無い日が1日"));
+  // 一覧にない番号を並べる(L3)
+  assert.ok((await page.textContent("#status")).includes("一覧にない番号: 変7d"));
   // 時間を入れると黄色が消える
   await row(7).locator(".memo input").fill("9:00〜18:00");
   assert.equal(await row(7).getAttribute("class"), "imported");
@@ -469,6 +471,36 @@ await check("写真取込: リンク(#import=)で開くと、確認のあとそ�
   assert.ok(!be.st.calls.some((c) => c.path === "/functions/v1/register-month"));
   assert.equal(await page.locator("#list tr.imported").count(), 0);
   await page.screenshot({ path: OUT + "photo-import.png" });
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("勤務入力: 画面に戻ったとき、登録していない変更が無ければ読み直す。変更があれば読み直さずに知らせる(L1)", async () => {
+  const { page, ctx, be, errors } = await open("input.html", { userId: "u1", opts: { profile: USER, master: PHOTO_MASTER } });
+  await page.waitForSelector("#register:not([disabled])");
+  const loads = () => be.st.calls.filter((c) => c.path === "/rest/v1/shift_records").length;
+  const setVisible = (v) => page.evaluate((v) => {
+    Object.defineProperty(document, "visibilityState", { value: v, configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, v);
+  const first = loads();
+  await setVisible("hidden");
+  await page.waitForTimeout(2100);
+  await setVisible("visible");
+  await page.waitForFunction((n) => document.querySelectorAll("#list tr").length > 0 && !document.getElementById("register").disabled, first);
+  assert.equal(loads(), first + 1);
+  // 変更があるときは読み直さない
+  await page.locator("td.memo input").first().fill("メモ");
+  await setVisible("hidden");
+  await page.waitForTimeout(2100);
+  await setVisible("visible");
+  assert.equal(loads(), first + 1);
+  assert.ok((await page.textContent("#status")).includes("古いまま"));
+  assert.equal(await page.locator("td.memo input").first().inputValue(), "メモ");
+  // すぐ戻ったとき(2秒未満)は何もしない
+  await setVisible("hidden");
+  await setVisible("visible");
+  assert.equal(loads(), first + 1);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

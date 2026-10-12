@@ -471,6 +471,33 @@ $("save").addEventListener("click", async () => {
   }
 });
 
+// ---------- ほかの画面で変わったとき ----------
+// 写真取込(Claude のアプリや簡易ブラウザで開く)から戻ったときなど、この画面が隠れていた間に、ほかの画面で
+// 保存・登録されていることがある。古い入力のまま「登録」すると上書きしてしまうので、画面に戻ったときに、
+// 登録していない変更が無ければ読み直す。変更があるときは読み直さず、古いかもしれないと知らせる(L1)
+const RELOAD_AFTER_HIDDEN_MS = 2000;
+let hiddenAt = 0;
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState === "hidden") {
+    hiddenAt = Date.now();
+    return;
+  }
+  const away = hiddenAt && Date.now() - hiddenAt >= RELOAD_AFTER_HIDDEN_MS;
+  hiddenAt = 0;
+  if (!away || !state.officeId || state.registering || state.saving || $("register").disabled) return;
+  if (state.dirty) {
+    setStatus("この画面には、登録していない変更があります。ほかの画面で保存・登録していたときは、この画面の内容は古いままです(月を移動し直すと読み直します)。");
+    return;
+  }
+  const before = JSON.stringify(state.entries);
+  const y = window.scrollY;
+  const id = state.loadId + 1;
+  await load();
+  if (id !== state.loadId || $("status").className === "error") return;
+  window.scrollTo(0, y);
+  if (JSON.stringify(state.entries) !== before) setStatus("ほかの画面で変わった内容を読み直しました。");
+});
+
 // ---------- 写真取込 ----------
 // 取込の内容を、その月の入力に置き換える(まだ保存・登録はしない)。設計は docs/photo/DESIGN.md
 async function applyImport(text) {
@@ -525,8 +552,14 @@ async function applyImport(text) {
   changed();
   window.scrollTo(0, 0);
   const needTime = document.querySelectorAll("#list tr.needtime").length;
+  // 一覧(マスタ)にない番号を並べる。休みの番号が一覧にないと、登録で勤務用カレンダーに入るので知らせる(L3)
+  const unknown = [...new Set(Object.values(state.entries).map((e) => e.code.trim())
+    .filter((c) => c && !state.master[c] && !/^[〜~\-ー—]$/.test(c)))];
+  const offUnknown = unknown.filter((c) => /休/.test(c) && !/[出勤]/.test(c));
   setStatus("写真取込: " + days.size + "日分を入れました。確かめて「登録」(カレンダーに入れる)か「保存」(入力だけ残す)を押してください。" +
-    (needTime ? "一覧にない番号で時間の無い日が" + needTime + "日あります(黄色)。分かればメモに時間を入れてください。" : ""));
+    (unknown.length ? "一覧にない番号: " + unknown.join("、") + "(手入力として入りました)。" : "") +
+    (needTime ? "時間の無い日が" + needTime + "日あります(黄色)。分かればメモに時間を入れてください。" : "") +
+    (offUnknown.length ? "休みの番号(" + offUnknown.join("、") + ")が一覧に無いので、登録すると勤務用カレンダーに入ります。管理者に一覧への追加を頼んでください。" : ""));
 }
 
 if (PHOTO_IMPORT_URL) {
