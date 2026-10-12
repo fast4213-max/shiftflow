@@ -2,7 +2,7 @@
 import { friendlyText, $, callFunction, requireLogin, supabase } from "./app.js?v=dev";
 import { addDays, buildPlan, dateKey, dayTypeOf, daysInMonth, describe, dutyMemo, holidayYearsFor, indexMaster, offdutyMemo, pad } from "./plan.js?v=dev";
 import { PHOTO_IMPORT_URL } from "./config.js?v=dev";
-import { captureImportFromHash, decodeImport, takePendingImport } from "./photo-import.js?v=dev";
+import { captureImportFromHash, decodeImport, stashImport, takePendingImport } from "./photo-import.js?v=dev";
 
 // 写真取込のリンク(input.html#import=…)で開いたときは、ログインを確かめる前に取込の文字を覚えて、アドレスから消す
 captureImportFromHash();
@@ -503,7 +503,12 @@ async function applyImport(text) {
     state.year = year;
     state.month = month;
     await load();
-    if ($("status").className === "error" || state.year !== year || state.month !== month) return;
+    if ($("status").className === "error" || state.year !== year || state.month !== month) {
+      // その月を読み込めなかった。取込の内容は取っておき、読み直したときに使う(K5)
+      stashImport(text);
+      if ($("status").className === "error") setStatus($("status").textContent + "(写真取込の内容は取ってあります。画面を読み直すと、もう一度取り込めます)", true);
+      return;
+    }
   }
 
   const entries = {};
@@ -597,9 +602,11 @@ requireLogin("input.html", { needVerified: true })
     if (!ctx) return;
     state.officeId = ctx.settings.office_id;
     return load().then(() => {
-      // 写真取込のリンクで開いたとき(ログインし直したあとも)は、最初の読み込みのあとで取り込む
+      // 写真取込のリンクで開いたとき(ログインし直したあとも)は、最初の読み込みのあとで取り込む。
+      // 読み込みに失敗したときは取り出さずに取っておき、画面を読み直したときに使う(K5)
+      if ($("status").className === "error") return;
       const pending = takePendingImport();
-      if (pending && $("status").className !== "error") applyImport(pending);
+      if (pending) applyImport(pending);
     });
   })
   .catch((err) => setStatus(err.message || String(err), true));

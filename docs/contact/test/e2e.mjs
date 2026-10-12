@@ -473,10 +473,22 @@ await check("写真取込: リンク(#import=)で開くと、確認のあとそ�
   await ctx.close();
 });
 
+await check("写真取込: 画面の読み込みに失敗したときは、取込の内容を捨てずに取っておく(K5)", async () => {
+  const text = importText({ v: 1, y: nextMonth.y, m: nextMonth.m, d: { 5: ["25", ""] } });
+  const { page, ctx } = await open("input.html#import=" + text, { userId: "u1", opts: { profile: USER, masterFail: true } });
+  await page.waitForFunction(() => document.getElementById("status").className === "error");
+  assert.equal(new URL(page.url()).hash, "");
+  const kept = await page.evaluate(() => JSON.parse(sessionStorage.getItem("sf_import") || "null"));
+  assert.equal(kept && kept.text, "import=" + text);
+  await ctx.close();
+});
+
 await check("写真取込: 貼り付けで取込。違う文字はダイアログで知らせ、過ぎた月は取り込まない", async () => {
   const { page, ctx, errors } = await open("input.html", { userId: "u1", opts: { profile: USER, master: PHOTO_MASTER } });
   await page.waitForSelector("#register:not([disabled])");
   assert.equal(await page.getAttribute("#photo-import", "href"), "https://claude.ai/artifact/GivZHYnUXZoz4uqc9dWdXV");
+  // 同じタブで開く(新しいタブだと、未登録の確認が出たのに画面が残り、変更が守られなくなる。K1・K2)
+  assert.equal(await page.getAttribute("#photo-import", "target"), null);
   await page.click("#paste-import");
   await page.fill("#paste-text", "こんにちは");
   await page.click("#paste-run");

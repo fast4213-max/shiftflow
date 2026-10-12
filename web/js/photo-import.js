@@ -57,13 +57,18 @@ function clean(s) {
 export function captureImportFromHash() {
   const hash = location.hash || "";
   if (!hash.startsWith("#import=")) return;
+  stashImport(hash.slice(1));
+  history.replaceState(null, "", location.pathname + location.search);
+}
+
+// 取込の文字を覚えておく(画面の読み込みに失敗したときも、読み直したときに使えるように。K5)
+export function stashImport(text) {
   try {
-    sessionStorage.setItem(STASH_KEY, JSON.stringify({ text: hash.slice(1), at: Date.now() }));
+    sessionStorage.setItem(STASH_KEY, JSON.stringify({ text, at: Date.now() }));
   } catch {
     // 覚えておけない(プライベートブラウズなど)。このページの中でだけ使う
-    pendingInPage = hash.slice(1);
+    pendingInPage = text;
   }
-  history.replaceState(null, "", location.pathname + location.search);
 }
 
 let pendingInPage = "";
