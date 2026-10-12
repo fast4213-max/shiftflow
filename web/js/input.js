@@ -1,6 +1,6 @@
 // 勤務入力画面
 import { friendlyText, $, callFunction, requireLogin, supabase } from "./app.js?v=dev";
-import { addDays, buildPlan, dateKey, dayTypeOf, daysInMonth, describe, dutyMemo, holidayYearsFor, indexMaster, offdutyMemo, pad } from "./plan.js?v=dev";
+import { addDays, dateKey, dayTypeOf, daysInMonth, describe, dutyMemo, holidayYearsFor, indexMaster, offdutyMemo, pad } from "./plan.js?v=dev";
 import { PHOTO_IMPORT_URL } from "./config.js?v=dev";
 import { captureImportFromHash, decodeImport, stashImport, takePendingImport } from "./photo-import.js?v=dev";
 
@@ -379,6 +379,7 @@ $("register").addEventListener("click", async () => {
   const button = $("register");
   button.disabled = true;
   $("save").disabled = true;
+  $("reset").disabled = true; // 登録とリセットが重ならないように(N2)
   // 登録中は月を移動できないようにする(移動先の月の入力と混ざらないように)
   state.registering = true;
   $("prev").disabled = true;
@@ -417,6 +418,7 @@ $("register").addEventListener("click", async () => {
     state.registering = false;
     button.disabled = false;
     $("save").disabled = false;
+    $("reset").disabled = false;
     $("prev").disabled = isFirstMonth();
     $("next").disabled = false;
   }
@@ -430,29 +432,25 @@ function clearImported() {
 }
 
 // 保存: カレンダーには入れず、入力だけを残す(臨時の時間などを、あとで調べて入れるため)。
-// 登録と同じく、番号の前後の空白を除き、非番の日の番号を消した形(buildPlan の entries)で保存する。
-// 翌月1日の記録の整理(月末の泊が変わったとき)は、登録のときにサーバーが行う
+// 登録と同じ register-month に saveOnly で送り、保存と翌月1日・2日の記録の片付けまでをサーバーで行う
+// (先に保存だけすると、あとの登録で「登録する前の月末」が分からず片付けが効かなかったため。17回目の N1)
 $("save").addEventListener("click", async () => {
   if (state.registering || state.saving) return;
   state.saving = true;
   $("save").disabled = true;
   $("register").disabled = true;
+  $("reset").disabled = true; // 保存とリセットが重ならないように(N2)
   $("prev").disabled = true;
   $("next").disabled = true;
   setStatus("保存中…");
   const edits = state.edits;
   try {
-    const plan = buildPlan({
+    await callFunction("register-month", {
       year: state.year,
       month: state.month,
       entries: state.entries,
-      prevLastCode: state.prevLastCode,
-      nextFirstEntry: null,
-      master: state.master,
-      holidays: state.holidays,
-    });
-    const { error } = await supabase.rpc("save_month_records", { p_year: state.year, p_month: state.month, p_entries: plan.entries });
-    if (error) throw error;
+      saveOnly: true,
+    }, { timeoutMs: 60000 });
     const editedMeanwhile = state.edits !== edits;
     if (!editedMeanwhile) {
       state.dirty = false;
@@ -466,6 +464,7 @@ $("save").addEventListener("click", async () => {
     state.saving = false;
     $("save").disabled = false;
     $("register").disabled = false;
+    $("reset").disabled = false;
     $("prev").disabled = isFirstMonth();
     $("next").disabled = false;
   }
@@ -601,6 +600,7 @@ $("paste-run").addEventListener("click", () => {
 });
 
 $("reset").addEventListener("click", () => {
+  if (state.registering || state.saving) return;
   $("reset-month").value = state.year + "-" + pad(state.month);
   $("reset-dialog").showModal();
 });

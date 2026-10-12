@@ -98,6 +98,11 @@ function backend(opts = {}) {
     if (path === "/rest/v1/shift_master" && opts.masterFail) return json({ message: "boom" }, 500);
     if (path === "/rest/v1/shift_master") return json(opts.master || []);
     if (path === "/rest/v1/rpc/save_month_records") return json(Object.keys((body && body.p_entries) || {}).length);
+    // 勤務入力の「保存」は register-month に saveOnly で送る(17回目の N1)。登録は件数を返す
+    if (path === "/functions/v1/register-month") {
+      await new Promise((r) => setTimeout(r, 300)); // 保存・登録の間の画面(押せないボタン)を確かめられるように
+      return json(body && body.saveOnly ? { saved: true } : { count: 0, skipped: 0 });
+    }
     if (path === "/rest/v1/shift_records") return json([]);
     if (path === "/rest/v1/holiday_years") return json([{ year: 2026 }, { year: 2027 }]);
     if (path === "/rest/v1/holidays") return json([]);
@@ -460,15 +465,21 @@ await check("写真取込: リンク(#import=)で開くと、確認のあとそ�
   await row(7).locator(".memo input").fill("9:00〜18:00");
   assert.equal(await row(7).getAttribute("class"), "imported");
 
-  // 保存: カレンダーには入れず、入力だけ保存する(非番の日の番号は消えた形)
+  // 保存: カレンダーには入れず、入力だけ保存する。登録と同じ register-month に saveOnly で送る(17回目の N1)。
+  // 保存している間はリセットを押せない(N2)
   await page.click("#save");
+  assert.equal(await page.isDisabled("#reset"), true);
   await page.waitForFunction(() => document.getElementById("status").textContent.includes("保存しました"));
-  const saved = be.st.calls.find((c) => c.path === "/rest/v1/rpc/save_month_records").body;
-  assert.equal(saved.p_year, nextMonth.y);
-  assert.equal(saved.p_month, nextMonth.m);
-  assert.deepEqual(saved.p_entries[ymd(6)], { code: "", memo: "9:00" });
-  assert.deepEqual(saved.p_entries[ymd(7)], { code: "変7d", memo: "9:00〜18:00" });
-  assert.ok(!be.st.calls.some((c) => c.path === "/functions/v1/register-month"));
+  assert.equal(await page.isDisabled("#reset"), false);
+  const saves = be.st.calls.filter((c) => c.path === "/functions/v1/register-month");
+  assert.equal(saves.length, 1);
+  const saved = saves[0].body;
+  assert.equal(saved.saveOnly, true);
+  assert.equal(saved.year, nextMonth.y);
+  assert.equal(saved.month, nextMonth.m);
+  assert.deepEqual(saved.entries[ymd(6)], { code: "", memo: "9:00" });
+  assert.deepEqual(saved.entries[ymd(7)], { code: "変7d", memo: "9:00〜18:00" });
+  assert.ok(!be.st.calls.some((c) => c.path === "/rest/v1/rpc/save_month_records"));
   assert.equal(await page.locator("#list tr.imported").count(), 0);
   await page.screenshot({ path: OUT + "photo-import.png" });
   assert.deepEqual(errors, []);
@@ -528,6 +539,34 @@ await check("勤務入力: 戻ったときの読み直しは、一覧を開い�
   assert.equal(loads(), first + 1);
   await page.click("#picker-duty button:has-text('25')");
   assert.equal(await page.locator("#list tr").nth(1).locator(".pick").textContent(), "25");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("勤務入力: 泊地は、翌日が休日なら翌休泊、平日なら泊(17回目の N4)", async () => {
+  const master = [
+    { code: "301", kind: "泊", weekday_start: "9:00", weekday_end: "9:30", holiday_start: "9:10", holiday_end: "9:40", stay: "泊地A", stay_next_holiday: "泊地B", sort_order: 1 },
+    { code: "302", kind: "泊", weekday_start: "10:00", weekday_end: "8:45", holiday_start: "", holiday_end: "", stay: "泊地C", sort_order: 2 },
+  ];
+  const { page, ctx, errors } = await open("input.html", { userId: "u1", opts: { profile: USER, master } });
+  await page.waitForSelector("#register:not([disabled])");
+  // 表示中の月で、翌日が土曜の日(金曜)と、翌日が平日の日(月曜)を探す(どちらも翌日が同じ月の中)
+  const [y, m] = (await page.textContent("#title")).match(/\d+/g).map(Number);
+  const days = new Date(y, m, 0).getDate();
+  const find = (wd) => { for (let d = 1; d < days; d++) if (new Date(y, m - 1, d).getDay() === wd) return d; };
+  const fri = find(5), mon = find(1);
+  const pick = async (d, code) => {
+    await page.locator("#list tr").nth(d - 1).locator(".pick").click();
+    await page.click(`#picker-duty button:text-is("${code}")`);
+  };
+  await pick(fri, "301");
+  await pick(mon, "301");
+  const stayOf = (d) => page.locator("#list tr").nth(d - 1).locator(".memo .stay").textContent();
+  assert.equal(await stayOf(fri), "泊地B");
+  assert.equal(await stayOf(mon), "泊地A");
+  // 翌休泊が空なら、翌日が休日でも泊
+  await pick(fri, "302");
+  assert.equal(await stayOf(fri), "泊地C");
   assert.deepEqual(errors, []);
   await ctx.close();
 });

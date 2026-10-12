@@ -1,5 +1,7 @@
 // 指定月の入力を shift_records に保存し、カレンダーに登録する。
 // このアプリが作った予定だけを消してから作り直す(手で入れた予定は消さない)。
+// saveOnly: true のときは、保存と翌月1日・2日の記録の片付けまでを行い、カレンダーは変えない(勤務入力の「保存」。17回目の N1)。
+// 保存も登録と同じ順番・同じ鍵で行うので、「保存してから登録」しても翌月1日の片付けが効き、保存とリセットも重ならない
 
 import { requireMember } from "../_shared/auth.ts";
 import { loadHolidays } from "../_shared/holidays.ts";
@@ -27,6 +29,7 @@ serve(async (req) => {
   const body = await readBody(req);
   const { year, month } = yearMonthOf(body);
   const entries = entriesFrom(body);
+  const saveOnly = body.saveOnly === true;
 
   const calendars = await loadVerifiedCalendars(ctx);
   if (!calendars.officeId) throw new AppError(400, "設定画面で区所を選んでください。", "no_office");
@@ -73,6 +76,9 @@ serve(async (req) => {
       master,
       newlyOffduty,
     }));
+
+    // 「保存」はここまで(カレンダーは変えない。登録したときに作り直す)
+    if (saveOnly) return { saved: true };
 
     const existing = await listAppEvents(calendars, year, month);
     // 前の登録が途中で失敗して、翌月1日の予定を消したままになっていないか(印が今回の翌月1日なら、作り直す)
