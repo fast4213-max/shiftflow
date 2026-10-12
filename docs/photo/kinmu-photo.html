@@ -125,6 +125,7 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
       </ul>
       <h2>「勤務入力に反映」で開けないとき</h2>
       <p>「コピー」を押してから、shiftflow の勤務入力画面の「貼り付けで取込」に貼り付けます。</p>
+      <p>「勤務入力に反映」で開いた画面で shiftflow のログインを聞かれたら、一度ログインしてください。次からは聞かれません。</p>
       <p><b>iPhone で、shiftflow をホーム画面に追加して使っている人</b>は、「勤務入力に反映」が Safari で開き、ログインし直すことになります。「コピー」→ ホーム画面の shiftflow の「貼り付けで取込」のほうが簡単です。</p>
     </div>
   </details>
@@ -229,7 +230,8 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
   (async () => {
     sample = await window.claude?.use?.("sample");
     if (!sample) {
-      showSetupMsg("このページでは Claude が使えません。claude.ai にログインして、Claude の中でこのページを開いてください。");
+      // ログインしていない(または Claude の外で開いた)ときは読み取れないので、ボタンの下にお願いを出す
+      showSetupMsg("Claude にログインしてください。ログインしていないと読み取れません。claude.ai(または Claude のアプリ)でログインしてから、このページを開き直してください。");
       $("read").disabled = true;
       return;
     }
