@@ -318,7 +318,8 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
       "- 大きい文字の下などにある小さい文字(例: 出張A)は note に入れる。無ければ \"\"。",
       "- 少しでも読みにくい・自信がないマスは unsure を true にする。推測で埋めず、読めた通りに書く。",
       "- holidays には、見出しが赤い日付の数字をすべて入れる。",
-      "- sheetYear・sheetMonth には表の上に書かれた期間の年と月を入れる(読めなければ null)。",
+      "- sheetYear・sheetMonth には表の上に書かれた期間の年と月を入れる(読めなければ null)。見つからないときも入れる。",
+      "- 表の月が上の年月と違っても、その人の行があれば found を true にして読む(月の違いは sheetYear・sheetMonth で分かるので、月を理由に見つからない扱いにしない)。",
       "その人の行が見つからないときは found を false にし、candidates に表にある名前を最大10人入れる。",
       "名字だけ同じ人など、当てはまる人が2人以上いて1人に決められないときも found を false にし、candidates に当てはまる人の名前を入れる。",
       "次の形の JSON だけを返してください:",
@@ -364,6 +365,11 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
     if (!res || typeof res !== "object") return "うまく読み取れませんでした。もう一度「読み取る」を押してください。";
     if (!res.found) {
       const c = Array.isArray(res.candidates) ? res.candidates.map(String).slice(0, 10).join("、") : "";
+      // 表の月が選んだ月と違うときは、まず月を合わせてもらう(名前違いのように見えないように)
+      const fy = Number(res.sheetYear), fm = Number(res.sheetMonth);
+      if (Number.isInteger(fy) && Number.isInteger(fm) && fm >= 1 && fm <= 12 && (fy !== y || fm !== m)) {
+        return `写真の表は ${fy}年${fm}月のようです(選んだのは ${y}年${m}月)。月を ${fm}月にして、もう一度「読み取る」を押してください。`;
+      }
       return "写真の中に、その名前の行が見つからないか、当てはまる人が2人以上いました。" + (c ? `表にある名前: ${c}。` : "") + "名前を名字と名前の両方、表と同じ字で入れているか確かめるか、自分の行が写っている写真を選んでください。";
     }
     const n = daysIn(y, m);
