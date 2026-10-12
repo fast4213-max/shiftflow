@@ -505,6 +505,33 @@ await check("勤務入力: 画面に戻ったとき、登録していない変�
   await ctx.close();
 });
 
+await check("勤務入力: 戻ったときの読み直しは、一覧を開いているあいだはしない(M1)。内容が同じなら前のメッセージを残す(M2)", async () => {
+  const { page, ctx, be, errors } = await open("input.html", { userId: "u1", opts: { profile: USER, master: PHOTO_MASTER } });
+  await page.waitForSelector("#register:not([disabled])");
+  const loads = () => be.st.calls.filter((c) => c.path === "/rest/v1/shift_records").length;
+  const away = async () => {
+    await page.evaluate(() => { Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true }); document.dispatchEvent(new Event("visibilitychange")); });
+    await page.waitForTimeout(2100);
+    await page.evaluate(() => { Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true }); document.dispatchEvent(new Event("visibilitychange")); });
+  };
+  // 保存したあとのメッセージは、戻って読み直しても(内容が同じなら)残る(M2)。偽のサーバーは保存した内容を覚えないので、変更なしで保存する
+  await page.click("#save");
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("保存しました"));
+  const first = loads();
+  await away();
+  await page.waitForFunction((n) => !document.getElementById("register").disabled, first);
+  assert.equal(loads(), first + 1);
+  assert.ok((await page.textContent("#status")).includes("保存しました"));
+  // 一覧を開いているあいだは読み直さない。選んだ番号はちゃんと入る(M1)
+  await page.locator("#list tr").nth(1).locator(".pick").click();
+  await away();
+  assert.equal(loads(), first + 1);
+  await page.click("#picker-duty button:has-text('25')");
+  assert.equal(await page.locator("#list tr").nth(1).locator(".pick").textContent(), "25");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await check("写真取込: 画面の読み込みに失敗したときは、取込の内容を捨てずに取っておく(K5)", async () => {
   const text = importText({ v: 1, y: nextMonth.y, m: nextMonth.m, d: { 5: ["25", ""] } });
   const { page, ctx } = await open("input.html#import=" + text, { userId: "u1", opts: { profile: USER, masterFail: true } });
@@ -533,6 +560,11 @@ await check("写真取込: 貼り付けで取込。違う文字はダイアロ�
   await page.click("#paste-run");
   await page.waitForFunction(() => document.getElementById("status").className === "error");
   assert.ok((await page.textContent("#status")).includes("過ぎた月"));
+  // 番号もメモも無い取込(0日分)は断る(M4)
+  await page.click("#paste-import");
+  await page.fill("#paste-text", "shiftflow-import:" + importText({ v: 1, y: nextMonth.y, m: nextMonth.m, d: { 2: ["", ""] } }));
+  await page.click("#paste-run");
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("取り込む日がありません"));
   // 正しい文字(先頭・末尾の空白や、リンクごと貼っても読む)
   page.removeAllListeners("dialog");
   page.on("dialog", (d) => d.accept());

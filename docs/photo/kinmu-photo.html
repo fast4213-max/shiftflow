@@ -93,6 +93,7 @@ tr.unsure .code input { border-color: var(--warn-line); }
 .bar .row { display: flex; gap: 8px; }
 .bar .row > button { flex: none; padding-inline: 10px; }
 .bar .row > a { flex: 1; }
+a.go[aria-disabled="true"] { opacity: 0.5; pointer-events: none; }
 a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6px; background: var(--accent); color: var(--accent-fg); font-weight: bold; text-decoration: none; }
 #copybox { width: 100%; font-family: var(--mono); font-size: 0.75rem; }
 #barmsg { grid-column: 1 / -1; font-size: 0.85rem; min-height: 0; }
@@ -310,7 +311,7 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
     return [
       "これは鉄道会社の「勤務指定表」を撮った写真です。1人につき1行で、左端に名前(前に【眼鏡】などの印が付くことがある)と7桁の社員番号があり、右へ日付ごとのマスが並びます。表の上には日付と曜日の見出しがあり、休日の日付は赤い背景です。",
       `探す人: 名前が「${name}」の人。名前の空白や【】の印は無視して比べてください。`,
-      `${y}年${m}月の、その人の行のマスを、1日から${n}日まで左から順に読んでください。マスの上の大きい文字が勤務の番号です。`,
+      `${y}年${m}月の、その人の行のマスを、1日から表の最後の日付(最大31日)まで、表にある日付の列を全部、左から順に読んでください。マスの上の大きい文字が勤務の番号です。`,
       "読み方:",
       "- code は大きい文字をそのまま(例: 15、2500、特休、公休、年休、変7d)。全角の英数字は半角に。",
       "- 横棒だけのマス(—、ー、-、―)は code を \"〜\" にする。",
@@ -324,7 +325,7 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
       "名字だけ同じ人など、当てはまる人が2人以上いて1人に決められないときも found を false にし、candidates に当てはまる人の名前を入れる。",
       "次の形の JSON だけを返してください:",
       `{"found":true,"name":"表に書かれた名前","sheetYear":${y},"sheetMonth":${m},"holidays":[4,11],"days":[{"d":1,"code":"15","note":"","unsure":false}],"candidates":[]}`,
-      `days は 1 から ${n} までの ${n} 件にしてください。`,
+      "days は、表にある日付の列の数だけ(1日から最後の日まで。最大31件)にしてください。",
     ].join("\n");
   }
 
@@ -376,7 +377,7 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
     const byDay = new Map();
     for (const it of Array.isArray(res.days) ? res.days : []) {
       const d = Number(it?.d);
-      if (Number.isInteger(d) && d >= 1 && d <= n) byDay.set(d, it);
+      if (Number.isInteger(d) && d >= 1 && d <= 31) byDay.set(d, it);
     }
     const rows = [];
     for (let d = 1; d <= n; d++) {
@@ -391,11 +392,17 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
     }
     // 見つかったと言っても、全部の日が空なら読み取れていない(反映すると月が空になる。K6)
     if (rows.every((r) => !r.code)) return "表の文字を読み取れませんでした。明るい所で、表に対してまっすぐ撮り直してから、もう一度「読み取る」を押してください。";
-    const holidays = new Set((Array.isArray(res.holidays) ? res.holidays : []).map(Number).filter((d) => d >= 1 && d <= n));
+    const holidays = new Set((Array.isArray(res.holidays) ? res.holidays : []).map(Number).filter((d) => d >= 1 && d <= 31));
     // 表に書かれた月(読めたとき)。選んだ月と違えば、確認画面で赤く知らせて切り替えられるようにする(L2)
     const sy = Number(res.sheetYear), sm = Number(res.sheetMonth);
     const sheet = Number.isInteger(sy) && Number.isInteger(sm) && sm >= 1 && sm <= 12 && (sy !== y || sm !== m) ? { y: sy, m: sm } : null;
-    return { year: y, month: m, rows, holidays, who: String(res.name || "").slice(0, 40), asked: $("who").value.trim(), sheet };
+    // 選んだ月より後ろの日(例: 30日の月に読んだ31日)も取っておく。「◯月にする」で日数が増えたときに使う(M3)
+    const extra = new Map();
+    for (let d = n + 1; d <= 31; d++) {
+      const it = byDay.get(d);
+      if (it) extra.set(d, { d, code: normCode(it.code), memo: "", note: String(it.note ?? "").slice(0, 40), unsure: !!it.unsure });
+    }
+    return { year: y, month: m, rows, extra, holidays, who: String(res.name || "").slice(0, 40), asked: $("who").value.trim(), sheet };
   }
 
   function normCode(v) {
@@ -488,8 +495,10 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
     const sh = state.sheet;
     if (!sh) return;
     const n = daysIn(sh.y, sh.m);
+    // 日数が減るときは後ろを取っておき、増えるときは取っておいた日を使う(読んでいない日は空・黄色。M3)
+    for (const r of state.rows.slice(n)) state.extra.set(r.d, r);
     const rows = state.rows.slice(0, n);
-    for (let d = rows.length + 1; d <= n; d++) rows.push({ d, code: "", memo: "", note: "", unsure: true });
+    for (let d = rows.length + 1; d <= n; d++) rows.push(state.extra.get(d) || { d, code: "", memo: "", note: "", unsure: true });
     state.rows = rows;
     state.year = sh.y;
     state.month = sh.m;
@@ -538,7 +547,15 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
     for (const b of bytes) bin += String.fromCharCode(b);
     return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }
-  function updateLink() { $("go").href = `${SHIFTFLOW}#import=${payload()}`; }
+  // 番号が1つも無いときは、反映・コピーを押せなくする(shiftflow で月が空で置き換わらないように。M4)
+  function updateLink() {
+    const any = state.rows.some((r) => r.code);
+    $("go").href = any ? `${SHIFTFLOW}#import=${payload()}` : "#";
+    $("go").setAttribute("aria-disabled", any ? "false" : "true");
+    $("copy").disabled = !any;
+    if (!any) $("barmsg").textContent = "番号が1つも入っていないので、反映できません。";
+    else if ($("barmsg").textContent.startsWith("番号が1つも")) $("barmsg").textContent = "";
+  }
 
   $("copy").addEventListener("click", async () => {
     const text = `shiftflow-import:${payload()}`;

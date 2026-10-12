@@ -485,17 +485,25 @@ document.addEventListener("visibilitychange", async () => {
   const away = hiddenAt && Date.now() - hiddenAt >= RELOAD_AFTER_HIDDEN_MS;
   hiddenAt = 0;
   if (!away || !state.officeId || state.registering || state.saving || $("register").disabled) return;
+  // 番号の一覧・貼り付け・リセットの画面を開いているあいだは読み直さない
+  // (読み直すと、開いている一覧で選んだ番号が、読み直す前の入力に入って消えるため。M1)
+  if (document.querySelector("dialog[open]")) return;
   if (state.dirty) {
-    setStatus("この画面には、登録していない変更があります。ほかの画面で保存・登録していたときは、この画面の内容は古いままです(月を移動し直すと読み直します)。");
+    // 取り込んだばかりの画面(この画面が新しい内容)では言わない。取込の案内を消さないように(M2)
+    if (!state.imported.size) {
+      setStatus("この画面には、登録していない変更があります。ほかの画面で保存・登録していたときは、この画面の内容は古いままです(月を移動し直すと読み直します)。");
+    }
     return;
   }
   const before = JSON.stringify(state.entries);
+  const prevStatus = { text: $("status").textContent, error: $("status").className === "error" };
   const y = window.scrollY;
   const id = state.loadId + 1;
   await load();
   if (id !== state.loadId || $("status").className === "error") return;
   window.scrollTo(0, y);
   if (JSON.stringify(state.entries) !== before) setStatus("ほかの画面で変わった内容を読み直しました。");
+  else if (prevStatus.text && !prevStatus.error) setStatus(prevStatus.text); // 変わっていなければ、前のメッセージを残す(M2)
 });
 
 // ---------- 写真取込 ----------
@@ -513,6 +521,11 @@ async function applyImport(text) {
     return;
   }
   const { year, month, days } = data;
+  // 番号もメモも無い取込は断る(反映すると、その月が空で置き換わるため。M4)
+  if (!days.size) {
+    setStatus("取り込む日がありません(番号が1つも入っていません)。写真取込でもう一度読み取ってください。", true);
+    return;
+  }
   const now = nowParts();
   if (year * 12 + month < now.year * 12 + now.month) {
     setStatus(year + "年" + month + "月は過ぎた月なので、取り込めません。", true);
