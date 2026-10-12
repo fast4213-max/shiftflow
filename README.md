@@ -71,7 +71,7 @@ supabase/
 .github/workflows/          Pages への公開、Supabase への自動デプロイ、テスト
 docs/DESIGN.md              設計
 docs/contact/               お問い合わせ・お知らせの設計・セットアップ・GAS のコード(gas/Code.gs)・テスト
-WORKLOG.md                  作業ログ(要約と現在の状態)。デバッグの表は docs/DEBUG-LOG.md、詳しい経緯は docs/WORKLOG-archive.md
+WORKLOG.md                  作業ログ(要約と現在の状態)。デバッグの記録は docs/DEBUG-LOG.md(最初に全回の一覧表。1〜10回目は docs/DEBUG-LOG-archive.md)、古い履歴は docs/WORKLOG-archive*.md
 ```
 
 ---
