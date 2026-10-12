@@ -1,0 +1,556 @@
+<title>勤務表の写真取込</title>
+<style>
+/* Layout: スマホ1画面。準備 → 読み取り中 → 確認(上=写真、下=勤務入力と同じ並びの表、下に操作バー) */
+:root {
+  --bg: #f5f5f5; --card: #ffffff; --fg: #222222; --muted: #666666; --line: #dddddd; --field: #bbbbbb;
+  --accent: #1a73e8; --accent-fg: #ffffff; --danger: #c62828; --sat: #1565c0;
+  --hol-bg: #fdecea; --hol-line: #e57373; --warn-bg: #fff6d6; --warn-line: #e0b33a; --viewer: #e9ebee;
+  --font: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  --mono: ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #15171a; --card: #1f2226; --fg: #e8eaed; --muted: #a0a6ad; --line: #33373c; --field: #4a5057;
+  --accent: #6aa3f5; --accent-fg: #0d1520; --danger: #f28b82; --sat: #8ab4f8;
+  --hol-bg: #3a2222; --hol-line: #a85a55; --warn-bg: #3a3218; --warn-line: #a88a2e; --viewer: #0e1012; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #15171a; --card: #1f2226; --fg: #e8eaed; --muted: #a0a6ad; --line: #33373c; --field: #4a5057;
+  --accent: #6aa3f5; --accent-fg: #0d1520; --danger: #f28b82; --sat: #8ab4f8;
+  --hol-bg: #3a2222; --hol-line: #a85a55; --warn-bg: #3a3218; --warn-line: #a88a2e; --viewer: #0e1012; color-scheme: dark }
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 15px; line-height: 1.6; }
+button, input, select { font: inherit; font-size: 1rem; color: var(--fg); }
+button { padding: 9px 14px; border: 1px solid var(--field); border-radius: 6px; background: var(--card); cursor: pointer; }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: bold; }
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input, select { padding: 8px; border: 1px solid var(--field); border-radius: 6px; background: var(--card); width: 100%; min-width: 0; }
+a { color: var(--accent); }
+.muted { color: var(--muted); font-size: 0.88rem; }
+.error { color: var(--danger); }
+
+/* 準備の画面 */
+#setup { max-width: 560px; margin: 0 auto; padding-block: 14px 40px; padding-inline: 16px; }
+#setup h1 { font-size: 1.25rem; margin: 4px 0 2px; text-wrap: balance; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-top: 12px; display: grid; gap: 10px; }
+.card label { font-weight: bold; display: grid; gap: 4px; }
+.findby { display: grid; gap: 6px; }
+.photo-pick { display: grid; gap: 8px; }
+.pick-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pick { display: block; text-align: center; padding: 10px 8px; border: 1px solid var(--field); border-radius: 6px; background: var(--card); font-weight: bold; cursor: pointer; position: relative; overflow: hidden; }
+/* 見えないが押せる file input(display:none だと開かないアプリがあるため、ボタンの上に透明で重ねる) */
+.pick input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 0; }
+.pick:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+#photoinfo { margin: 0; }
+#thumb { max-height: 160px; object-fit: contain; border: 1px solid var(--line); border-radius: 6px; background: var(--viewer); }
+#busy { display: flex; gap: 10px; align-items: center; }
+.spinner { width: 18px; height: 18px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); animation: spin 0.9s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+details.help { background: var(--card); border: 1px solid var(--line); border-radius: 8px; margin-top: 12px; }
+details.help summary { padding: 10px 14px; font-weight: bold; color: var(--accent); cursor: pointer; list-style: none; }
+details.help summary::-webkit-details-marker { display: none; }
+details.help summary::before { content: "＋ "; }
+details.help[open] summary::before { content: "− "; }
+.help-body { padding: 0 14px 12px; display: grid; gap: 10px; font-size: 0.9rem; }
+.help-body h2 { font-size: 0.95rem; margin: 4px 0 0; }
+.help-body ol, .help-body ul { margin: 0; padding-left: 1.3em; display: grid; gap: 4px; }
+.help-body p { margin: 0; }
+.note-box { font-size: 0.85rem; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
+
+/* 確認の画面 */
+#confirm { height: 100%; display: flex; flex-direction: column; }
+.head { display: flex; align-items: center; gap: 8px; padding: 4px 16px; background: var(--card); border-bottom: 1px solid var(--line); }
+.head strong { margin-right: auto; font-size: 1rem; }
+.viewer { position: relative; flex: 0 0 34%; overflow: hidden; background: var(--viewer); touch-action: none; user-select: none; }
+.viewer img { position: absolute; left: 0; top: 0; max-width: none; transform-origin: 0 0; pointer-events: none; }
+.zoom { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 6px; }
+.zoom button { padding: 4px 12px; font-size: 1.1rem; background: var(--card); opacity: 0.92; }
+.list { flex: 1; overflow: auto; background: var(--card); -webkit-overflow-scrolling: touch; }
+.summary { margin: 0; padding: 6px 16px; font-size: 0.8rem; line-height: 1.5; color: var(--muted); border-bottom: 1px solid var(--line); }
+table.shift { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.shift th { white-space: nowrap; position: sticky; top: 0; background: var(--bg); color: var(--muted); font-size: 0.8rem; font-weight: normal; padding: 6px 4px; text-align: center; border-bottom: 1px solid var(--line); z-index: 1; }
+.shift td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: center; vertical-align: top; }
+.shift .day { width: 30px; font-weight: bold; padding-top: 12px; }
+.shift .wd { width: 26px; padding-top: 12px; }
+.shift .wd.red { color: var(--danger); }
+.shift .wd.sat { color: var(--sat); }
+.shift .type { width: 36px; padding-top: 9px; }
+.badge { display: inline-block; min-width: 28px; padding: 1px 4px; border: 1px solid var(--field); border-radius: 4px; font-size: 0.85rem; }
+.badge.hol { background: var(--hol-bg); color: var(--danger); border-color: var(--hol-line); }
+.shift .code input { width: 76px; text-align: center; padding: 6px 4px; }
+.shift .memo { text-align: left; }
+.shift .memo input { padding: 6px 6px; }
+.hint { display: block; font-size: 0.78rem; color: var(--muted); padding: 2px 2px 0; }
+tr.unsure td { background: var(--warn-bg); }
+tr.unsure .code input { border-color: var(--warn-line); }
+tr.needmemo .memo input { border-color: var(--warn-line); }
+.bar { display: grid; gap: 6px; padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px)); background: var(--card); border-top: 1px solid var(--line); }
+.bar .row { display: flex; gap: 8px; }
+.bar .row > button { flex: none; padding-inline: 10px; }
+.bar .row > a { flex: 1; }
+a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6px; background: var(--accent); color: var(--accent-fg); font-weight: bold; text-decoration: none; }
+#copybox { width: 100%; font-family: var(--mono); font-size: 0.75rem; }
+#barmsg { grid-column: 1 / -1; font-size: 0.85rem; min-height: 0; }
+</style>
+
+<main id="setup">
+  <h1>勤務表の写真取込</h1>
+  <p class="muted">勤務指定表の写真から、自分の行をClaudeが読み取ります。読み取った内容を確かめてから、shiftflow の勤務入力に反映します。</p>
+
+  <details class="help" id="help">
+    <summary>写真取込の使い方</summary>
+    <div class="help-body">
+      <h2>使う前に</h2>
+      <ul>
+        <li><b>Claude のアカウントが必要です。</b>持っていない人は claude.ai で新規登録、持っている人はログインしてから、このページを開いてください(Claude のアプリでも、スマホのブラウザでも使えます)。</li>
+        <li><b>無料プランでも使えます。</b>読み取りには、<b>あなた自身の Claude の使用量</b>を使います。shiftflow や、このページを作った人の分は使いません。</li>
+        <li><b>何回も読み取ると、使用量の上限に達して、しばらく(最大5時間ほど)使えなくなります。</b>その間は Claude のほかの使い方(チャットなど)もできなくなります。「読み直す」は丁寧に読むぶん、多く使います。1か月に1〜2回の読み取りで済むように使ってください。</li>
+        <li>最初の読み取りで「Claude に写真を送ってよいか」の確認が出ます。「許可」を選んでください。</li>
+      </ul>
+      <h2>手順</h2>
+      <ol>
+        <li>名前を、勤務表に書かれているとおりに入れます(次からは覚えています)。</li>
+        <li>月を選び、「カメラで撮る」か「写真から選ぶ」で勤務表の写真を入れます。</li>
+        <li>「読み取る」を押します。30秒〜1分ほどかかります。</li>
+        <li>上の写真と、下の表を見比べます。違うところは番号を直します。黄色の日は読みにくかった日です。写真は2本指で拡大・縮小、ドラッグで動かせます。</li>
+        <li>変・臨時など、時間が決まっていない番号は、メモに時間(例 9:00〜17:45)を入れます。分からなければ空のままで、あとで shiftflow で入れられます。</li>
+        <li>「勤務入力に反映」を押すと shiftflow の勤務入力画面が開いて、読み取った内容が入ります。確かめてから「登録」(カレンダーに入れる)か「保存」(入力だけ残す)を押します。</li>
+      </ol>
+      <h2>うまく撮るコツ</h2>
+      <ul>
+        <li>自分の行と、上の日付の行が両方入るように撮ります。</li>
+        <li>明るい所で、表に対してまっすぐ撮ります。影や光の反射がかからないようにします。</li>
+      </ul>
+      <h2>「勤務入力に反映」で開けないとき</h2>
+      <p>「コピー」を押してから、shiftflow の勤務入力画面の「貼り付けで取込」に貼り付けます。</p>
+    </div>
+  </details>
+
+  <div class="card">
+    <div class="findby">
+      <label for="who" style="display:block">名前</label>
+      <input id="who" autocomplete="off" maxlength="30" placeholder="例: 山田 太郎">
+      <p class="muted" style="margin:0">勤務表に書かれている名前で、自分の行を探します。この端末に覚えておきます。</p>
+    </div>
+    <label>月<select id="month"></select></label>
+    <div class="photo-pick">
+      <b>勤務表の写真</b>
+      <div class="pick-btns">
+        <label class="pick">カメラで撮る<input id="photo-cam" type="file" accept="image/*" capture="environment"></label>
+        <label class="pick">写真から選ぶ<input id="photo" type="file" accept="image/*"></label>
+      </div>
+      <p id="photoinfo" class="muted" hidden></p>
+      <img id="thumb" alt="選んだ写真" hidden>
+      <p class="muted" style="margin:0">自分の行が入るように、表全体を明るく、まっすぐ撮ってください。</p>
+    </div>
+    <button id="read" class="primary" type="button">読み取る</button>
+    <div id="busy" hidden><span class="spinner" aria-hidden="true"></span><span id="busytext">読み取り中です(30秒〜1分ほど)</span><button id="stop" type="button">止める</button></div>
+    <p id="setupmsg" class="error" role="status" hidden></p>
+  </div>
+
+  <div class="card note-box">
+    <span>写真は、読み取るときに<b>あなたのClaude</b>に送るだけで、このページにもサーバーにも残りません。読み取りには、あなたのClaudeの使用量を使います。くわしくは上の「写真取込の使い方」を見てください。</span>
+  </div>
+</main>
+
+<section id="confirm" hidden>
+  <div class="head">
+    <strong id="title">10月の確認</strong>
+    <button id="helpbtn" type="button">使い方</button>
+    <button id="back" type="button">やり直す</button>
+  </div>
+  <div class="viewer" id="viewer" aria-label="勤務表の写真。2本指で拡大・縮小、ドラッグで移動">
+    <img id="photoView" alt="">
+    <div class="zoom">
+      <button id="zin" type="button" aria-label="拡大">＋</button>
+      <button id="zout" type="button" aria-label="縮小">−</button>
+      <button id="zfit" type="button">全体</button>
+    </div>
+  </div>
+  <div class="list">
+    <p class="summary" id="summary"></p>
+    <table class="shift">
+      <thead><tr><th>日</th><th>曜</th><th>平/休</th><th>番号</th><th>メモ</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div class="bar">
+    <div class="row">
+      <button id="reread" type="button">読み直す</button>
+      <button id="copy" type="button">コピー</button>
+      <a id="go" class="go" href="#" target="_blank" rel="noopener">勤務入力に反映</a>
+    </div>
+    <p id="barmsg" role="status"></p>
+    <textarea id="copybox" rows="3" readonly hidden></textarea>
+  </div>
+</section>
+
+<script>
+(() => {
+  const SHIFTFLOW = "https://fast4213-max.github.io/shiftflow/input.html";
+  const MODEL = "claude-sonnet-5-5";
+  const WEEK = ["日", "月", "火", "水", "木", "金", "土"];
+  // 休み・非番を表す番号(メモの時間が要らないもの)
+  const OFF = new Set(["〜", "特休", "公休", "年休", "代休", "休", ""]);
+  const $ = (id) => document.getElementById(id);
+
+  let sample = null;          // claude.use("sample")
+  let photo = null;           // 送る画像(縮小した JPEG)
+  let photoURL = "";
+  let ctl = null;             // 読み取りを止める
+  let state = null;           // { year, month, rows: [{ d, code, memo, note, unsure }], holidays: Set }
+
+  // ---------- 覚えておく値(この端末だけ) ----------
+  const store = {
+    get(k) { try { return localStorage.getItem(k) || ""; } catch { return ""; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch { /* 保存できなくても動く */ } },
+  };
+  $("who").value = store.get("sf_name");
+
+  // 月の選択: 今月・来月・再来月(開いた日で毎回作る。shiftflow は過ぎた月を取り込めない)。最初は来月
+  (() => {
+    const now = new Date();
+    for (let i = 0; i <= 2; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      const opt = document.createElement("option");
+      opt.value = `${d.getFullYear()}-${d.getMonth() + 1}`;
+      opt.textContent = `${d.getFullYear()}年${d.getMonth() + 1}月`;
+      if (i === 1) opt.selected = true;
+      $("month").append(opt);
+    }
+  })();
+
+  const daysIn = (y, m) => new Date(y, m, 0).getDate();
+  const showSetupMsg = (text) => { $("setupmsg").textContent = text; $("setupmsg").hidden = !text; };
+
+  // ---------- Claude ----------
+  (async () => {
+    sample = await window.claude?.use?.("sample");
+    if (!sample) {
+      showSetupMsg("このページでは Claude が使えません。claude.ai にログインして、Claude の中でこのページを開いてください。");
+      $("read").disabled = true;
+      return;
+    }
+    const caps = await sample.limits().catch(() => null);
+    if (!caps?.images) {
+      showSetupMsg("この画面からは写真を Claude に送れません。Claude のアプリか、ブラウザの claude.ai で開いてください。");
+      $("read").disabled = true;
+    }
+  })();
+
+  // ---------- 写真(送る前に長い辺を2000pxまで縮める) ----------
+  // 縮められなかったら(開けない形式・大きすぎるなど)、元の写真をそのまま送る
+  async function takePhoto(input) {
+    const file = input.files?.[0];
+    showSetupMsg("");
+    const info = $("photoinfo");
+    if (!file) {
+      info.hidden = false;
+      info.textContent = "写真が選ばれませんでした。もう一度押してください。";
+      return;
+    }
+    const mb = (file.size / 1048576).toFixed(1);
+    info.hidden = false;
+    info.textContent = `選んだ写真: ${file.name || "(名前なし)"}(${file.type || "形式不明"}・${mb}MB)。読み込み中…`;
+    let blob = null;
+    let note = "小さくしてから送ります";
+    try {
+      blob = await shrink(file, 2000);
+    } catch (e) {
+      const caps = await sample?.limits().catch(() => null);
+      const ok = caps?.images?.mediaTypes?.includes(file.type) && file.size <= (caps.images.maxInputBytes || 0);
+      if (ok) { blob = file; note = `小さくできなかったので、そのまま送ります(${e?.message || "縮小できません"})`; }
+    }
+    if (!blob) {
+      photo = null;
+      $("thumb").hidden = true;
+      info.textContent = `選んだ写真: ${file.name || "(名前なし)"}(${file.type || "形式不明"}・${mb}MB)`;
+      showSetupMsg("この写真は開けませんでした。スクリーンショットか、JPEG・PNG の写真を選んでください。");
+      return;
+    }
+    photo = blob;
+    if (photoURL) URL.revokeObjectURL(photoURL);
+    photoURL = URL.createObjectURL(blob);
+    $("thumb").src = photoURL;
+    $("thumb").hidden = false;
+    info.textContent = `選んだ写真: ${file.name || "(名前なし)"}(${mb}MB)。${note}。`;
+  }
+  $("photo").addEventListener("change", () => takePhoto($("photo")));
+  $("photo-cam").addEventListener("change", () => takePhoto($("photo-cam")));
+
+  function shrink(file, max) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.naturalWidth * k);
+        c.height = Math.round(img.naturalHeight * k);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob((b) => (b ? resolve(b) : reject(new Error("縮小に失敗"))), "image/jpeg", 0.88);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("この形式は開けません")); };
+      img.src = url;
+    });
+  }
+
+  // ---------- 読み取り ----------
+  function prompt(name, y, m) {
+    const n = daysIn(y, m);
+    return [
+      "これは鉄道会社の「勤務指定表」を撮った写真です。1人につき1行で、左端に名前(前に【眼鏡】などの印が付くことがある)と7桁の社員番号があり、右へ日付ごとのマスが並びます。表の上には日付と曜日の見出しがあり、休日の日付は赤い背景です。",
+      `探す人: 名前が「${name}」の人。名前の空白や【】の印は無視して比べてください。`,
+      `${y}年${m}月の、その人の行のマスを、1日から${n}日まで左から順に読んでください。マスの上の大きい文字が勤務の番号です。`,
+      "読み方:",
+      "- code は大きい文字をそのまま(例: 15、2500、特休、公休、年休、変7d)。全角の英数字は半角に。",
+      "- 横棒だけのマス(—、ー、-、―)は code を \"〜\" にする。",
+      "- 空のマスは code を \"\" にする。",
+      "- 大きい文字の下などにある小さい文字(例: 出張A)は note に入れる。無ければ \"\"。",
+      "- 少しでも読みにくい・自信がないマスは unsure を true にする。推測で埋めず、読めた通りに書く。",
+      "- holidays には、見出しが赤い日付の数字をすべて入れる。",
+      "- sheetYear・sheetMonth には表の上に書かれた期間の年と月を入れる(読めなければ null)。",
+      "その人の行が見つからないときは found を false にし、candidates に表にある名前を最大10人入れる。",
+      "次の形の JSON だけを返してください:",
+      `{"found":true,"name":"表に書かれた名前","sheetYear":${y},"sheetMonth":${m},"holidays":[4,11],"days":[{"d":1,"code":"15","note":"","unsure":false}],"candidates":[]}`,
+      `days は 1 から ${n} までの ${n} 件にしてください。`,
+    ].join("\n");
+  }
+
+  async function read(careful) {
+    if (!sample) return;
+    const name = $("who").value.trim();
+    const [y, m] = $("month").value.split("-").map(Number);
+    if (!name) return showSetupMsg("名前を入れてください。");
+    if (!photo) return showSetupMsg("勤務表の写真を選んでください。");
+    store.set("sf_name", name);
+    showSetupMsg("");
+    showSetup();
+    setBusy(true, careful ? "丁寧に読み直しています(1〜2分ほど)" : "読み取り中です(30秒〜1分ほど)");
+    ctl = new AbortController();
+    try {
+      const res = await sample.json(prompt(name, y, m), {
+        images: [photo],
+        model: MODEL,
+        modelTier: "default",
+        effort: careful ? "high" : "medium",
+        signal: ctl.signal,
+        ...(careful ? { cache: false } : {}),
+      });
+      const parsed = toState(res, y, m);
+      if (typeof parsed === "string") return showSetupMsg(parsed);
+      state = parsed;
+      showConfirm();
+    } catch (e) {
+      const msg = errorText(e);
+      if (msg) showSetupMsg(msg);
+    } finally {
+      setBusy(false);
+      ctl = null;
+    }
+  }
+
+  function toState(res, y, m) {
+    if (!res || typeof res !== "object") return "うまく読み取れませんでした。もう一度「読み取る」を押してください。";
+    if (!res.found) {
+      const c = Array.isArray(res.candidates) ? res.candidates.map(String).slice(0, 10).join("、") : "";
+      return "写真の中に、その名前の行が見つかりませんでした。" + (c ? `表にある名前: ${c}。` : "") + "名前を表と同じ字で入れているか確かめるか、自分の行が写っている写真を選んでください。";
+    }
+    const n = daysIn(y, m);
+    const byDay = new Map();
+    for (const it of Array.isArray(res.days) ? res.days : []) {
+      const d = Number(it?.d);
+      if (Number.isInteger(d) && d >= 1 && d <= n) byDay.set(d, it);
+    }
+    const rows = [];
+    for (let d = 1; d <= n; d++) {
+      const it = byDay.get(d);
+      rows.push({
+        d,
+        code: normCode(it?.code),
+        memo: "",
+        note: String(it?.note ?? "").slice(0, 40),
+        unsure: !it || !!it.unsure,
+      });
+    }
+    const holidays = new Set((Array.isArray(res.holidays) ? res.holidays : []).map(Number).filter((d) => d >= 1 && d <= n));
+    const warn = (res.sheetYear && res.sheetMonth && (Number(res.sheetYear) !== y || Number(res.sheetMonth) !== m))
+      ? `写真の表は ${res.sheetYear}年${res.sheetMonth}月 のようです。選んだ月(${y}年${m}月)と合っているか確かめてください。` : "";
+    return { year: y, month: m, rows, holidays, who: String(res.name || ""), warn };
+  }
+
+  function normCode(v) {
+    let s = String(v ?? "").trim()
+      .replace(/[０-９Ａ-Ｚａ-ｚ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+    if (/^[—ー\-―－‐─~〜～]+$/.test(s)) s = "〜";
+    return s.slice(0, 30);
+  }
+
+  function errorText(e) {
+    switch (e?.code) {
+      case "cancelled": return "";
+      case "not_granted": return "Claude に写真を送ることが許可されませんでした。使うときは、このページを開き直して、確認で「許可」を選んでください。";
+      case "rate_limited": return "Claude の使用量の上限に達したか、続けて読み取りすぎました。上限のときは、リセットされるまで(最大5時間ほど)待ってから、もう一度押してください。";
+      case "session_expired": return "Claude のログインが切れました。ログインし直してから、もう一度押してください。";
+      case "sampling_disabled": return "このアカウントでは、ページから Claude を使えない設定になっています。";
+      case "images_unavailable": return "この画面からは写真を Claude に送れません。Claude のアプリか、ブラウザの claude.ai で開いてください。";
+      case "image_rejected": return "この写真は送れませんでした。JPEG か PNG の写真を選び直してください。";
+      case "invalid_json": return "うまく読み取れませんでした。写真を撮り直すか、もう一度「読み取る」を押してください。";
+      case "refused": return "Claude がこの写真を読み取りませんでした。勤務表だけが写るように撮り直してください。";
+      default: return "読み取りに失敗しました。少し待ってから、もう一度押してください。";
+    }
+  }
+
+  function setBusy(on, text) {
+    $("busy").hidden = !on;
+    $("read").disabled = on;
+    $("reread").disabled = on;
+    if (text) $("busytext").textContent = text;
+  }
+
+  $("read").addEventListener("click", () => read(false));
+  $("reread").addEventListener("click", () => read(true));
+  $("stop").addEventListener("click", () => ctl?.abort());
+  $("back").addEventListener("click", showSetup);
+  // 確認画面の「使い方」: 準備の画面に戻って、使い方を開く
+  $("helpbtn").addEventListener("click", () => { showSetup(); $("help").open = true; $("help").scrollIntoView({ block: "start" }); });
+
+  // ---------- 画面の切り替え ----------
+  function showSetup() {
+    $("confirm").hidden = true;
+    $("setup").hidden = false;
+  }
+
+  function showConfirm() {
+    $("setup").hidden = true;
+    $("confirm").hidden = false;
+    $("title").textContent = `${state.month}月の確認`;
+    const unsure = state.rows.filter((r) => r.unsure).length;
+    $("summary").textContent = [
+      state.who ? `「${state.who}」の行を読みました。` : "",
+      state.warn,
+      unsure ? `読みにくかった日が${unsure}日分あります(黄色)。写真と見比べてください。` : "写真と見比べて、違うところは直してください。",
+      "変・臨時などは、メモに時間を入れてください。「読み直す」は、より丁寧に読みます。",
+    ].filter(Boolean).join(" ");
+    renderRows();
+    $("photoView").src = photoURL;
+    $("photoView").onload = fit;
+    if ($("photoView").complete) fit();
+    updateLink();
+    $("barmsg").textContent = "";
+    $("copybox").hidden = true;
+  }
+
+  function renderRows() {
+    const tb = $("rows");
+    tb.replaceChildren();
+    for (const r of state.rows) {
+      const wd = new Date(state.year, state.month - 1, r.d).getDay();
+      const hol = wd === 0 || state.holidays.has(r.d);
+      const tr = document.createElement("tr");
+      tr.className = rowClass(r);
+      const td = (cls, child) => { const c = document.createElement("td"); c.className = cls; if (child) c.append(child); tr.append(c); return c; };
+      td("day").textContent = r.d;
+      const w = td("wd"); w.textContent = WEEK[wd]; if (hol) w.classList.add("red"); else if (wd === 6) w.classList.add("sat");
+      const b = document.createElement("span"); b.className = "badge" + (hol ? " hol" : ""); b.textContent = hol ? "休" : "平"; td("type", b);
+      const code = document.createElement("input");
+      code.id = `code-${r.d}`; code.value = r.code; code.maxLength = 30; code.setAttribute("aria-label", `${r.d}日の番号`);
+      code.addEventListener("input", () => { r.code = code.value.trim(); r.unsure = false; tr.className = rowClass(r); memo.placeholder = memoPlaceholder(r); updateLink(); });
+      td("code", code);
+      const memo = document.createElement("input");
+      memo.id = `memo-${r.d}`; memo.value = r.memo; memo.maxLength = 200; memo.placeholder = memoPlaceholder(r);
+      memo.setAttribute("aria-label", `${r.d}日のメモ`);
+      memo.addEventListener("input", () => { r.memo = memo.value.trim(); tr.className = rowClass(r); updateLink(); });
+      const m = td("memo", memo);
+      if (r.note) { const h = document.createElement("span"); h.className = "hint"; h.textContent = `表の小さい文字: ${r.note}`; m.append(h); }
+      tb.append(tr);
+    }
+  }
+
+  // 数字だけの番号・休みは、shiftflow の一覧から時間が入る。それ以外(変・臨時など)はメモに時間を書く
+  const needsMemo = (r) => !!r.code && !OFF.has(r.code) && !/^\d+$/.test(r.code);
+  const rowClass = (r) => [r.unsure ? "unsure" : "", needsMemo(r) && !r.memo ? "needmemo" : ""].filter(Boolean).join(" ");
+  const memoPlaceholder = (r) => (needsMemo(r) ? "時間 例 9:00〜17:45" : "");
+
+  // ---------- shiftflow へ渡す内容 ----------
+  // { v:1, y, m, d: { "1": ["15", "メモ"], ... } } を UTF-8 の JSON にして base64url。番号もメモも空の日は入れない
+  function payload() {
+    const d = {};
+    for (const r of state.rows) if (r.code || r.memo) d[r.d] = [r.code, r.memo];
+    const json = JSON.stringify({ v: 1, y: state.year, m: state.month, d });
+    const bytes = new TextEncoder().encode(json);
+    let bin = "";
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function updateLink() { $("go").href = `${SHIFTFLOW}#import=${payload()}`; }
+
+  $("copy").addEventListener("click", async () => {
+    const text = `shiftflow-import:${payload()}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      $("barmsg").textContent = "コピーしました。勤務入力画面の「貼り付けで取込」に貼り付けてください。";
+      $("copybox").hidden = true;
+    } catch {
+      $("copybox").value = text;
+      $("copybox").hidden = false;
+      $("copybox").select();
+      $("barmsg").textContent = "自動でコピーできませんでした。下の文字を全部選んでコピーしてください。";
+    }
+  });
+
+  // ---------- 写真の拡大・縮小(2本指・ドラッグ・ボタン) ----------
+  const viewer = $("viewer");
+  const view = $("photoView");
+  let sc = 1, tx = 0, ty = 0, minSc = 0.1;
+  const pts = new Map();
+  let last = null;
+  const apply = () => { view.style.transform = `translate(${tx}px, ${ty}px) scale(${sc})`; };
+  function fit() {
+    const w = viewer.clientWidth, iw = view.naturalWidth || 1;
+    sc = minSc = w / iw;
+    tx = 0; ty = 0;
+    apply();
+  }
+  function zoomAt(k, px, py) {
+    const next = Math.min(Math.max(sc * k, minSc), minSc * 8);
+    k = next / sc;
+    tx = px - (px - tx) * k;
+    ty = py - (py - ty) * k;
+    sc = next;
+    apply();
+  }
+  const local = (e) => { const r = viewer.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  viewer.addEventListener("pointerdown", (e) => {
+    if (e.target.closest(".zoom")) return;
+    viewer.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId, local(e));
+    last = null;
+  });
+  viewer.addEventListener("pointermove", (e) => {
+    if (!pts.has(e.pointerId)) return;
+    const prev = pts.get(e.pointerId);
+    const now = local(e);
+    pts.set(e.pointerId, now);
+    if (pts.size === 1) {
+      tx += now.x - prev.x; ty += now.y - prev.y; apply();
+    } else if (pts.size === 2) {
+      const [a, b] = [...pts.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      if (last) { tx += mid.x - last.mid.x; ty += mid.y - last.mid.y; zoomAt(dist / last.dist, mid.x, mid.y); }
+      last = { dist, mid };
+    }
+  });
+  const up = (e) => { pts.delete(e.pointerId); last = null; };
+  viewer.addEventListener("pointerup", up);
+  viewer.addEventListener("pointercancel", up);
+  viewer.addEventListener("wheel", (e) => { e.preventDefault(); const p = local(e); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, p.x, p.y); }, { passive: false });
+  $("zin").addEventListener("click", () => zoomAt(1.4, viewer.clientWidth / 2, viewer.clientHeight / 2));
+  $("zout").addEventListener("click", () => zoomAt(1 / 1.4, viewer.clientWidth / 2, viewer.clientHeight / 2));
+  $("zfit").addEventListener("click", fit);
+})();
+</script>

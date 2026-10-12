@@ -1,6 +1,11 @@
 // 勤務入力画面
 import { friendlyText, $, callFunction, requireLogin, supabase } from "./app.js?v=dev";
-import { addDays, dateKey, dayTypeOf, daysInMonth, describe, dutyMemo, holidayYearsFor, indexMaster, offdutyMemo, pad } from "./plan.js?v=dev";
+import { addDays, buildPlan, dateKey, dayTypeOf, daysInMonth, describe, dutyMemo, holidayYearsFor, indexMaster, offdutyMemo, pad } from "./plan.js?v=dev";
+import { PHOTO_IMPORT_URL } from "./config.js?v=dev";
+import { captureImportFromHash, decodeImport, takePendingImport } from "./photo-import.js?v=dev";
+
+// 写真取込のリンク(input.html#import=…)で開いたときは、ログインを確かめる前に取込の文字を覚えて、アドレスから消す
+captureImportFromHash();
 
 const MANUAL = "__manual__";
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
@@ -24,6 +29,8 @@ const state = {
   edits: 0,          // 書き換えた回数。登録中に書き換えた分を「登録済み」にしないため
   loadId: 0,         // 読み込みの番号。月を続けて移動したとき、古い月の結果で上書きしないため
   registering: false,
+  saving: false,
+  imported: new Set(), // 写真取込で入れた日("yyyy-MM-dd")。保存・登録・月の移動で消す
 };
 
 // 今月より前には戻れない(今月かそれ以前の月を見ているとき)
@@ -66,7 +73,9 @@ async function loadMonth(id) {
   $("title").textContent = state.year + "年" + state.month + "月";
   $("prev").disabled = isFirstMonth();
   $("register").disabled = true;
+  $("save").disabled = true;
   $("list").innerHTML = "";
+  state.imported = new Set();
   // 読み込みが終わるまでは前の月の入力が残っているので、登録で送らないよう空にしておく
   state.entries = {};
 
@@ -102,6 +111,7 @@ async function loadMonth(id) {
   render();
   scrollToToday();
   $("register").disabled = false;
+  $("save").disabled = false;
   $("reset").disabled = false;
   setStatus(state.masterList.length ? "" : "この区所の勤務の番号の一覧(マスタ)が空です。管理者に登録を頼んでください。", !state.masterList.length);
 }
@@ -152,7 +162,9 @@ function render() {
     const offduty = !!prevMaster;
 
     const tr = document.createElement("tr");
-    if (key === nowParts().key) tr.className = "today";
+    if (key === nowParts().key) tr.classList.add("today");
+    const imported = state.imported.has(key);
+    if (imported) tr.classList.add("imported");
 
     const dayTd = document.createElement("td");
     dayTd.className = "day";
@@ -243,6 +255,14 @@ function render() {
       memoInput.className = e.memo ? "override" : "";
       edited();
     });
+    // 写真取込で入った、一覧にない番号(変・臨時など)で時間が空の日は、メモに時間を入れるよう目立たせる
+    const needTime = () => imported && !offduty && !!e.code.trim() && !state.master[e.code.trim()] &&
+      !/^[〜~\-ー—]$|休/.test(e.code.trim()) && !e.memo;
+    if (needTime()) {
+      tr.classList.add("needtime");
+      memoInput.placeholder = "時間 例 9:00〜17:45";
+    }
+    memoInput.addEventListener("input", () => tr.classList.toggle("needtime", needTime()));
     memoTd.appendChild(memoInput);
     if (stay) {
       const stayLabel = document.createElement("span");
@@ -323,7 +343,7 @@ $("picker-cancel").addEventListener("click", () => {
 });
 
 function moveMonth(delta) {
-  if (state.registering) return;
+  if (state.registering || state.saving) return;
   if (delta < 0 && isFirstMonth()) return;
   if (state.dirty && !confirm("登録していない変更があります。移動しますか？")) return;
   const date = new Date(state.year, state.month - 1 + delta, 1);
@@ -358,6 +378,7 @@ document.addEventListener("click", (ev) => {
 $("register").addEventListener("click", async () => {
   const button = $("register");
   button.disabled = true;
+  $("save").disabled = true;
   // 登録中は月を移動できないようにする(移動先の月の入力と混ざらないように)
   state.registering = true;
   $("prev").disabled = true;
@@ -372,7 +393,10 @@ $("register").addEventListener("click", async () => {
     }, { timeoutMs: 150000 });
     // 登録中に書き換えた分は送っていないので、未登録のままにする(月の移動などで確認が出るように)
     const editedMeanwhile = state.edits !== edits;
-    if (!editedMeanwhile) state.dirty = false;
+    if (!editedMeanwhile) {
+      state.dirty = false;
+      clearImported();
+    }
     setStatus(result.count + "件の予定を登録しました。" +
       (result.skipped ? "(休日用のカレンダーを設定していないため、休日の予定" + result.skipped + "件は登録していません)" : "") +
       (editedMeanwhile ? "登録中に変えたところは、まだ登録していません。もう一度「登録」を押してください。" : ""));
@@ -392,9 +416,136 @@ $("register").addEventListener("click", async () => {
   } finally {
     state.registering = false;
     button.disabled = false;
+    $("save").disabled = false;
     $("prev").disabled = isFirstMonth();
     $("next").disabled = false;
   }
+});
+
+// 取り込んだ日の色を消す(保存・登録したあと)
+function clearImported() {
+  if (!state.imported.size) return;
+  state.imported = new Set();
+  render();
+}
+
+// 保存: カレンダーには入れず、入力だけを残す(臨時の時間などを、あとで調べて入れるため)。
+// 登録と同じく、番号の前後の空白を除き、非番の日の番号を消した形(buildPlan の entries)で保存する。
+// 翌月1日の記録の整理(月末の泊が変わったとき)は、登録のときにサーバーが行う
+$("save").addEventListener("click", async () => {
+  if (state.registering || state.saving) return;
+  state.saving = true;
+  $("save").disabled = true;
+  $("register").disabled = true;
+  $("prev").disabled = true;
+  $("next").disabled = true;
+  setStatus("保存中…");
+  const edits = state.edits;
+  try {
+    const plan = buildPlan({
+      year: state.year,
+      month: state.month,
+      entries: state.entries,
+      prevLastCode: state.prevLastCode,
+      nextFirstEntry: null,
+      master: state.master,
+      holidays: state.holidays,
+    });
+    const { error } = await supabase.rpc("save_month_records", { p_year: state.year, p_month: state.month, p_entries: plan.entries });
+    if (error) throw error;
+    const editedMeanwhile = state.edits !== edits;
+    if (!editedMeanwhile) {
+      state.dirty = false;
+      clearImported();
+    }
+    setStatus("保存しました。カレンダーにはまだ入っていません(入れるときは「登録」を押してください)。" +
+      (editedMeanwhile ? "保存中に変えたところは、まだ保存していません。" : ""));
+  } catch (err) {
+    setStatus("保存できませんでした。" + (err.message || String(err)), true);
+  } finally {
+    state.saving = false;
+    $("save").disabled = false;
+    $("register").disabled = false;
+    $("prev").disabled = isFirstMonth();
+    $("next").disabled = false;
+  }
+});
+
+// ---------- 写真取込 ----------
+// 取込の内容を、その月の入力に置き換える(まだ保存・登録はしない)。設計は docs/photo/DESIGN.md
+async function applyImport(text) {
+  if (state.registering || state.saving) {
+    setStatus("登録・保存が終わってから、もう一度取り込んでください。", true);
+    return;
+  }
+  let data;
+  try {
+    data = decodeImport(text);
+  } catch (err) {
+    setStatus(err.message, true);
+    return;
+  }
+  const { year, month, days } = data;
+  const now = nowParts();
+  if (year * 12 + month < now.year * 12 + now.month) {
+    setStatus(year + "年" + month + "月は過ぎた月なので、取り込めません。", true);
+    return;
+  }
+  const label = year + "年" + month + "月";
+  const sameMonth = year === state.year && month === state.month;
+  const lose = state.dirty ? (sameMonth ? "\n登録していない変更は消えます。" : "\n今の月の登録していない変更は消えます。") : "";
+  if (!confirm(label + "に、写真取込の内容(" + days.size + "日分)を入れます。\nこの月の今の入力は置き換わります(まだ保存・登録はしません)。" + lose + "\nよろしいですか？")) {
+    setStatus("写真取込をやめました。");
+    return;
+  }
+  if (!sameMonth || !state.masterList.length) {
+    state.dirty = false;
+    state.year = year;
+    state.month = month;
+    await load();
+    if ($("status").className === "error" || state.year !== year || state.month !== month) return;
+  }
+
+  const entries = {};
+  days.forEach(({ code, memo }, d) => {
+    // 一覧にある番号は(全角で読んでいても)一覧の番号に。無い番号は手入力として入る
+    entries[dateKey(year, month, d)] = { code: masterCodeOf(code) || code, memo };
+  });
+  state.entries = entries;
+  // 泊の翌日(非番)の番号は消す(「—」を読んだ「〜」など)。メモは残す(非番の日に書いた退勤時間)
+  offdutyDays().forEach((_, key) => {
+    if (state.entries[key]) state.entries[key].code = "";
+  });
+  state.imported = new Set(Object.keys(entries));
+  changed();
+  window.scrollTo(0, 0);
+  const needTime = document.querySelectorAll("#list tr.needtime").length;
+  setStatus("写真取込: " + days.size + "日分を入れました。確かめて「登録」(カレンダーに入れる)か「保存」(入力だけ残す)を押してください。" +
+    (needTime ? "一覧にない番号で時間の無い日が" + needTime + "日あります(黄色)。分かればメモに時間を入れてください。" : ""));
+}
+
+if (PHOTO_IMPORT_URL) {
+  $("photo-import").href = PHOTO_IMPORT_URL;
+  $("photo-import").hidden = false;
+}
+$("paste-import").addEventListener("click", () => {
+  $("paste-text").value = "";
+  $("paste-error").hidden = true;
+  $("paste-dialog").showModal();
+  $("paste-text").focus();
+});
+$("paste-cancel").addEventListener("click", () => $("paste-dialog").close());
+$("paste-run").addEventListener("click", () => {
+  const text = $("paste-text").value;
+  try {
+    decodeImport(text); // 形が違うときは、ダイアログの中で知らせる
+  } catch (err) {
+    $("paste-error").textContent = err.message;
+    $("paste-error").hidden = false;
+    return;
+  }
+  $("paste-dialog").close();
+  applyImport(text);
 });
 
 $("reset").addEventListener("click", () => {
@@ -444,6 +595,10 @@ requireLogin("input.html", { needVerified: true })
   .then((ctx) => {
     if (!ctx) return;
     state.officeId = ctx.settings.office_id;
-    load();
+    return load().then(() => {
+      // 写真取込のリンクで開いたとき(ログインし直したあとも)は、最初の読み込みのあとで取り込む
+      const pending = takePendingImport();
+      if (pending && $("status").className !== "error") applyImport(pending);
+    });
   })
   .catch((err) => setStatus(err.message || String(err), true));

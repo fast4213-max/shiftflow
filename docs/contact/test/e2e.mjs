@@ -96,7 +96,8 @@ function backend(opts = {}) {
     }
     if (path === "/rest/v1/rpc/admin_stats") return json({ users: 1, verified: 1, active_30d: 1, signups_7d: 0, signup_password_set: true, offices: [{ id: 1, name: "A区所", master_count: 1, user_count: 1 }], no_office: 0, users_list: [] });
     if (path === "/rest/v1/shift_master" && opts.masterFail) return json({ message: "boom" }, 500);
-    if (path === "/rest/v1/shift_master") return json([]);
+    if (path === "/rest/v1/shift_master") return json(opts.master || []);
+    if (path === "/rest/v1/rpc/save_month_records") return json(Object.keys((body && body.p_entries) || {}).length);
     if (path === "/rest/v1/shift_records") return json([]);
     if (path === "/rest/v1/holiday_years") return json([{ year: 2026 }, { year: 2027 }]);
     if (path === "/rest/v1/holidays") return json([]);
@@ -417,6 +418,86 @@ await check("勤務入力: 登録していない変更があるときのログ�
   await page.waitForURL(/index\.html/);
   assert.deepEqual(asked, ["登録していない変更があります。移動しますか？"]);
   assert.ok(be.st.calls.some((c) => c.path === "/auth/v1/logout"));
+  await ctx.close();
+});
+
+// ---------- 写真取込(docs/photo/DESIGN.md) ----------
+const PHOTO_MASTER = [
+  { code: "1", kind: "泊", weekday_start: "10:00", weekday_end: "9:00", holiday_start: "", holiday_end: "", stay: "京都", sort_order: 1 },
+  { code: "25", kind: "日勤", weekday_start: "9:00", weekday_end: "17:45", holiday_start: "", holiday_end: "", stay: "", sort_order: 2 },
+  { code: "公休", kind: "休日", weekday_start: "", weekday_end: "", holiday_start: "", holiday_end: "", stay: "", sort_order: 3 },
+];
+const nextMonth = (() => { const t = new Date(); const d = new Date(t.getFullYear(), t.getMonth() + 1, 1); return { y: d.getFullYear(), m: d.getMonth() + 1 }; })();
+const importText = (obj) => Buffer.from(JSON.stringify(obj), "utf8").toString("base64url");
+const ymd = (d) => `${nextMonth.y}-${String(nextMonth.m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+
+await check("写真取込: リンク(#import=)で開くと、確認のあとその月に入れ、アドレスから消す。泊の翌日の番号は消し、一覧にない番号は黄色", async () => {
+  const text = importText({ v: 1, y: nextMonth.y, m: nextMonth.m, d: { 5: ["1", ""], 6: ["〜", "9:00"], 7: ["変7d", ""], 8: ["公休", ""], 9: ["２５", ""] } });
+  const asked = [];
+  const { page, ctx, be, errors } = await open("input.html#import=" + text, {
+    userId: "u1",
+    opts: { profile: USER, master: PHOTO_MASTER },
+    beforeLoad: async (p) => { p.removeAllListeners("dialog"); p.on("dialog", (d) => { asked.push(d.message()); d.accept(); }); },
+  });
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("写真取込"));
+  assert.equal(asked.length, 1);
+  assert.ok(asked[0].includes(`${nextMonth.y}年${nextMonth.m}月`) && asked[0].includes("5日分"), asked[0]);
+  assert.equal(await page.textContent("#title"), `${nextMonth.y}年${nextMonth.m}月`);
+  assert.equal(new URL(page.url()).hash, "");
+  const row = (d) => page.locator("#list tr").nth(d - 1);
+  assert.equal(await row(5).locator(".pick").textContent(), "1");
+  assert.equal((await row(6).locator(".offduty").textContent()), "非番");
+  assert.equal(await row(6).locator(".memo input").inputValue(), "9:00");
+  assert.equal(await row(7).locator(".code input").inputValue(), "変7d");
+  assert.equal(await row(7).getAttribute("class"), "imported needtime");
+  assert.equal(await row(8).locator(".pick").textContent(), "公休");
+  assert.equal(await row(9).locator(".pick").textContent(), "25"); // 全角は一覧の番号に
+  assert.equal(await page.locator("#list tr.imported").count(), 5);
+  assert.ok((await page.textContent("#status")).includes("時間の無い日が1日"));
+  // 時間を入れると黄色が消える
+  await row(7).locator(".memo input").fill("9:00〜18:00");
+  assert.equal(await row(7).getAttribute("class"), "imported");
+
+  // 保存: カレンダーには入れず、入力だけ保存する(非番の日の番号は消えた形)
+  await page.click("#save");
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("保存しました"));
+  const saved = be.st.calls.find((c) => c.path === "/rest/v1/rpc/save_month_records").body;
+  assert.equal(saved.p_year, nextMonth.y);
+  assert.equal(saved.p_month, nextMonth.m);
+  assert.deepEqual(saved.p_entries[ymd(6)], { code: "", memo: "9:00" });
+  assert.deepEqual(saved.p_entries[ymd(7)], { code: "変7d", memo: "9:00〜18:00" });
+  assert.ok(!be.st.calls.some((c) => c.path === "/functions/v1/register-month"));
+  assert.equal(await page.locator("#list tr.imported").count(), 0);
+  await page.screenshot({ path: OUT + "photo-import.png" });
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("写真取込: 貼り付けで取込。違う文字はダイアログで知らせ、過ぎた月は取り込まない", async () => {
+  const { page, ctx, errors } = await open("input.html", { userId: "u1", opts: { profile: USER, master: PHOTO_MASTER } });
+  await page.waitForSelector("#register:not([disabled])");
+  assert.equal(await page.getAttribute("#photo-import", "href"), "https://claude.ai/artifact/GivZHYnUXZoz4uqc9dWdXV");
+  await page.click("#paste-import");
+  await page.fill("#paste-text", "こんにちは");
+  await page.click("#paste-run");
+  assert.ok((await page.textContent("#paste-error")).includes("取込の文字ではありません"));
+  await page.fill("#paste-text", "shiftflow-import:" + importText({ v: 1, y: 2026, m: 13, d: {} }));
+  await page.click("#paste-run");
+  assert.ok((await page.textContent("#paste-error")).includes("形が違います"));
+  // 過ぎた月
+  await page.fill("#paste-text", "shiftflow-import:" + importText({ v: 1, y: 2020, m: 1, d: { 1: ["25", ""] } }));
+  await page.click("#paste-run");
+  await page.waitForFunction(() => document.getElementById("status").className === "error");
+  assert.ok((await page.textContent("#status")).includes("過ぎた月"));
+  // 正しい文字(先頭・末尾の空白や、リンクごと貼っても読む)
+  page.removeAllListeners("dialog");
+  page.on("dialog", (d) => d.accept());
+  await page.click("#paste-import");
+  await page.fill("#paste-text", "  https://fast4213-max.github.io/shiftflow/input.html#import=" + importText({ v: 1, y: nextMonth.y, m: nextMonth.m, d: { 3: ["25", "メモ<b>"] } }) + "\n");
+  await page.click("#paste-run");
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("写真取込: 1日分"));
+  assert.equal(await page.locator("#list tr").nth(2).locator(".memo input").inputValue(), "メモ<b>");
+  assert.deepEqual(errors, []);
   await ctx.close();
 });
 

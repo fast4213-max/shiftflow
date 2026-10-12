@@ -20,6 +20,10 @@
     <button id="next" aria-label="次の月">▶</button>
   </div>
   <main class="shift">
+    <div class="import-bar">
+      <a id="photo-import" class="button" href="#" target="_blank" rel="noopener" hidden>写真取込</a>
+      <button id="paste-import" type="button">貼り付けで取込</button>
+    </div>
     <table>
       <thead>
         <tr><th>日付</th><th>曜日</th><th>平/休</th><th>番号</th><th>メモ</th></tr>
@@ -29,6 +33,7 @@
   </main>
   <footer class="shift-footer">
     <button id="register" class="primary" disabled>登録</button>
+    <button id="save" disabled>保存</button>
     <span id="status">読み込み中…</span>
     <button id="reset" disabled>リセット</button>
   </footer>
@@ -43,6 +48,17 @@
       <button id="picker-manual">手入力</button>
       <button id="picker-clear">クリア</button>
       <button id="picker-cancel">やめる</button>
+    </div>
+  </dialog>
+
+  <dialog id="paste-dialog">
+    <h2>貼り付けで取込</h2>
+    <p>写真取込の「コピー」で写した文字を、下に貼り付けてください。</p>
+    <textarea id="paste-text" rows="4" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+    <p id="paste-error" class="error" hidden></p>
+    <div class="actions">
+      <button id="paste-cancel">やめる</button>
+      <button id="paste-run" class="primary">取り込む</button>
     </div>
   </dialog>
 
