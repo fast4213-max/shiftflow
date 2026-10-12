@@ -79,13 +79,11 @@ table.shift { width: 100%; border-collapse: collapse; font-variant-numeric: tabu
 .shift .type { width: 36px; padding-top: 9px; }
 .badge { display: inline-block; min-width: 28px; padding: 1px 4px; border: 1px solid var(--field); border-radius: 4px; font-size: 0.85rem; }
 .badge.hol { background: var(--hol-bg); color: var(--danger); border-color: var(--hol-line); }
-.shift .code input { width: 76px; text-align: center; padding: 6px 4px; }
-.shift .memo { text-align: left; }
-.shift .memo input { padding: 6px 6px; }
+.shift .code { text-align: left; }
+.shift .code input { width: 120px; text-align: center; padding: 6px 4px; }
 .hint { display: block; font-size: 0.78rem; color: var(--muted); padding: 2px 2px 0; }
 tr.unsure td { background: var(--warn-bg); }
 tr.unsure .code input { border-color: var(--warn-line); }
-tr.needmemo .memo input { border-color: var(--warn-line); }
 .bar { display: grid; gap: 6px; padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px)); background: var(--card); border-top: 1px solid var(--line); }
 .bar .row { display: flex; gap: 8px; }
 .bar .row > button { flex: none; padding-inline: 10px; }
@@ -115,7 +113,7 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
         <li>月を選び、「カメラで撮る」か「写真から選ぶ」で勤務表の写真を入れます。</li>
         <li>「読み取る」を押します。30秒〜1分ほどかかります。</li>
         <li>上の写真と、下の表を見比べます。違うところは番号を直します。黄色の日は読みにくかった日です。写真は2本指で拡大・縮小、ドラッグで動かせます。</li>
-        <li>変・臨時など、時間が決まっていない番号は、メモに時間(例 9:00〜17:45)を入れます。分からなければ空のままで、あとで shiftflow で入れられます。</li>
+        <li>変・臨時など、時間が決まっていない番号の時間(メモ)は、shiftflow の勤務入力で入れます。分からなければ「保存」しておき、あとで入れられます。</li>
         <li>「勤務入力に反映」を押すと shiftflow の勤務入力画面が開いて、読み取った内容が入ります。確かめてから「登録」(カレンダーに入れる)か「保存」(入力だけ残す)を押します。</li>
       </ol>
       <h2>うまく撮るコツ</h2>
@@ -172,7 +170,7 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
   <div class="list">
     <p class="summary" id="summary"></p>
     <table class="shift">
-      <thead><tr><th>日</th><th>曜</th><th>平/休</th><th>番号</th><th>メモ</th></tr></thead>
+      <thead><tr><th>日</th><th>曜</th><th>平/休</th><th>番号</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
   </div>
@@ -192,8 +190,6 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
   const SHIFTFLOW = "https://fast4213-max.github.io/shiftflow/input.html";
   const MODEL = "claude-sonnet-5-5";
   const WEEK = ["日", "月", "火", "水", "木", "金", "土"];
-  // 休み・非番を表す番号(メモの時間が要らないもの)
-  const OFF = new Set(["〜", "特休", "公休", "年休", "代休", "休", ""]);
   const $ = (id) => document.getElementById(id);
 
   let sample = null;          // claude.use("sample")
@@ -433,7 +429,7 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
       state.who ? `「${state.who}」の行を読みました。` : "",
       state.warn,
       unsure ? `読みにくかった日が${unsure}日分あります(黄色)。写真と見比べてください。` : "写真と見比べて、違うところは直してください。",
-      "変・臨時などは、メモに時間を入れてください。「読み直す」は、より丁寧に読みます。",
+      "変・臨時などの時間は、shiftflow の勤務入力で入れます。「読み直す」は、より丁寧に読みます。",
     ].filter(Boolean).join(" ");
     renderRows();
     $("photoView").src = photoURL;
@@ -458,25 +454,19 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
       const b = document.createElement("span"); b.className = "badge" + (hol ? " hol" : ""); b.textContent = hol ? "休" : "平"; td("type", b);
       const code = document.createElement("input");
       code.id = `code-${r.d}`; code.value = r.code; code.maxLength = 30; code.setAttribute("aria-label", `${r.d}日の番号`);
-      code.addEventListener("input", () => { r.code = code.value.trim(); r.unsure = false; tr.className = rowClass(r); memo.placeholder = memoPlaceholder(r); updateLink(); });
-      td("code", code);
-      const memo = document.createElement("input");
-      memo.id = `memo-${r.d}`; memo.value = r.memo; memo.maxLength = 200; memo.placeholder = memoPlaceholder(r);
-      memo.setAttribute("aria-label", `${r.d}日のメモ`);
-      memo.addEventListener("input", () => { r.memo = memo.value.trim(); tr.className = rowClass(r); updateLink(); });
-      const m = td("memo", memo);
-      if (r.note) { const h = document.createElement("span"); h.className = "hint"; h.textContent = `表の小さい文字: ${r.note}`; m.append(h); }
+      code.addEventListener("input", () => { r.code = code.value.trim(); r.unsure = false; tr.className = rowClass(r); updateLink(); });
+      const c = td("code", code);
+      if (r.note) { const h = document.createElement("span"); h.className = "hint"; h.textContent = `表の小さい文字: ${r.note}`; c.append(h); }
       tb.append(tr);
     }
   }
 
-  // 数字だけの番号・休みは、shiftflow の一覧から時間が入る。それ以外(変・臨時など)はメモに時間を書く
-  const needsMemo = (r) => !!r.code && !OFF.has(r.code) && !/^\d+$/.test(r.code);
-  const rowClass = (r) => [r.unsure ? "unsure" : "", needsMemo(r) && !r.memo ? "needmemo" : ""].filter(Boolean).join(" ");
-  const memoPlaceholder = (r) => (needsMemo(r) ? "時間 例 9:00〜17:45" : "");
+  // 時間(メモ)は shiftflow の勤務入力で入れる(一覧にない番号は、取り込んだあと黄色になる)
+  const rowClass = (r) => (r.unsure ? "unsure" : "");
 
   // ---------- shiftflow へ渡す内容 ----------
-  // { v:1, y, m, d: { "1": ["15", "メモ"], ... } } を UTF-8 の JSON にして base64url。番号もメモも空の日は入れない
+  // { v:1, y, m, d: { "1": ["15", ""], ... } } を UTF-8 の JSON にして base64url。番号の無い日は入れない。
+  // メモ(2つ目)は、ここでは入れないので空(shiftflow の受け取りは、メモがあれば入れる形のまま)
   function payload() {
     const d = {};
     for (const r of state.rows) if (r.code || r.memo) d[r.d] = [r.code, r.memo];
