@@ -236,8 +236,8 @@ function render() {
         codeTd.appendChild(input);
       } else if (entry) {
         autoMemo = dutyMemo(entry, dayType, dayTypeOf(addDays(key, 1), state.holidays));
-        // 泊地はメモの2行目としてカレンダーに入る(画面ではメモ欄の下に表示)
-        stay = describe(entry, "");
+        // 泊地はメモの2行目としてカレンダーに入る(画面ではメモ欄の下に表示)。翌日が休日なら翌休泊
+        stay = describe(entry, "", dayTypeOf(addDays(key, 1), state.holidays));
       }
     }
 

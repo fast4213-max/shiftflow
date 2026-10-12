@@ -74,3 +74,12 @@ Deno.test("CSV: 時刻の誤記(3桁の時・午前午後・60分以上)は「�
   ]);
   assertEquals([rows[3].weekday_start, rows[3].weekday_end, rows[3].holiday_start, rows[3].holiday_end], ["9:01", "9:01", "6:16", "25:30"]);
 });
+
+Deno.test("CSV: 翌休泊の列(無くてもよい)。泊以外の行にあればエラー", () => {
+  const rows = checkMasterRows(masterRowsFromCsv([HEADER + ",翌休泊", "52,泊,9:02,9:59,9:01,10:07,北伊丹,,,,,大阪", "1,日勤,6:16,14:09,6:18,13:52,,,,,,大阪"].join("\n")));
+  assertEquals(rows[0].stay_next_holiday, "大阪");
+  assertEquals(rows[0].errors, []);
+  assertEquals(rows[1].errors, ["翌休泊は泊だけ"]);
+  // 11列の CSV(翌休泊の列なし)も読める
+  assertEquals(check(["52,泊,9:02,9:59,9:01,10:07,北伊丹,,,,"])[0].stay_next_holiday, "");
+});

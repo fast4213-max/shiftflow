@@ -17,6 +17,7 @@ const MASTER_COLUMNS = [
   ["weekday_holiday_end", "平休退勤"],
   ["holiday_weekday_start", "休平出勤"],
   ["holiday_weekday_end", "休平退勤"],
+  ["stay_next_holiday", "翌休泊"],
 ];
 
 // 区所の名前の長さの上限(お問い合わせの「所属」に写すときの上限と同じ。Q9)

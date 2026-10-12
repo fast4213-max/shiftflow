@@ -64,6 +64,7 @@ const COLUMNS = {
   平休退勤: "weekday_holiday_end", //   同じく退勤
   休平出勤: "holiday_weekday_start", // 休日に泊 → 翌日が平日 のときの出勤
   休平退勤: "holiday_weekday_end", //   同じく退勤
+  翌休泊: "stay_next_holiday", //       泊の翌日(非番の日)が休日のときの泊地(無くてもよい)
 };
 const REQUIRED = ["番号", "種別", "平日出勤", "平日退勤", "休日出勤", "休日退勤"];
 
@@ -147,6 +148,7 @@ export function checkMasterRows(rows) {
     });
     // 平休・休平の列は泊だけで使う。日勤・休日の行に書いてあっても使われないので、気づけるようにする
     if (r.kind !== "泊" && CROSS_FIELDS.some((f) => out[f])) errors.push("平休・休平の時刻は泊だけ");
+    if (r.kind !== "泊" && r.stay_next_holiday) errors.push("翌休泊は泊だけ");
     // 休日だけ動く番号(平日の時刻が空で、休日の時刻だけある)も取り込める。平日・休日とも出勤が空ならエラー
     // (読めない時刻の欄は、そのエラーだけを出す)
     const startBlank = (f) => !out[f] && !unreadable.has(f);
@@ -163,10 +165,10 @@ function csvCell(v) {
 
 // マスタの行 → CSV(Excel でも文字化けしないよう BOM 付き)
 export function masterToCsv(rows) {
-  const header = ["番号", "種別", "平日出勤", "平日退勤", "休日出勤", "休日退勤", "泊", "平休出勤", "平休退勤", "休平出勤", "休平退勤"];
+  const header = ["番号", "種別", "平日出勤", "平日退勤", "休日出勤", "休日退勤", "泊", "平休出勤", "平休退勤", "休平出勤", "休平退勤", "翌休泊"];
   const lines = [header.join(",")].concat(rows.map((r) =>
     [r.code, r.kind, r.weekday_start, r.weekday_end, r.holiday_start, r.holiday_end, r.stay,
-      r.weekday_holiday_start, r.weekday_holiday_end, r.holiday_weekday_start, r.holiday_weekday_end].map(csvCell).join(",")
+      r.weekday_holiday_start, r.weekday_holiday_end, r.holiday_weekday_start, r.holiday_weekday_end, r.stay_next_holiday].map(csvCell).join(",")
   ));
   return "﻿" + lines.join("\r\n") + "\r\n";
 }

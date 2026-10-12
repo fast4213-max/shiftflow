@@ -74,7 +74,7 @@ export function dayTypeOf(key, holidays) {
 
 // ---------- マスタ ----------
 
-// DB の shift_master の行 → { code: { code, type, start: {平日, 休日, 平休, 休平}, end: {平日, 休日, 平休, 休平}, stay } }
+// DB の shift_master の行 → { code: { code, type, start: {平日, 休日, 平休, 休平}, end: {平日, 休日, 平休, 休平}, stay, stayNextHoliday } }
 //   平休 = 平日に泊 → 休日に非番 のときの出勤・退勤、休平 = 休日に泊 → 平日に非番 のときの出勤・退勤(どれも空でもよい)
 export function indexMaster(rows) {
   // 手入力の番号が constructor・toString・__proto__ などでも、マスタにある番号と間違えないよう、継承の無い連想配列にする
@@ -96,6 +96,7 @@ export function indexMaster(rows) {
         休平: r.holiday_weekday_end || "",
       },
       stay: r.stay || "",
+      stayNextHoliday: r.stay_next_holiday || "", // 翌休泊: 泊の翌日(非番の日)が休日のときの泊地(空なら stay)
     };
   });
   return map;
@@ -133,11 +134,18 @@ export function offdutyMemo(prevEntry, prevDayType, dayType) {
   return (cross && prevEntry.end[cross]) || pickTime(prevEntry.end, dayType);
 }
 
-// 予定のメモ全体。泊なら2行目に泊地を付ける
-export function describe(entry, firstLine) {
+// 泊地。泊の翌日(nextDayType)が休日で「翌休泊」があれば、そちら(「翌土休日は大阪泊り」のような行路)
+export function stayOf(entry, nextDayType) {
+  if (!entry || entry.type !== "泊") return "";
+  return (nextDayType === "休日" && entry.stayNextHoliday) || entry.stay || "";
+}
+
+// 予定のメモ全体。泊なら2行目に泊地を付ける(nextDayType は泊の翌日の平休。翌休泊を選ぶため)
+export function describe(entry, firstLine, nextDayType) {
   const lines = [];
   if (firstLine) lines.push(firstLine);
-  if (entry && entry.type === "泊" && entry.stay) lines.push(entry.stay);
+  const stay = stayOf(entry, nextDayType);
+  if (stay) lines.push(stay);
   return lines.join("\n");
 }
 
@@ -202,12 +210,13 @@ export function buildPlan({ year, month, entries, prevLastCode, nextFirstEntry, 
     if (entry && entry.type === "休日") {
       events.push({ date: key, calendar: "holiday", kind: "day", title: e.code, description: e.memo });
     } else {
+      const nextDayType = dayTypeOf(addDays(key, 1), holidays);
       events.push({
         date: key,
         calendar: "work",
         kind: "day",
         title: e.code,
-        description: describe(entry, e.memo || dutyMemo(entry, dayType, dayTypeOf(addDays(key, 1), holidays))),
+        description: describe(entry, e.memo || dutyMemo(entry, dayType, nextDayType), nextDayType),
       });
     }
   }
