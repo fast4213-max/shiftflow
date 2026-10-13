@@ -14,6 +14,8 @@ export function decodeImport(text) {
   const raw = String(text || "").trim();
   if (!raw) throw new Error("貼り付けた文字が空です。写真取込の「コピー」を押してから貼り付けてください。");
   if (raw.length > MAX_TEXT) throw new Error("取込の文字が長すぎます。写真取込の「コピー」で写した文字だけを貼り付けてください。");
+  const plain = decodePlain(raw);
+  if (plain) return plain;
   const m = raw.match(/(?:shiftflow-import:|import=)\s*([A-Za-z0-9_-]+)/) || raw.match(/^([A-Za-z0-9_-]+)$/);
   if (!m) throw new Error("取込の文字ではありません。写真取込の「コピー」で写した文字を、そのまま貼り付けてください。");
 
@@ -44,6 +46,33 @@ export function decodeImport(text) {
     const memo = clean(v[1]).slice(0, 200);
     if (code || memo) days.set(d, { code, memo });
   }
+  return { year, month, days };
+}
+
+// Claude のチャットに写真を送って読み取ってもらった、読める文字の形(アーティファクトが使えない iPhone 用)。
+//   shiftflow:2026-11
+//   1:15
+//   2:〜
+// 1行目に年月、あとは「日:番号」を1日1行。番号が無い日は書かなくてよい。かこみ(```)などの余分な行は読み飛ばす
+function decodePlain(raw) {
+  const head = raw.match(/shiftflow\s*[:：]\s*(\d{4})\s*[-/年]\s*(\d{1,2})/i);
+  if (!head) return null;
+  const year = Number(head[1]);
+  const month = Number(head[2]);
+  const bad = () => new Error("年月が正しくありません。1行目を「shiftflow:2026-11」の形にしてください。");
+  if (year < 2000 || year > 2100 || month < 1 || month > 12) throw bad();
+  const n = daysInMonth(year, month);
+  const days = new Map();
+  for (const line of raw.slice(head.index + head[0].length).split(/\r?\n/)) {
+    const half = line.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+    const m = half.match(/^\s*(\d{1,2})\s*日?\s*[:：=＝]\s*(.*)$/);
+    if (!m) continue;
+    const d = Number(m[1]);
+    if (d < 1 || d > n) continue;
+    const code = clean(m[2]).replace(/^[—ー\-―－‐─~〜～]+$/, "〜").slice(0, 30);
+    if (code) days.set(d, { code, memo: "" });
+  }
+  if (!days.size) throw new Error("日ごとの番号が見つかりません。「1:15」のように、1日1行で貼り付けてください。");
   return { year, month, days };
 }
 

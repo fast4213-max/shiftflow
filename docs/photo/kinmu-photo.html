@@ -96,6 +96,10 @@ tr.unsure .code input { border-color: var(--warn-line); }
 a.go[aria-disabled="true"] { opacity: 0.5; pointer-events: none; }
 a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6px; background: var(--accent); color: var(--accent-fg); font-weight: bold; text-decoration: none; }
 #copybox { width: 100%; font-family: var(--mono); font-size: 0.75rem; }
+details.chat { border: 1px solid var(--line); border-radius: 6px; }
+details.chat summary { padding: 8px 12px; font-weight: bold; color: var(--accent); cursor: pointer; }
+details.chat .help-body { padding: 0 12px 12px; }
+#promptbox { width: 100%; font-size: 0.75rem; }
 #barmsg { grid-column: 1 / -1; font-size: 0.85rem; min-height: 0; }
 </style>
 
@@ -154,6 +158,22 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
     <button id="read" class="primary" type="button">読み取る</button>
     <div id="busy" hidden><span class="spinner" aria-hidden="true"></span><span id="busytext">読み取り中です(30秒〜1分ほど)</span><button id="stop" type="button">止める</button></div>
     <p id="setupmsg" class="error" role="status" hidden></p>
+    <details id="chat" class="chat">
+      <summary>読み取るが使えないとき(iPhone など)</summary>
+      <div class="help-body">
+        <p>Claude のチャットに写真を送って読み取ってもらい、答えを shiftflow に貼り付けます。</p>
+        <ol>
+          <li>上で名前・月を入れて、下の「指示文をコピー」を押します。</li>
+          <li>Claude のアプリで新しいチャットを開き、勤務表の写真を付けて、指示文を貼り付けて送ります。</li>
+          <li>返ってきた答え(「shiftflow:…」で始まる文字)を、「コピー」で写します。</li>
+          <li>shiftflow の勤務入力画面で「貼り付けで取込」を押し、貼り付けて「取り込む」を押します。</li>
+        </ol>
+        <p class="muted">この方法でも、あなた自身の Claude の使用量を使います。取り込んだあとは、勤務入力の画面で内容を確かめてください。</p>
+        <button id="copyprompt" type="button">指示文をコピー</button>
+        <p id="chatmsg" role="status" class="muted"></p>
+        <textarea id="promptbox" rows="4" readonly hidden></textarea>
+      </div>
+    </details>
   </div>
 
   <div class="card note-box">
@@ -234,7 +254,7 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
   // ---------- Claude ----------
   // 読み取るボタンは、ここでは無効にしない(ログイン済みでも、開いた直後は Claude につながっていないことがある)。
   // 押したときと、画面に戻ったときに、つなぎ直す。つながらないときだけ、押した後にお願いを出す
-  const LOGIN_MSG = "Claude につながりませんでした。Claude のアプリでログインしていても、Safari などのブラウザは別なので、ブラウザでは claude.ai を開いてログインしてください(ページ右上に「ログイン」が出ていたら未ログインです)。いちばん確実なのは、Claude のアプリの中でこのページを開くことです。";
+  const LOGIN_MSG = "この画面では、ページから Claude を使えませんでした。ログインしていないか、お使いの Claude アプリがこの機能にまだ対応していません(iPhone のアプリは未対応のことがあります)。Android か PC で開くか、下の「読み取るが使えないとき」の方法を使ってください。";
   const NO_IMAGE_MSG = "この画面からは写真を Claude に送れません。Claude のアプリか、ブラウザの claude.ai で開いてください。";
   let connecting = null;
   let why = "";               // つながらなかった理由(原因を調べるため、画面に小さく出す)
@@ -340,12 +360,48 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
     ].join("\n");
   }
 
+  // チャット用の指示文(アーティファクトから読めない人が、Claude のチャットに貼る)
+  function chatPrompt(name, y, m) {
+    const n = daysIn(y, m);
+    return [
+      "添付の写真は、鉄道会社の「勤務指定表」です。1人につき1行で、左端に名前(前に【眼鏡】などの印が付くことがある)と7桁の社員番号があり、右へ日付ごとのマスが並びます。",
+      `名前が「${name}」の人(空白や【】の印は無視して比べる)の行を探し、${y}年${m}月の1日から${n}日まで、マスの上の大きい文字(勤務の番号)を順に読んでください。`,
+      "読み方: 番号は大きい文字をそのまま(例: 15、2500、特休、公休、年休、変7d)。全角の英数字は半角に。横棒だけのマスは 〜 にする。空のマスは書かない。推測で埋めず、読めた通りに書く。",
+      "答えは、次の形の文字だけを、コピーしやすいようにコードブロックに入れて返してください(説明は書かない)。",
+      "```",
+      `shiftflow:${y}-${String(m).padStart(2, "0")}`,
+      "1:15",
+      "2:〜",
+      "3:特休",
+      "```",
+      "その人の行が見つからないときや、当てはまる人が2人以上いるときは、コードブロックを返さず、そう伝えてください。",
+    ].join("\n");
+  }
+  $("copyprompt").addEventListener("click", async () => {
+    const name = $("who").value.trim();
+    if (!name) { $("chatmsg").textContent = "先に、上で名前を入れてください。"; return; }
+    store.set("sf_name", name);
+    const [y, m] = $("month").value.split("-").map(Number);
+    const text = chatPrompt(name, y, m);
+    try {
+      await navigator.clipboard.writeText(text);
+      $("chatmsg").textContent = "コピーしました。Claude のチャットに、写真といっしょに貼り付けてください。";
+      $("promptbox").hidden = true;
+    } catch {
+      $("promptbox").value = text;
+      $("promptbox").hidden = false;
+      $("promptbox").select();
+      $("chatmsg").textContent = "自動でコピーできませんでした。下の文字を全部選んでコピーしてください。";
+    }
+  });
+
   async function read(careful) {
     const name = $("who").value.trim();
     const [y, m] = $("month").value.split("-").map(Number);
     if (!name) return showSetupMsg("名前を入れてください。");
     if (!photo) return showSetupMsg("勤務表の写真を選んでください。");
     const link = await connect();
+    if (link !== "ok") $("chat").open = true;
     if (link === "login") return showSetupMsg(LOGIN_MSG + `(理由: ${why})`);
     if (link === "noimage") return showSetupMsg(NO_IMAGE_MSG);
     store.set("sf_name", name);
