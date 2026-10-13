@@ -237,17 +237,21 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
   const LOGIN_MSG = "Claude につながりませんでした。Claude のアプリでログインしていても、Safari などのブラウザは別なので、ブラウザでは claude.ai を開いてログインしてください(ページ右上に「ログイン」が出ていたら未ログインです)。いちばん確実なのは、Claude のアプリの中でこのページを開くことです。";
   const NO_IMAGE_MSG = "この画面からは写真を Claude に送れません。Claude のアプリか、ブラウザの claude.ai で開いてください。";
   let connecting = null;
+  let why = "";               // つながらなかった理由(原因を調べるため、画面に小さく出す)
   function connect() {
     if (sample) return Promise.resolve("ok");
     connecting ||= (async () => {
       try {
-        const s = await window.claude?.use?.("sample");
-        if (!s) return "login";
-        const caps = await s.limits().catch(() => null);
-        if (caps && !caps.images) return "noimage";
+        if (!window.claude) { why = "window.claude なし"; return "login"; }
+        if (typeof window.claude.use !== "function") { why = "claude.use なし"; return "login"; }
+        const t0 = Date.now();
+        const s = await window.claude.use("sample");
+        if (!s) { why = `use が null(${Math.round((Date.now() - t0) / 100) / 10}秒)`; return "login"; }
+        const caps = await s.limits().catch((e) => { why = `limits 失敗: ${e?.code || e?.message || e}`; return null; });
+        if (caps && !caps.images) { why = "images 不可"; return "noimage"; }
         sample = s;
         return "ok";
-      } catch { return "login"; } finally { connecting = null; }
+      } catch (e) { why = `例外: ${e?.code || ""} ${e?.message || e}`; return "login"; } finally { connecting = null; }
     })();
     return connecting;
   }
@@ -342,7 +346,7 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
     if (!name) return showSetupMsg("名前を入れてください。");
     if (!photo) return showSetupMsg("勤務表の写真を選んでください。");
     const link = await connect();
-    if (link === "login") return showSetupMsg(LOGIN_MSG);
+    if (link === "login") return showSetupMsg(LOGIN_MSG + `(理由: ${why})`);
     if (link === "noimage") return showSetupMsg(NO_IMAGE_MSG);
     store.set("sf_name", name);
     showSetupMsg("");
