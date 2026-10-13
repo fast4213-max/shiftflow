@@ -232,20 +232,27 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
   const showSetupMsg = (text) => { $("setupmsg").textContent = text; $("setupmsg").hidden = !text; };
 
   // ---------- Claude ----------
-  (async () => {
-    sample = await window.claude?.use?.("sample");
-    if (!sample) {
-      // ログインしていない(または Claude の外で開いた)ときは読み取れないので、ボタンの下にお願いを出す
-      showSetupMsg("Claude にログインしてください。ログインしていないと読み取れません。claude.ai(または Claude のアプリ)でログインしてから、このページを開き直してください。");
-      $("read").disabled = true;
-      return;
-    }
-    const caps = await sample.limits().catch(() => null);
-    if (!caps?.images) {
-      showSetupMsg("この画面からは写真を Claude に送れません。Claude のアプリか、ブラウザの claude.ai で開いてください。");
-      $("read").disabled = true;
-    }
-  })();
+  // 読み取るボタンは、ここでは無効にしない(ログイン済みでも、開いた直後は Claude につながっていないことがある)。
+  // 押したときと、画面に戻ったときに、つなぎ直す。つながらないときだけ、押した後にお願いを出す
+  const LOGIN_MSG = "Claude にログインしてください。ログインしていないと読み取れません。claude.ai(または Claude のアプリ)でログインしてから、このページを開き直してください。";
+  const NO_IMAGE_MSG = "この画面からは写真を Claude に送れません。Claude のアプリか、ブラウザの claude.ai で開いてください。";
+  let connecting = null;
+  function connect() {
+    if (sample) return Promise.resolve("ok");
+    connecting ||= (async () => {
+      try {
+        const s = await window.claude?.use?.("sample");
+        if (!s) return "login";
+        const caps = await s.limits().catch(() => null);
+        if (caps && !caps.images) return "noimage";
+        sample = s;
+        return "ok";
+      } catch { return "login"; } finally { connecting = null; }
+    })();
+    return connecting;
+  }
+  connect();
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) connect(); });
 
   // ---------- 写真(送る前に長い辺を2000pxまで縮める) ----------
   // 縮められなかったら(開けない形式・大きすぎるなど)、元の写真をそのまま送る
@@ -330,11 +337,13 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
   }
 
   async function read(careful) {
-    if (!sample) return;
     const name = $("who").value.trim();
     const [y, m] = $("month").value.split("-").map(Number);
     if (!name) return showSetupMsg("名前を入れてください。");
     if (!photo) return showSetupMsg("勤務表の写真を選んでください。");
+    const link = await connect();
+    if (link === "login") return showSetupMsg(LOGIN_MSG);
+    if (link === "noimage") return showSetupMsg(NO_IMAGE_MSG);
     store.set("sf_name", name);
     showSetupMsg("");
     showSetup();
