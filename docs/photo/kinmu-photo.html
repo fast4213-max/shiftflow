@@ -234,7 +234,7 @@ a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6p
   // ---------- Claude ----------
   // 読み取るボタンは、ここでは無効にしない(ログイン済みでも、開いた直後は Claude につながっていないことがある)。
   // 押したときと、画面に戻ったときに、つなぎ直す。つながらないときだけ、押した後にお願いを出す
-  const LOGIN_MSG = "Claude にログインしてください。ログインしていないと読み取れません。claude.ai(または Claude のアプリ)でログインしてから、このページを開き直してください。";
+  const LOGIN_MSG = "Claude につながりませんでした。Claude のアプリでログインしていても、Safari などのブラウザは別なので、ブラウザでは claude.ai を開いてログインしてください(ページ右上に「ログイン」が出ていたら未ログインです)。いちばん確実なのは、Claude のアプリの中でこのページを開くことです。";
   const NO_IMAGE_MSG = "この画面からは写真を Claude に送れません。Claude のアプリか、ブラウザの claude.ai で開いてください。";
   let connecting = null;
   function connect() {
