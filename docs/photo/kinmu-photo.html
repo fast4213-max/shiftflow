@@ -259,6 +259,19 @@ details.chat .help-body { padding: 0 12px 12px; }
   const NO_IMAGE_MSG = "この画面からは写真を Claude に送れません。Claude のアプリか、ブラウザの claude.ai で開いてください。";
   let connecting = null;
   let why = "";               // つながらなかった理由(原因を調べるため、画面に小さく出す)
+  // どこで開いているか(原因を調べるため)。埋め込み=Claude の画面の中、単独=ページだけで開いている
+  async function where() {
+    let framed = "不明";
+    try { framed = window.self !== window.top ? "埋め込み" : "単独"; } catch { framed = "埋め込み(別ドメイン)"; }
+    let perm = "?";
+    try {
+      const p = await Promise.race([window.claude.use("permissions"), new Promise((r) => setTimeout(() => r(null), 3000))]);
+      perm = p ? await p.state("sample") : "permissions も null";
+    } catch (e) { perm = `取れない(${e?.code || e?.message || e})`; }
+    const ref = (() => { try { return document.referrer ? new URL(document.referrer).host : "なし"; } catch { return "?"; } })();
+    const ua = /iPhone|iPad/.test(navigator.userAgent) ? "iOS" : /Android/.test(navigator.userAgent) ? "Android" : "他";
+    return `${framed}・${location.host}・元:${ref}・許可:${perm}・${ua}`;
+  }
   function connect() {
     if (sample) return Promise.resolve("ok");
     connecting ||= (async () => {
@@ -267,7 +280,7 @@ details.chat .help-body { padding: 0 12px 12px; }
         if (typeof window.claude.use !== "function") { why = "claude.use なし"; return "login"; }
         const t0 = Date.now();
         const s = await window.claude.use("sample");
-        if (!s) { why = `use が null(${Math.round((Date.now() - t0) / 100) / 10}秒)`; return "login"; }
+        if (!s) { why = `use が null(${Math.round((Date.now() - t0) / 100) / 10}秒)・${await where()}`; return "login"; }
         const caps = await s.limits().catch((e) => { why = `limits 失敗: ${e?.code || e?.message || e}`; return null; });
         if (caps && !caps.images) { why = "images 不可"; return "noimage"; }
         sample = s;
