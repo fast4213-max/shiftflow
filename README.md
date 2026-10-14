@@ -47,6 +47,7 @@ web/                        画面(GitHub Pages で配信)
   input.html                勤務入力
   admin.html                管理ダッシュボード
   help.html                 使い方(未ログインでも読める)
+  terms.html                利用上の注意とプライバシー(未ログインでも読める)
   contact.html              お問い合わせ(未ログインでも使える)
   notices.html              お知らせ(ログイン後)
   js/config.js              Supabase の URL と公開キー、OAuth クライアント ID(★自分の値を書く)
@@ -149,7 +150,9 @@ Supabase の左メニュー「Edge Functions」→「Secrets」(または「Proj
    - `SUPABASE_ANON_KEY` = 1-3 の公開用キー
    - どちらも公開してよい値です。**secret / service_role キーは書かない**
 2. GitHub のリポジトリ →「Settings」→「Pages」→「Source」を **GitHub Actions** にする
-3. 「Actions」タブで「GitHub Pages」が成功するのを待つ(失敗していたら「Re-run jobs」)
+3. 「Actions」タブで「GitHub Pages」が成功するのを待つ
+   - 失敗したら、赤いエラー文のとおりに直します
+   - 「Deploy Supabase を待っていて失敗した」ときは、手順6までできてから、「Actions」→「GitHub Pages」→「Run workflow」で動かし直します(「Re-run jobs」では、また同じ所で失敗します)。1回目の変更が `web/js/config.js` だけのときなどに起きます
    - アプリの URL: `https://<ユーザー名>.github.io/shiftflow/`
 
 ### 5-2. (任意)設定画面の「かんたん設定」を使えるようにする

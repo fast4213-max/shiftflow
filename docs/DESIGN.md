@@ -1,6 +1,6 @@
 # shiftflow Supabase 版 設計書(第2版)
 
-状態: **実装済み**(2026-09-29 第2版。実環境での動作確認はこれから。実装で変えた点は末尾の「実装で決めたこと」)
+状態: **実装済み**(2026-09-29 第2版。実環境で動作確認済み。機能ごとの状態は [`WORKLOG.md`](../WORKLOG.md)。実装で変えた点は末尾の「実装で決めたこと」)
 
 個人用の勤務登録アプリを、身内の数人〜数十人で使える Supabase 版として作った。
 第1版(Google ログイン方式)は設定の手間が大きかったため、ログインを「社員番号+PIN」に変えて全体を簡単にした。
@@ -109,9 +109,9 @@ help.html      使い方(未ログインでも読める)
 
 | ワークフロー | いつ | すること |
 |---|---|---|
-| `deploy-supabase.yml` | `supabase/` を変えて main に push したとき(手動でも可) | `supabase link` → `supabase db push`(SQL の反映)→ `supabase functions deploy` |
-| `pages.yml` | `web/` を変えて main に push したとき | `web/` を GitHub Pages に公開(同じ push で `supabase/` も変えたときは、Deploy Supabase の成功を待つ。新しい画面が DB より先に出て、保存などが失敗するのを防ぐ) |
-| `test.yml` | コードを変えたとき | 予定の組み立て・カレンダー操作のテスト |
+| `deploy-supabase.yml` | `supabase/` を変えて main に push したとき(手動でも可) | 先にテスト(lint・型チェック・Deno テスト・DB のテスト)をして、通ったときだけ `supabase link` → `supabase db push`(SQL の反映)→ `supabase functions deploy` |
+| `pages.yml` | `web/` を変えて main に push したとき(手動でも可) | Deno のテストをして、通ったときだけ `web/` を GitHub Pages に公開(同じ push で `supabase/` も変えたときは、Deploy Supabase の成功を待つ。新しい画面が DB より先に出て、保存などが失敗するのを防ぐ) |
+| `test.yml` | コードや migration を変えたとき(手動でも可) | lint・型チェック・Deno のテスト(予定の組み立て・カレンダー操作・ログインなど)と、DB のテスト(空の PostgreSQL に全 migration を当てて、権限・RLS・列の grant を確かめる。`docs/contact/test/db_assert.sql`) |
 
 GitHub の Secrets に入れるもの(最初に本人が1回だけ): `SUPABASE_ACCESS_TOKEN`、`SUPABASE_PROJECT_ID`、`SUPABASE_DB_PASSWORD`。
 サービスアカウントの鍵は Supabase のダッシュボードの Edge Functions → Secrets に本人が入れる(GitHub には置かない)。
@@ -124,12 +124,14 @@ GitHub の Secrets に入れるもの(最初に本人が1回だけ): `SUPABASE_A
 |---|---|---|
 | `profiles` | user_id, employee_no(7桁・一意), family_name, given_name, role(user/admin), plan(free), created_at | 本人は自分の行を読める。管理者は全員分を読める。作成・削除は Edge Function |
 | `offices` | id, name, sort_order | 全員が読む。書くのは管理者 |
-| `shift_master` | office_id, code, kind, weekday_start, weekday_end, holiday_start, holiday_end, weekday_holiday_start / weekday_holiday_end(平休出勤・退勤), holiday_weekday_start / holiday_weekday_end(休平出勤・退勤), stay, sort_order | 全員が読む。書くのは管理者(区所ごとに丸ごと入れ替え) |
-| `user_settings` | user_id, office_id, work_calendar_id, holiday_calendar_id, verified_at, busy_until, last_registered_at | 本人だけ。本人が書けるのは区所とカレンダーIDだけ |
+| `shift_master` | office_id, code, kind, weekday_start, weekday_end, holiday_start, holiday_end, weekday_holiday_start / weekday_holiday_end(平休出勤・退勤), holiday_weekday_start / holiday_weekday_end(休平出勤・退勤), stay(泊), stay_next_holiday(翌休泊), sort_order | 全員が読む。書くのは管理者(区所ごとに丸ごと入れ替え) |
+| `user_settings` | user_id, office_id, work_calendar_id, holiday_calendar_id, offduty_calendar_id, split_day_events, split_offduty_events, title_day_time, title_offduty_time, timed_events, verified_at, busy_until, last_registered_at, next_first_pending | 本人だけ。本人が書けるのは、区所・カレンダーID 3つ・登録の設定 5つ(`split_day_events`・`split_offduty_events`・`title_day_time`・`title_offduty_time`・`timed_events`)。`verified_at`・`busy_until`・`last_registered_at`・`next_first_pending`(登録の途中の印)は Edge Function だけが書く |
 | `shift_records` | user_id, date, code, memo, updated_at | 本人だけ |
 | `holidays` / `holiday_years` | 祝日のキャッシュ | 全員が読む。書くのは Edge Function |
-| `app_secrets` | 共通パスワードのハッシュ、失敗回数 | 誰も直接読めない(関数経由だけ) |
+| `app_secrets` | 共通パスワードのハッシュ | 誰も直接読めない(関数経由だけ) |
+| `auth_attempts` | ログイン・新規登録の失敗回数とロックの時刻(`emp:<社員番号>`・`admin`・`signup:<IP>` ごと) | 誰も直接読めない(関数経由だけ) |
 
+- お知らせ・お問い合わせの表(`notices`・`inquiries`・`inquiry_messages`・`discord_posts`・`rate_limits`・`app_status`)と関数は、ここには書かず [`contact/DESIGN.md`](contact/DESIGN.md) にまとめてある
 - 第1版の `members`(メールの許可リスト)と `admin_secret` / `admin_unlocks`(管理画面のパスワード)は不要になる(`profiles` と管理用ユーザーに置き換え)
 - DB はまだどこにも作っていないので、マイグレーションは初期の1ファイルを作り直す
 - 関数の実行権限は、いったん全部外して必要なものだけ付ける(Supabase は新しい関数に一般ユーザーの実行権限を自動で付けるため)
@@ -140,13 +142,17 @@ GitHub の Secrets に入れるもの(最初に本人が1回だけ): `SUPABASE_A
 
 | 関数 | 誰が | すること |
 |---|---|---|
+| `login` | 未ログイン | 社員番号+PIN でログインしてセッションを返す(失敗が続いたらロック) |
+| `admin-login` | 未ログイン | 管理用パスワードでログインして、管理者のセッションを返す |
 | `sign-up` | 未ログイン | 共通パスワードを確かめて利用者を作る |
+| `change-pin` | ログイン済み | 今の PIN を確かめて、PIN を変える(ほかの端末のログインは消す) |
 | `admin-users` | 管理者 | 利用者の削除、PIN の再設定 |
 | `app-config` | ログイン済み | サービスアカウントのメールアドレスを返す |
 | `verify-calendar` | ログイン済み | 接続テスト(テスト予定を書いて消す) |
 | `register-month` | ログイン済み | 月の入力を保存してカレンダーに登録 |
-| `delete-month` | ログイン済み | 月のアプリの予定だけ削除 |
+| `delete-month` | ログイン済み | 月のアプリの予定だけ削除(手で入れた予定は消さない)。その月の入力内容(`shift_records`)も消す |
 | `sync-holidays` | ログイン済み | 祝日のキャッシュ |
+| `contact` / `admin-contact` / `mail-inbound` | 未ログイン・ログイン済み / 管理者 / GAS | お問い合わせとお知らせ。[`contact/DESIGN.md`](contact/DESIGN.md) を見る |
 
 ---
 
