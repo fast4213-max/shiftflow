@@ -54,20 +54,39 @@ export function decodeImport(text) {
 //   名前:山田 太郎   (読んだ行の名前。無くてもよい。取り込む前の確認に出すだけ)
 //   1:15
 //   2:〜
-// 1行目に年月、あとは「日:番号」を1日1行。番号が無い日は書かなくてよい。かこみ(```)などの余分な行は読み飛ばす
+// 1行目に年月、あとは「日:番号」を1日1行。番号が無い日は書かなくてよい。かこみ(```)などの余分な行は読み飛ばす。
+// 指示文と答えを両方貼ったときは、最後の年月の行から読み、そのあとの閉じの ``` で読むのをやめる
+const DAY_LINE = /^\s*(\d{1,2})\s*日?\s*[:：=＝]\s*(.*)$/;
+const toHalf = (s) => s.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
 function decodePlain(raw) {
-  const head = raw.match(/shiftflow\s*[:：]\s*(\d{4})\s*[-/年]\s*(\d{1,2})/i);
-  if (!head) return null;
+  // 年月の行は、全角の数字・コロン・ハイフンでも読む(1字ずつ置き換えるので、文字の位置は変わらない)
+  const norm = toHalf(raw).replace(/[：]/g, ":").replace(/[－‐‑–]/g, "-").replace(/／/g, "/");
+  const heads = [...norm.matchAll(/shiftflow\s*:\s*(\d{4})\s*[-/年]\s*(\d{1,2})/gi)];
+  if (!heads.length) {
+    // 年月の行が無いのに「日:番号」の行がある(答えの枠を途中からコピーしたなど)
+    if (raw.split(/\r?\n/).some((line) => DAY_LINE.test(toHalf(line)))) {
+      throw new Error("1行目の「shiftflow:2026-11」(年と月の行)がありません。Claude の答えの枠を、そのままコピーして貼り付けてください。");
+    }
+    return null;
+  }
+  const head = heads[heads.length - 1];
   const year = Number(head[1]);
   const month = Number(head[2]);
   const bad = () => new Error("年月が正しくありません。1行目を「shiftflow:2026-11」の形にしてください。");
   if (year < 2000 || year > 2100 || month < 1 || month > 12) throw bad();
   const n = daysInMonth(year, month);
   const days = new Map();
-  const who = raw.match(/^\s*名前\s*[:：]\s*(.+)$/m);
-  for (const line of raw.slice(head.index + head[0].length).split(/\r?\n/)) {
-    const half = line.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
-    const m = half.match(/^\s*(\d{1,2})\s*日?\s*[:：=＝]\s*(.*)$/);
+  let body = raw.slice(head.index + head[0].length);
+  const fence = body.search(/^[^\S\n]*```/m); // 年月の行のあとの ``` は、答えの枠の閉じ
+  if (fence >= 0) body = body.slice(0, fence);
+  // 名前は同じ行の中だけで読む(空だと、次の行を名前にしないため)
+  const who = body.match(/^[^\S\n]*名前[^\S\n]*[:：][^\S\n]*([^\n]+)$/m);
+  const name = who ? clean(who[1]).slice(0, 40) : "";
+  if (name === "読んだ行の名前") {
+    throw new Error("指示文の例をコピーしています。Claude の答えのほうの枠(下の枠)の右上のマークでコピーしてください。");
+  }
+  for (const line of body.split(/\r?\n/)) {
+    const m = toHalf(line).match(DAY_LINE);
     if (!m) continue;
     const d = Number(m[1]);
     if (d < 1 || d > n) continue;
@@ -75,7 +94,7 @@ function decodePlain(raw) {
     if (code) days.set(d, { code, memo: "" });
   }
   if (!days.size) throw new Error("日ごとの番号が見つかりません。「1:15」のように、1日1行で貼り付けてください。");
-  return { year, month, days, who: who ? clean(who[1]).slice(0, 40) : "" };
+  return { year, month, days, who: name };
 }
 
 // 改行・制御文字を空白にして、前後の空白を取る

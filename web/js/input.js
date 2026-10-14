@@ -355,8 +355,15 @@ function moveMonth(delta) {
 $("prev").addEventListener("click", () => moveMonth(-1));
 $("next").addEventListener("click", () => moveMonth(1));
 
+// リンクの確認で「移る」と決めた印(beforeunload でもう一度聞かないため)。
+// 変更なし(dirty=false)にはしない: Claude のアプリが開くだけで、この画面が残ることがあるため(AA9)
+let leaveConfirmed = false;
+const clearLeaveConfirmed = () => { leaveConfirmed = false; };
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") clearLeaveConfirmed(); });
+window.addEventListener("pageshow", clearLeaveConfirmed);
+
 window.addEventListener("beforeunload", (ev) => {
-  if (!state.dirty) return;
+  if (!state.dirty || leaveConfirmed) return;
   ev.preventDefault();
   ev.returnValue = ""; // 古いブラウザは returnValue が無いと確認を出さない
 });
@@ -367,7 +374,7 @@ document.addEventListener("click", (ev) => {
   const link = ev.target.closest && ev.target.closest("a[href]");
   if (!link || !state.dirty) return;
   if (confirm("登録していない変更があります。移動しますか？")) {
-    state.dirty = false; // 移ると決めたので、beforeunload でもう一度聞かない
+    leaveConfirmed = true; // 移ると決めたので、beforeunload でもう一度聞かない
     ev.leaveConfirmed = true; // ログアウトの確認(app.js)で、続けて聞かない
     return;
   }

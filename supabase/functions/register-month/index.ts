@@ -89,7 +89,6 @@ serve(async (req) => {
     const keepNextFirst = shouldKeepTimedNextFirst({
       timedEvents: !!calendars.timedEvents,
       nextFirstOffduty,
-      retryNextFirst,
       existing,
       nextFirst,
     });

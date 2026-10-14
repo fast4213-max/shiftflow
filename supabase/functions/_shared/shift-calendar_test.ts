@@ -4,6 +4,7 @@
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
 import {
   addTimeToTitles,
+  type AppEvent,
   createEvents,
   deleteAppEvents,
   eventsToRegister,
@@ -13,6 +14,7 @@ import {
   nextFirstNewlyOffduty,
   parseOffdutyTime,
   parseTimeRange,
+  type PlannedEvent,
   shouldKeepTimedNextFirst,
   splitDayEvents,
   splitOffdutyEvents,
@@ -994,10 +996,20 @@ Deno.test("listAppEvents: 時間つきの予定には timed が付く。shouldKe
   });
   const listed = await listAppEvents({ work, holiday: "" }, 2026, 10);
   assertEquals(listed.map((e) => [e.eventId, !!e.timed]), [["stay", true], ["allday", false]]);
-  const base = { timedEvents: true, nextFirstOffduty: false, retryNextFirst: false, existing: listed, nextFirst: "2026-11-01" };
+  const base = { timedEvents: true, nextFirstOffduty: false, existing: listed, nextFirst: "2026-11-01" };
   assertEquals(shouldKeepTimedNextFirst(base), true);
   assertEquals(shouldKeepTimedNextFirst({ ...base, timedEvents: false }), false); // 時間つきの設定でない
   assertEquals(shouldKeepTimedNextFirst({ ...base, nextFirstOffduty: true }), false); // 月末が泊: 翌月1日は非番として作り直す
-  assertEquals(shouldKeepTimedNextFirst({ ...base, retryNextFirst: true }), false); // 前の登録が途中で止まった
   assertEquals(shouldKeepTimedNextFirst({ ...base, existing: [listed[1]] }), false); // 翌月1日に時間つきの予定が無い
+});
+
+Deno.test("shouldKeepTimedNextFirst: 前の登録が途中で止まったあとの登録し直し(retryNextFirst)でも、翌月1日の時間つきの予定は作り直さない(AA12)", () => {
+  const nextFirst = "2026-11-01";
+  const existing: AppEvent[] = [{ calendarId: "work", eventId: "stay", date: nextFirst, tag: "day", timed: true }];
+  const planned: PlannedEvent[] = [{ date: nextFirst, calendar: "work", kind: "day", title: "15", description: "" }];
+  // register-month と同じ流れ: やり直しでも eventsToRegister は翌月1日を含むが、keep が true なので取り除かれる
+  const keep = shouldKeepTimedNextFirst({ timedEvents: true, nextFirstOffduty: false, existing, nextFirst });
+  assertEquals(keep, true);
+  const registered = eventsToRegister(planned, existing, nextFirst, true).filter((e) => !keep || e.date !== nextFirst);
+  assertEquals(registered, []);
 });

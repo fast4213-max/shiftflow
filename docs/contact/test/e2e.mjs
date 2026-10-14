@@ -616,6 +616,77 @@ await check("写真取込: 貼り付けで取込。違う文字はダイアロ�
   await ctx.close();
 });
 
+await check("写真取込: チャットの答えの文字(shiftflow:年-月・名前・日:番号)を貼ると取り込める。確認に年月と名前が出る(AA8)", async () => {
+  const mm = String(nextMonth.m).padStart(2, "0");
+  const asked = [];
+  const { page, ctx, errors } = await open("input.html", {
+    userId: "u1",
+    opts: { profile: USER, master: PHOTO_MASTER },
+    beforeLoad: async (p) => { p.removeAllListeners("dialog"); p.on("dialog", (d) => { asked.push(d.message()); d.accept(); }); },
+  });
+  await page.waitForSelector("#register:not([disabled])");
+  await page.click("#paste-import");
+  // 指示文と答えの両方を貼っても、最後の年月の行から読み、閉じの ``` で止まる(AA2)
+  await page.fill("#paste-text", [
+    "```", `shiftflow:${nextMonth.y}-${mm}`, "名前:読んだ行の名前", "1:15", "2:〜", "3:特休", "```",
+    "", "```", `shiftflow:${nextMonth.y}-${mm}`, "名前:山田 太郎", "5:25", "６：公休", "7:", "```", "8:99",
+  ].join("\n"));
+  await page.click("#paste-run");
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("「山田 太郎」の行の2日分を入れました"));
+  assert.equal(asked.length, 1);
+  assert.ok(asked[0].includes(`${nextMonth.y}年${nextMonth.m}月`) && asked[0].includes("山田 太郎") && asked[0].includes("2日分"), asked[0]);
+  assert.equal(await page.locator("#list tr").nth(4).locator(".pick").textContent(), "25");
+  assert.equal(await page.locator("#list tr").nth(5).locator(".pick").textContent(), "公休");
+  assert.equal(await page.locator("#list tr.imported").count(), 2);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("写真取込: 指示文の例(名前:読んだ行の名前)をコピーして貼ったときは断る。年月の行が無いときも案内を出す(AA2・AA6)", async () => {
+  const mm = String(nextMonth.m).padStart(2, "0");
+  const { page, ctx, errors } = await open("input.html", { userId: "u1", opts: { profile: USER, master: PHOTO_MASTER } });
+  await page.waitForSelector("#register:not([disabled])");
+  await page.click("#paste-import");
+  await page.fill("#paste-text", ["```", `shiftflow:${nextMonth.y}-${mm}`, "名前:読んだ行の名前", "1:15", "2:〜", "3:特休", "```"].join("\n"));
+  await page.click("#paste-run");
+  assert.ok((await page.textContent("#paste-error")).includes("指示文の例をコピーしています"));
+  assert.ok(await page.isVisible("#paste-dialog"));
+  await page.fill("#paste-text", "1:15\n2:〜");
+  await page.click("#paste-run");
+  assert.ok((await page.textContent("#paste-error")).includes("(年と月の行)がありません"));
+  assert.equal(await page.locator("#list tr.imported").count(), 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("勤務入力: 登録していない変更があるとき、リンクの確認で OK を押しても移らなかったら、変更を残す。戻ったときに読み直さない(AA9)", async () => {
+  const { page, ctx, errors } = await open("input.html", { userId: "u1", opts: { profile: USER } });
+  await page.waitForSelector("#register:not([disabled])");
+  await page.locator("td.memo input").first().fill("メモ");
+  page.removeAllListeners("dialog");
+  const asked = [];
+  page.on("dialog", (d) => { asked.push(d.message()); d.accept(); });
+  // 確認のあとで移動が止まった(Android で Claude のアプリが開き、この画面が残る)ようすにする
+  await page.evaluate(() => document.addEventListener("click", (ev) => { if (ev.target.closest("a[href]")) ev.preventDefault(); }, true));
+  await page.click('nav.topbar a[href="settings.html"]');
+  assert.deepEqual(asked, ["登録していない変更があります。移動しますか？"]);
+  assert.ok(page.url().includes("input.html"));
+  // 画面が隠れて、しばらくして戻る
+  await page.evaluate(() => {
+    let state = "hidden";
+    Object.defineProperty(document, "visibilityState", { get: () => state, configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+    const now = Date.now;
+    Date.now = () => now() + 5000;
+    state = "visible";
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("登録していない変更があります"));
+  assert.equal(await page.locator("td.memo input").first().inputValue(), "メモ");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await check("管理画面: マスタを読み込めていないときは「CSVで保存」で前の区所のマスタを保存しない(S4)", async () => {
   const { page, ctx } = await open("admin.html", { userId: "a1", opts: { profile: ADMIN, masterFail: true }, viewport: { width: 1200, height: 900 } });
   await page.waitForSelector("#message.error");
@@ -1102,7 +1173,7 @@ await check("幅320px: 管理画面のお問い合わせ一覧が、長い名前
 });
 
 await check("幅320px: 横にはみ出さない(N9)", async () => {
-  for (const [path, userId, profile] of [["index.html"], ["contact.html"], ["contact.html", "u1", USER], ["notices.html", "u1", USER]]) {
+  for (const [path, userId, profile] of [["index.html"], ["contact.html"], ["contact.html", "u1", USER], ["notices.html", "u1", USER], ["help.html"], ["input.html", "u1", USER], ["settings.html", "u1", USER]]) {
     const { page, ctx } = await open(path, { userId, opts: { profile }, viewport: { width: 320, height: 640 } });
     await page.waitForTimeout(1200);
     const [sw, iw] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);

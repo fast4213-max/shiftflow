@@ -246,17 +246,18 @@ export function eventsToRegister(
 // lastCode は登録(リセット)する前の月末の番号。memoOnly の記録は、番号の無いものだけを消す
 // 時間つきの設定で、翌月1日に時間つきのアプリの予定が(翌月の登録で)すでにあるか(R1)。あるときは、この月の登録で翌月1日を作り直さない。
 // 翌月1日の泊の1件は、翌月2日の退勤時間と組になっているので、この月の登録だけでは作り直せず、終日の泊に戻ってしまうため。
-// 翌月1日が非番になるとき(この月の月末が泊)・前の登録が途中で止まったあとは、今までどおり作り直す
+// 翌月1日が非番になるとき(この月の月末が泊)は、今までどおり作り直す。
+// 前の登録が途中で止まったあとの登録し直しでも残す: 翌月1日の時間つきの予定は、翌月の登録か、前回の途中までの自分の登録で作ったもので、
+// どちらでも中身は同じ。作り直すと終日の泊に戻り、翌月2日の退勤時間が消えてしまう(R1・AA12)
 export function shouldKeepTimedNextFirst(
-  { timedEvents, nextFirstOffduty, retryNextFirst, existing, nextFirst }: {
+  { timedEvents, nextFirstOffduty, existing, nextFirst }: {
     timedEvents: boolean;
     nextFirstOffduty: boolean;
-    retryNextFirst: boolean;
     existing: AppEvent[];
     nextFirst: string;
   },
 ): boolean {
-  return timedEvents && !nextFirstOffduty && !retryNextFirst && existing.some((e) => e.date === nextFirst && !!e.timed);
+  return timedEvents && !nextFirstOffduty && existing.some((e) => e.date === nextFirst && !!e.timed);
 }
 
 export function staleNextMonthRecords(

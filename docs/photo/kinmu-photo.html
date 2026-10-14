@@ -121,7 +121,7 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
       <h2>使う前に</h2>
       <ul>
         <li><b>Claude のアプリとアカウントが必要です。</b>持っていない人は、Claude のアプリを入れて新規登録、持っている人はログインしてください。</li>
-        <li><b>使い方は、スマホで違います。</b>下の「Android・PC」「iPhone」から、自分のスマホを選んでください。iPhone では、このページの「読み取る」が使えないため、Claude のアプリのチャットで読み取ってもらいます。</li>
+        <li><b>使い方は、スマホで違います。</b>下の「Android・PC」「iPhone・iPad」から、自分のスマホを選んでください。iPhone・iPad では、このページの「読み取る」が使えないため、Claude のアプリのチャットで読み取ってもらいます。</li>
         <li><b>無料プランでも使えます。</b>読み取りには、<b>あなた自身の Claude の使用量</b>を使います。shiftflow や、このページを作った人の分は使いません。</li>
         <li><b>何回も読み取ると、使用量の上限に達して、しばらく(最大5時間ほど)使えなくなります。</b>その間は Claude のほかの使い方(チャットなど)もできなくなります。「読み直す」は丁寧に読むぶん、多く使います。1か月に1〜2回の読み取りで済むように使ってください。</li>
         <li>最初の読み取りで「Claude に写真を送ってよいか」の確認が出ます。「許可」を選んでください。</li>
@@ -150,7 +150,7 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
 
   <div class="tabs" role="tablist" aria-label="使っているスマホ">
     <button id="tab-a" type="button" role="tab" aria-selected="true" aria-controls="pane-a">Android・PC</button>
-    <button id="tab-i" type="button" role="tab" aria-selected="false" aria-controls="pane-i">iPhone</button>
+    <button id="tab-i" type="button" role="tab" aria-selected="false" aria-controls="pane-i">iPhone・iPad</button>
   </div>
 
   <div class="card">
@@ -162,7 +162,7 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
     <label>月<select id="month"></select></label>
 
     <div id="pane-i" role="tabpanel" aria-labelledby="tab-i" hidden>
-      <p style="margin:0 0 8px">iPhone では、<b>Claude のアプリのチャット</b>で写真を読み取ってもらい、答えを shiftflow に貼り付けます(Safari では読み取れません)。</p>
+      <p style="margin:0 0 8px">iPhone・iPad では、<b>Claude のアプリのチャット</b>で写真を読み取ってもらい、答えを shiftflow に貼り付けます(Safari では読み取れません)。</p>
       <ol class="steps">
         <li>上で名前・月を入れて、下の「<b>指示文をコピー</b>」を押します。</li>
         <li>このページを閉じて(左上の <b>✕</b>)、Claude のアプリで<b>新しいチャット</b>を開きます。</li>
@@ -297,9 +297,11 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
   // ---------- Claude ----------
   // 読み取るボタンは、ここでは無効にしない(ログイン済みでも、開いた直後は Claude につながっていないことがある)。
   // 押したときと、画面に戻ったときに、つなぎ直す。つながらないときだけ、押した後にお願いを出す
-  const LOGIN_MSG = "この画面では、Claude につながりませんでした(ログインしていない、またはお使いの端末・アプリがこの機能に対応していません)。下の「エラーが出る・読み取れないとき」を開いて、まずブラウザ(Chrome)で claude.ai にログインしてから、このページを開き直してください。iPhone の人は、上の「iPhone」を選んでください。";
+  const LOGIN_MSG = "この画面では、Claude につながりませんでした(ログインしていない、またはお使いの端末・アプリがこの機能に対応していません)。下の「エラーが出る・読み取れないとき」を開いて、まずブラウザ(Chrome)で claude.ai にログインしてから、このページを開き直してください。iPhone・iPad の人は、上の「iPhone・iPad」を選んでください。";
   const NO_IMAGE_MSG = "この画面からは写真を Claude に送れません。Claude のアプリか、ブラウザの claude.ai で開いてください。";
   let connecting = null;
+  // iPad は Safari が Mac のふりをするので、Mac の表示でタッチができれば iPad とみなす
+  const isIos = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
   let why = "";               // つながらなかった理由(原因を調べるため、画面に小さく出す)
   // どこで開いているか(原因を調べるため)。埋め込み=Claude の画面の中、単独=ページだけで開いている
   async function where() {
@@ -311,12 +313,13 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
       perm = p ? await p.state("sample") : "permissions も null";
     } catch (e) { perm = `取れない(${e?.code || e?.message || e})`; }
     const ref = (() => { try { return document.referrer ? new URL(document.referrer).host : "なし"; } catch { return "?"; } })();
-    const ua = /iPhone|iPad/.test(navigator.userAgent) ? "iOS" : /Android/.test(navigator.userAgent) ? "Android" : "他";
+    const ua = isIos ? "iOS" : /Android/.test(navigator.userAgent) ? "Android" : "他";
     return `${framed}・${location.host}・元:${ref}・許可:${perm}・${ua}`;
   }
   function connect() {
     if (sample) return Promise.resolve("ok");
     connecting ||= (async () => {
+      await null; // すぐ返る場合も、下の connecting への代入のあとに finally が走るようにする
       try {
         if (!window.claude) { why = "window.claude なし"; return "login"; }
         if (typeof window.claude.use !== "function") { why = "claude.use なし"; return "login"; }
@@ -418,11 +421,11 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
 
   // チャット用の指示文(アーティファクトから読めない人が、Claude のチャットに貼る)
   function chatPrompt(name, y, m) {
-    const n = daysIn(y, m);
     return [
       "添付の写真は、鉄道会社の「勤務指定表」です。1人につき1行で、左端に名前(前に【眼鏡】などの印が付くことがある)と7桁の社員番号があり、右へ日付ごとのマスが並びます。",
-      `名前が「${name}」の人(空白や【】の印は無視して比べる)の行を探し、${y}年${m}月の1日から${n}日まで、マスの上の大きい文字(勤務の番号)を順に読んでください。`,
-      "読み方: 番号は大きい文字をそのまま(例: 15、2500、特休、公休、年休、変7d)。全角の英数字は半角に。横棒だけのマスは 〜 にする。空のマスは書かない。推測で埋めず、読めた通りに書く。",
+      `名前が「${name}」の人(空白や【】の印は無視して比べる)の行を探し、日付ごとのマス(表の1日から最後の日まで)の上の大きい文字(勤務の番号)を順に読んでください。`,
+      `選んだ月は${y}年${m}月です。表の月が違っても、その人の行があれば読み、表に書かれている年月をそのまま1行目に書いてください。月が違うだけで「見つからない」と答えないでください。`,
+      "読み方: 番号は大きい文字をそのまま(例: 15、2500、特休、公休、年休、変7d、臨)。全角の英数字は半角に。横棒だけのマスは 〜 にする。空のマスは書かない。推測で埋めず、読めた通りに書く。",
       "名前の行には、表に書かれている名前をそのまま書く(本人の行か確かめるため)。答えは、次の形の文字だけを、コピーしやすいようにコードブロックに入れて返してください(説明は書かない)。",
       "```",
       `shiftflow:${y}-${String(m).padStart(2, "0")}`,
@@ -463,7 +466,7 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
   $("copyprompt").addEventListener("click", () => copyPrompt($("chatmsg"), $("promptbox")));
   $("copyprompt-i").addEventListener("click", () => copyPrompt($("chatmsg-i"), $("promptbox-i")));
 
-  // ---------- タブ(Android・PC / iPhone)。iPhone では読み取るが使えないので、チャットの手順だけ見せる ----------
+  // ---------- タブ(Android・PC / iPhone・iPad)。iPhone・iPad では読み取るが使えないので、チャットの手順だけ見せる ----------
   function showTab(t) {
     const ios = t === "i";
     $("tab-i").setAttribute("aria-selected", String(ios));
@@ -474,7 +477,7 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
   }
   $("tab-a").addEventListener("click", () => showTab("a"));
   $("tab-i").addEventListener("click", () => showTab("i"));
-  showTab(store.get("sf_tab") || (/iPhone|iPad|iPod/.test(navigator.userAgent) ? "i" : "a"));
+  showTab(store.get("sf_tab") || (isIos ? "i" : "a"));
 
   async function read(careful) {
     const name = $("who").value.trim();
