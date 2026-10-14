@@ -127,6 +127,7 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
         <li>最初の読み取りで「Claude に写真を送ってよいか」の確認が出ます。「許可」を選んでください。</li>
         <li><b>Android で「読み取る」がエラーになる・押せないときは、</b>「エラーが出る・読み取れないとき」を開いてください。まずブラウザ(Chrome)で開き直す方法、それでもだめなときにチャットで読み取る方法が書いてあります。</li>
       </ul>
+      <div id="help-a">
       <h2>手順(Android・PC)</h2>
       <ol>
         <li>名前を、勤務表に書かれているとおりに入れます(次からは覚えています)。</li>
@@ -136,14 +137,28 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
         <li>変・臨時など、時間が決まっていない番号の時間(メモ)は、shiftflow の勤務入力で入れます。分からなければ「保存」しておき、あとで入れられます。</li>
         <li>「勤務入力に反映」を押すと shiftflow の勤務入力画面が開いて、読み取った内容が入ります。確かめてから「登録」(カレンダーに入れる)か「保存」(入力だけ残す)を押します。</li>
       </ol>
+      </div>
+      <div id="help-i" hidden>
+        <h2>手順(iPhone・iPad)</h2>
+        <ol>
+          <li>下の「iPhone・iPad」を選び、名前・月を入れて「指示文をコピー」を押します。</li>
+          <li>このページを閉じて(左上の ✕)、Claude のアプリで新しいチャットを開きます。</li>
+          <li>入力欄の左の「＋」から、カメラで撮るか写真を選んで勤務表を付け、指示文を貼り付けて送ります。</li>
+          <li>返ってきた答えの「コード」の枠の右上にあるコピーのマークを押します(Claude の答えのほうの枠です)。</li>
+          <li>shiftflow の勤務入力画面で「貼り付けで取込」を押し、貼り付けて「取り込む」を押します。</li>
+          <li>変・臨時など、時間が決まっていない番号の時間(メモ)は、shiftflow の勤務入力で入れます。確かめてから「登録」か「保存」を押します。</li>
+        </ol>
+      </div>
       <h2>うまく撮るコツ</h2>
       <ul>
         <li>自分の行と、上の日付の行が両方入るように撮ります。</li>
         <li>明るい所で、表に対してまっすぐ撮ります。影や光の反射がかからないようにします。</li>
       </ul>
+      <div id="help-a2">
       <h2>「勤務入力に反映」で開けないとき</h2>
       <p>「コピー」を押してから、shiftflow の勤務入力画面の「貼り付けで取込」に貼り付けます。</p>
       <p>「勤務入力に反映」で開いた画面で shiftflow のログインを聞かれたら、一度ログインしてください。次からは聞かれません。</p>
+      </div>
       <p><b>shiftflow をホーム画面に追加して使っている人</b>は、写真取込のときはブラウザ(Chrome・Safari)で shiftflow を開くと、ログインし直しが少なくて済みます。</p>
     </div>
   </details>
@@ -473,6 +488,9 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
     $("tab-a").setAttribute("aria-selected", String(!ios));
     $("pane-i").hidden = ios ? false : true;
     $("pane-a").style.display = ios ? "none" : "grid";
+    $("help-i").hidden = !ios;
+    $("help-a").hidden = ios;
+    $("help-a2").hidden = ios;
     store.set("sf_tab", t);
   }
   $("tab-a").addEventListener("click", () => showTab("a"));
