@@ -166,7 +166,7 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
       <ol class="steps">
         <li>上で名前・月を入れて、下の「<b>指示文をコピー</b>」を押します。</li>
         <li>このページを閉じて(左上の <b>✕</b>)、Claude のアプリで<b>新しいチャット</b>を開きます。</li>
-        <li>勤務表の写真を付けて、コピーした指示文を貼り付けて送ります。</li>
+        <li>入力欄の左の「<b>＋</b>」を押し、「カメラ」で勤務表を撮るか、「写真」から選んで付けます。そのあと、入力欄に指示文を貼り付けて送ります。</li>
         <li>返ってきた答えの「<b>コード</b>」と書かれた枠の右上にある、<b>四角が2つ重なったマーク</b>(<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 3.5V3a1.5 1.5 0 0 0-1.5-1.5h-6A1.5 1.5 0 0 0 2 3v6a1.5 1.5 0 0 0 1.5 1.5H4"/></svg>)を押すとコピーできます。自分が送った指示文の中にも同じような枠があるので、<b>Claude の答えのほう</b>(下の枠)を押してください。</li>
         <li>shiftflow の勤務入力画面に戻り、「<b>貼り付けで取込</b>」を押して、貼り付けて「取り込む」を押します。</li>
       </ol>
@@ -206,7 +206,7 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
         <p><b>Claude のアプリを開いて</b>、チャットで読み取ってもらいます。その答えを shiftflow に貼り付けます。</p>
         <ol>
           <li>上で名前・月を入れて、下の「指示文をコピー」を押します。</li>
-          <li>Claude のアプリを開いて新しいチャットを作り、勤務表の写真を付けて、指示文を貼り付けて送ります。</li>
+          <li>Claude のアプリを開いて新しいチャットを作ります。入力欄の左の「＋」から「カメラ」か「写真」を選んで勤務表の写真を付け、指示文を貼り付けて送ります。</li>
           <li>返ってきた答えの「<b>コード</b>」と書かれた枠の右上にある、<b>四角が2つ重なったマーク</b>(<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 3.5V3a1.5 1.5 0 0 0-1.5-1.5h-6A1.5 1.5 0 0 0 2 3v6a1.5 1.5 0 0 0 1.5 1.5H4"/></svg>)を押すとコピーできます。自分が送った指示文の中にも同じような枠があるので、<b>Claude の答えのほう</b>(下の枠)を押してください。</li>
           <li>shiftflow の勤務入力画面で「貼り付けで取込」を押し、貼り付けて「取り込む」を押します。</li>
         </ol>
@@ -451,7 +451,7 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
     const text = chatPrompt(name, y, m);
     try {
       await navigator.clipboard.writeText(text);
-      msg.textContent = "コピーしました。Claude の新しいチャットに、写真といっしょに貼り付けて送ってください。";
+      msg.textContent = "コピーしました。Claude の新しいチャットに、「＋」から写真を付けて、この指示文を貼り付けて送ってください。";
       box.hidden = true;
     } catch {
       box.value = text;
