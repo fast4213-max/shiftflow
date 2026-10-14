@@ -519,7 +519,7 @@ async function applyImport(text) {
     setStatus(err.message, true);
     return;
   }
-  const { year, month, days } = data;
+  const { year, month, days, who } = data;
   // 番号もメモも無い取込は断る(反映すると、その月が空で置き換わるため。M4)
   if (!days.size) {
     setStatus("取り込む日がありません(番号が1つも入っていません)。写真取込でもう一度読み取ってください。", true);
@@ -533,7 +533,7 @@ async function applyImport(text) {
   const label = year + "年" + month + "月";
   const sameMonth = year === state.year && month === state.month;
   const lose = state.dirty ? (sameMonth ? "\n登録していない変更は消えます。" : "\n今の月の登録していない変更は消えます。") : "";
-  if (!confirm(label + "に、写真取込の内容(" + days.size + "日分)を入れます。\nこの月の今の入力は置き換わります(まだ保存・登録はしません)。" + lose + "\nよろしいですか？")) {
+  if (!confirm(label + "に、写真取込の内容(" + days.size + "日分)を入れます。" + (who ? "\n読んだ行の名前: " + who + "(自分の名前か確かめてください)" : "") + "\nこの月の今の入力は置き換わります(まだ保存・登録はしません)。" + lose + "\nよろしいですか？")) {
     setStatus("写真取込をやめました。");
     return;
   }
@@ -568,7 +568,7 @@ async function applyImport(text) {
   const unknown = [...new Set(Object.values(state.entries).map((e) => e.code.trim())
     .filter((c) => c && !state.master[c] && !/^[〜~\-ー—]$/.test(c)))];
   const offUnknown = unknown.filter((c) => /休/.test(c) && !/[出勤]/.test(c));
-  setStatus("写真取込: " + days.size + "日分を入れました。確かめて「登録」(カレンダーに入れる)か「保存」(入力だけ残す)を押してください。" +
+  setStatus("写真取込: " + (who ? "「" + who + "」の行の" : "") + days.size + "日分を入れました。確かめて「登録」(カレンダーに入れる)か「保存」(入力だけ残す)を押してください。" +
     (unknown.length ? "一覧にない番号: " + unknown.join("、") + "(手入力として入りました)。" : "") +
     (needTime ? "時間の無い日が" + needTime + "日あります(黄色)。分かればメモに時間を入れてください。" : "") +
     (offUnknown.length ? "休みの番号(" + offUnknown.join("、") + ")が一覧に無いので、登録すると勤務用カレンダーに入ります。管理者に一覧への追加を頼んでください。" : ""));

@@ -51,6 +51,7 @@ export function decodeImport(text) {
 
 // Claude のチャットに写真を送って読み取ってもらった、読める文字の形(アーティファクトが使えない iPhone 用)。
 //   shiftflow:2026-11
+//   名前:山田 太郎   (読んだ行の名前。無くてもよい。取り込む前の確認に出すだけ)
 //   1:15
 //   2:〜
 // 1行目に年月、あとは「日:番号」を1日1行。番号が無い日は書かなくてよい。かこみ(```)などの余分な行は読み飛ばす
@@ -63,6 +64,7 @@ function decodePlain(raw) {
   if (year < 2000 || year > 2100 || month < 1 || month > 12) throw bad();
   const n = daysInMonth(year, month);
   const days = new Map();
+  const who = raw.match(/^\s*名前\s*[:：]\s*(.+)$/m);
   for (const line of raw.slice(head.index + head[0].length).split(/\r?\n/)) {
     const half = line.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
     const m = half.match(/^\s*(\d{1,2})\s*日?\s*[:：=＝]\s*(.*)$/);
@@ -73,7 +75,7 @@ function decodePlain(raw) {
     if (code) days.set(d, { code, memo: "" });
   }
   if (!days.size) throw new Error("日ごとの番号が見つかりません。「1:15」のように、1日1行で貼り付けてください。");
-  return { year, month, days };
+  return { year, month, days, who: who ? clean(who[1]).slice(0, 40) : "" };
 }
 
 // 改行・制御文字を空白にして、前後の空白を取る
