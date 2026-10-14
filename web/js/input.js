@@ -584,7 +584,6 @@ async function applyImport(text) {
 if (PHOTO_IMPORT_URL) {
   $("photo-import").href = PHOTO_IMPORT_URL;
   $("photo-import").hidden = false;
-  $("photo-note").hidden = false;
 }
 $("paste-import").addEventListener("click", () => {
   $("paste-text").value = "";

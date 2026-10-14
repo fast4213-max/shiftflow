@@ -79,7 +79,6 @@ html, body { overscroll-behavior-y: none; }
 
 /* 写真取込(勤務表の写真を Claude で読み取ったもの)。設計は docs/photo/DESIGN.md */
 .import-bar { display: flex; gap: 8px; justify-content: flex-end; padding: 8px 0 4px; }
-.import-note { margin: 0 0 8px; font-size: 0.8rem; color: var(--muted); text-align: right; }
 .import-bar .button, .import-bar button {
   font-size: 0.95rem; padding: 7px 12px; border: 1px solid #bbb; border-radius: 6px; background: #fff;
   color: var(--text); text-decoration: none; line-height: 1.6;
