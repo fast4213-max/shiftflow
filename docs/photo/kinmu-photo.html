@@ -100,6 +100,8 @@ details.chat { border: 1px solid var(--line); border-radius: 6px; }
 details.chat summary { padding: 8px 12px; font-weight: bold; color: var(--accent); cursor: pointer; }
 details.chat .help-body { padding: 0 12px 12px; }
 #promptbox { width: 100%; font-size: 0.75rem; }
+#selfurl { word-break: break-all; font-family: var(--mono); font-size: 0.85rem; }
+details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
 #barmsg { grid-column: 1 / -1; font-size: 0.85rem; min-height: 0; }
 </style>
 
@@ -116,7 +118,7 @@ details.chat .help-body { padding: 0 12px 12px; }
         <li><b>無料プランでも使えます。</b>読み取りには、<b>あなた自身の Claude の使用量</b>を使います。shiftflow や、このページを作った人の分は使いません。</li>
         <li><b>何回も読み取ると、使用量の上限に達して、しばらく(最大5時間ほど)使えなくなります。</b>その間は Claude のほかの使い方(チャットなど)もできなくなります。「読み直す」は丁寧に読むぶん、多く使います。1か月に1〜2回の読み取りで済むように使ってください。</li>
         <li>最初の読み取りで「Claude に写真を送ってよいか」の確認が出ます。「許可」を選んでください。</li>
-        <li><b>「読み取る」でエラーが出る・押せないときは、</b>このページの下の「エラーが出る・読み取れないとき」を開いてください。Claude のアプリを開いて、チャットで読み取る方法が書いてあります。</li>
+        <li><b>「読み取る」でエラーが出る・押せないときは、</b>このページの下の「エラーが出る・読み取れないとき」を開いてください。まずブラウザ(Safari・Chrome)で開き直す方法、それでもだめなときにチャットで読み取る方法が書いてあります。</li>
       </ul>
       <h2>手順</h2>
       <ol>
@@ -162,7 +164,17 @@ details.chat .help-body { padding: 0 12px 12px; }
     <details id="chat" class="chat">
       <summary>エラーが出る・読み取れないとき(iPhone・Android どちらでも)</summary>
       <div class="help-body">
-        <p>「読み取る」でエラーが出たり、押せなかったりしたときは、<b>Claude のアプリを開いて</b>、チャットで読み取ってもらいます。その答えを shiftflow に貼り付けます。</p>
+        <h2>まず試すこと: ブラウザで開き直す</h2>
+        <p>Claude のアプリ(特に iPhone)では読み取れないことがあります。そのときは、<b>ブラウザ(Safari・Chrome)</b>で開き直すと読み取れることがあります。</p>
+        <ol>
+          <li>ブラウザで <b>claude.ai</b> を開いて、ログインします(アプリでログインしていても、ブラウザは別です)。</li>
+          <li>同じブラウザのアドレス欄に、次のアドレスを貼り付けて開きます。<br><code id="selfurl">https://claude.ai/artifact/GivZHYnUXZoz4uqc9dWdXV</code></li>
+          <li>名前・月・写真を入れて、「読み取る」を押します。</li>
+        </ol>
+        <button id="copyurl" type="button">アドレスをコピー</button>
+        <p id="urlmsg" role="status" class="muted"></p>
+        <h2>それでもだめなとき: チャットで読み取る</h2>
+        <p><b>Claude のアプリを開いて</b>、チャットで読み取ってもらいます。その答えを shiftflow に貼り付けます。</p>
         <ol>
           <li>上で名前・月を入れて、下の「指示文をコピー」を押します。</li>
           <li>Claude のアプリを開いて新しいチャットを作り、勤務表の写真を付けて、指示文を貼り付けて送ります。</li>
@@ -255,7 +267,7 @@ details.chat .help-body { padding: 0 12px 12px; }
   // ---------- Claude ----------
   // 読み取るボタンは、ここでは無効にしない(ログイン済みでも、開いた直後は Claude につながっていないことがある)。
   // 押したときと、画面に戻ったときに、つなぎ直す。つながらないときだけ、押した後にお願いを出す
-  const LOGIN_MSG = "この画面では、Claude につながりませんでした(ログインしていない、またはお使いの端末・アプリがこの機能に対応していません)。下の「エラーが出る・読み取れないとき」を開いて、Claude のアプリを開いてチャットで読み取ってください。";
+  const LOGIN_MSG = "この画面では、Claude につながりませんでした(ログインしていない、またはお使いの端末・アプリがこの機能に対応していません)。下の「エラーが出る・読み取れないとき」を開いて、まずブラウザ(Safari・Chrome)で claude.ai にログインしてから、このページを開き直してください。";
   const NO_IMAGE_MSG = "この画面からは写真を Claude に送れません。Claude のアプリか、ブラウザの claude.ai で開いてください。";
   let connecting = null;
   let why = "";               // つながらなかった理由(原因を調べるため、画面に小さく出す)
@@ -392,6 +404,15 @@ details.chat .help-body { padding: 0 12px 12px; }
       "その人の行が見つからないときや、当てはまる人が2人以上いるときは、コードブロックを返さず、そう伝えてください。",
     ].join("\n");
   }
+  $("copyurl").addEventListener("click", async () => {
+    const text = $("selfurl").textContent.trim();
+    try {
+      await navigator.clipboard.writeText(text);
+      $("urlmsg").textContent = "コピーしました。ブラウザで claude.ai にログインしてから、アドレス欄に貼り付けて開いてください。";
+    } catch {
+      $("urlmsg").textContent = "自動でコピーできませんでした。上のアドレスを長押ししてコピーしてください。";
+    }
+  });
   $("copyprompt").addEventListener("click", async () => {
     const name = $("who").value.trim();
     if (!name) { $("chatmsg").textContent = "先に、上で名前を入れてください。"; return; }
