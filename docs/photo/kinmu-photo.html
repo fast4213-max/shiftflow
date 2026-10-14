@@ -102,6 +102,11 @@ details.chat .help-body { padding: 0 12px 12px; }
 #promptbox { width: 100%; font-size: 0.75rem; }
 #selfurl { word-break: break-all; font-family: var(--mono); font-size: 0.85rem; }
 details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
+.tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-top: 12px; border: 1px solid var(--field); border-radius: 8px; overflow: hidden; }
+.tabs button { border: 0; border-radius: 0; background: var(--card); font-weight: bold; padding: 10px 8px; }
+.tabs button + button { border-left: 1px solid var(--field); }
+.tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-fg); }
+.steps { margin: 0; padding-left: 1.3em; display: grid; gap: 6px; }
 #barmsg { grid-column: 1 / -1; font-size: 0.85rem; min-height: 0; }
 </style>
 
@@ -114,13 +119,14 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
     <div class="help-body">
       <h2>使う前に</h2>
       <ul>
-        <li><b>Claude のアプリとアカウントが必要です。</b>持っていない人は、Claude のアプリを入れて新規登録、持っている人はログインしてください。このページは、<b>Claude のアプリの中</b>で開いてください。</li>
+        <li><b>Claude のアプリとアカウントが必要です。</b>持っていない人は、Claude のアプリを入れて新規登録、持っている人はログインしてください。</li>
+        <li><b>使い方は、スマホで違います。</b>下の「Android・PC」「iPhone」から、自分のスマホを選んでください。iPhone では、このページの「読み取る」が使えないため、Claude のアプリのチャットで読み取ってもらいます。</li>
         <li><b>無料プランでも使えます。</b>読み取りには、<b>あなた自身の Claude の使用量</b>を使います。shiftflow や、このページを作った人の分は使いません。</li>
         <li><b>何回も読み取ると、使用量の上限に達して、しばらく(最大5時間ほど)使えなくなります。</b>その間は Claude のほかの使い方(チャットなど)もできなくなります。「読み直す」は丁寧に読むぶん、多く使います。1か月に1〜2回の読み取りで済むように使ってください。</li>
         <li>最初の読み取りで「Claude に写真を送ってよいか」の確認が出ます。「許可」を選んでください。</li>
-        <li><b>「読み取る」でエラーが出る・押せないときは、</b>このページの下の「エラーが出る・読み取れないとき」を開いてください。まずブラウザ(Safari・Chrome)で開き直す方法、それでもだめなときにチャットで読み取る方法が書いてあります。</li>
+        <li><b>Android で「読み取る」がエラーになる・押せないときは、</b>「エラーが出る・読み取れないとき」を開いてください。まずブラウザ(Chrome)で開き直す方法、それでもだめなときにチャットで読み取る方法が書いてあります。</li>
       </ul>
-      <h2>手順</h2>
+      <h2>手順(Android・PC)</h2>
       <ol>
         <li>名前を、勤務表に書かれているとおりに入れます(次からは覚えています)。</li>
         <li>月を選び、「カメラで撮る」か「写真から選ぶ」で勤務表の写真を入れます。</li>
@@ -141,6 +147,11 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
     </div>
   </details>
 
+  <div class="tabs" role="tablist" aria-label="使っているスマホ">
+    <button id="tab-a" type="button" role="tab" aria-selected="true" aria-controls="pane-a">Android・PC</button>
+    <button id="tab-i" type="button" role="tab" aria-selected="false" aria-controls="pane-i">iPhone</button>
+  </div>
+
   <div class="card">
     <div class="findby">
       <label for="who" style="display:block">名前</label>
@@ -148,6 +159,23 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
       <p class="muted" style="margin:0">勤務表に書かれている名前で、自分の行を探します。この端末に覚えておきます。</p>
     </div>
     <label>月<select id="month"></select></label>
+
+    <div id="pane-i" role="tabpanel" aria-labelledby="tab-i" hidden>
+      <p style="margin:0 0 8px">iPhone では、<b>Claude のアプリのチャット</b>で写真を読み取ってもらい、答えを shiftflow に貼り付けます(Safari では読み取れません)。</p>
+      <ol class="steps">
+        <li>上で名前・月を入れて、下の「<b>指示文をコピー</b>」を押します。</li>
+        <li>このページを閉じて(左上の <b>✕</b>)、Claude のアプリで<b>新しいチャット</b>を開きます。</li>
+        <li>勤務表の写真を付けて、コピーした指示文を貼り付けて送ります。</li>
+        <li>返ってきた答え(「shiftflow:…」で始まる文字)を、「コピー」で写します。</li>
+        <li>shiftflow の勤務入力画面に戻り、「<b>貼り付けで取込</b>」を押して、貼り付けて「取り込む」を押します。</li>
+      </ol>
+      <p class="muted" style="margin:8px 0">Claude のアプリが無い人は、App Store で「Claude」を入れてログインしてください。shiftflow の「写真取込」を押すと、Claude のアプリでこのページが開きます。読み取りには、あなた自身の Claude の使用量を使います。</p>
+      <button id="copyprompt-i" class="primary" type="button">指示文をコピー</button>
+      <p id="chatmsg-i" role="status" class="muted"></p>
+      <textarea id="promptbox-i" rows="4" readonly hidden></textarea>
+    </div>
+
+    <div id="pane-a" role="tabpanel" aria-labelledby="tab-a" style="display:grid;gap:10px">
     <div class="photo-pick">
       <b>勤務表の写真</b>
       <div class="pick-btns">
@@ -162,12 +190,12 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
     <div id="busy" hidden><span class="spinner" aria-hidden="true"></span><span id="busytext">読み取り中です(30秒〜1分ほど)</span><button id="stop" type="button">止める</button></div>
     <p id="setupmsg" class="error" role="status" hidden></p>
     <details id="chat" class="chat">
-      <summary>エラーが出る・読み取れないとき(iPhone・Android どちらでも)</summary>
+      <summary>エラーが出る・読み取れないとき</summary>
       <div class="help-body">
         <h2>まず試すこと: ブラウザで開き直す</h2>
-        <p>Claude のアプリ(特に iPhone)では読み取れないことがあります。そのときは、<b>ブラウザ(Safari・Chrome)</b>で開き直すと読み取れることがあります。</p>
+        <p>Claude のアプリでは読み取れないことがあります。そのときは、<b>ブラウザ(Chrome)</b>で開き直すと読み取れることがあります。</p>
         <ol>
-          <li>ブラウザで <b>claude.ai</b> を開いて、ログインします(アプリでログインしていても、ブラウザは別です)。</li>
+          <li>Chrome で <b>claude.ai</b> を開いて、ログインします(アプリでログインしていても、ブラウザは別です)。</li>
           <li>同じブラウザのアドレス欄に、次のアドレスを貼り付けて開きます。<br><code id="selfurl">https://claude.ai/artifact/GivZHYnUXZoz4uqc9dWdXV</code></li>
           <li>名前・月・写真を入れて、「読み取る」を押します。</li>
         </ol>
@@ -187,6 +215,7 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
         <textarea id="promptbox" rows="4" readonly hidden></textarea>
       </div>
     </details>
+    </div>
   </div>
 
   <div class="card note-box">
@@ -267,7 +296,7 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
   // ---------- Claude ----------
   // 読み取るボタンは、ここでは無効にしない(ログイン済みでも、開いた直後は Claude につながっていないことがある)。
   // 押したときと、画面に戻ったときに、つなぎ直す。つながらないときだけ、押した後にお願いを出す
-  const LOGIN_MSG = "この画面では、Claude につながりませんでした(ログインしていない、またはお使いの端末・アプリがこの機能に対応していません)。下の「エラーが出る・読み取れないとき」を開いて、まずブラウザ(Safari・Chrome)で claude.ai にログインしてから、このページを開き直してください。";
+  const LOGIN_MSG = "この画面では、Claude につながりませんでした(ログインしていない、またはお使いの端末・アプリがこの機能に対応していません)。下の「エラーが出る・読み取れないとき」を開いて、まずブラウザ(Chrome)で claude.ai にログインしてから、このページを開き直してください。iPhone の人は、上の「iPhone」を選んでください。";
   const NO_IMAGE_MSG = "この画面からは写真を Claude に送れません。Claude のアプリか、ブラウザの claude.ai で開いてください。";
   let connecting = null;
   let why = "";               // つながらなかった理由(原因を調べるため、画面に小さく出す)
@@ -413,23 +442,38 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
       $("urlmsg").textContent = "自動でコピーできませんでした。上のアドレスを長押ししてコピーしてください。";
     }
   });
-  $("copyprompt").addEventListener("click", async () => {
+  async function copyPrompt(msg, box) {
     const name = $("who").value.trim();
-    if (!name) { $("chatmsg").textContent = "先に、上で名前を入れてください。"; return; }
+    if (!name) { msg.textContent = "先に、上で名前を入れてください。"; return; }
     store.set("sf_name", name);
     const [y, m] = $("month").value.split("-").map(Number);
     const text = chatPrompt(name, y, m);
     try {
       await navigator.clipboard.writeText(text);
-      $("chatmsg").textContent = "コピーしました。Claude のチャットに、写真といっしょに貼り付けてください。";
-      $("promptbox").hidden = true;
+      msg.textContent = "コピーしました。Claude の新しいチャットに、写真といっしょに貼り付けて送ってください。";
+      box.hidden = true;
     } catch {
-      $("promptbox").value = text;
-      $("promptbox").hidden = false;
-      $("promptbox").select();
-      $("chatmsg").textContent = "自動でコピーできませんでした。下の文字を全部選んでコピーしてください。";
+      box.value = text;
+      box.hidden = false;
+      box.select();
+      msg.textContent = "自動でコピーできませんでした。下の文字を全部選んでコピーしてください。";
     }
-  });
+  }
+  $("copyprompt").addEventListener("click", () => copyPrompt($("chatmsg"), $("promptbox")));
+  $("copyprompt-i").addEventListener("click", () => copyPrompt($("chatmsg-i"), $("promptbox-i")));
+
+  // ---------- タブ(Android・PC / iPhone)。iPhone では読み取るが使えないので、チャットの手順だけ見せる ----------
+  function showTab(t) {
+    const ios = t === "i";
+    $("tab-i").setAttribute("aria-selected", String(ios));
+    $("tab-a").setAttribute("aria-selected", String(!ios));
+    $("pane-i").hidden = ios ? false : true;
+    $("pane-a").style.display = ios ? "none" : "grid";
+    store.set("sf_tab", t);
+  }
+  $("tab-a").addEventListener("click", () => showTab("a"));
+  $("tab-i").addEventListener("click", () => showTab("i"));
+  showTab(store.get("sf_tab") || (/iPhone|iPad|iPod/.test(navigator.userAgent) ? "i" : "a"));
 
   async function read(careful) {
     const name = $("who").value.trim();
