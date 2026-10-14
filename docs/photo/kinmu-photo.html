@@ -159,12 +159,12 @@ details.chat .help-body { padding: 0 12px 12px; }
     <div id="busy" hidden><span class="spinner" aria-hidden="true"></span><span id="busytext">読み取り中です(30秒〜1分ほど)</span><button id="stop" type="button">止める</button></div>
     <p id="setupmsg" class="error" role="status" hidden></p>
     <details id="chat" class="chat">
-      <summary>読み取るが使えないとき(iPhone など)</summary>
+      <summary>エラーが出る・読み取れないとき(iPhone・Android どちらでも)</summary>
       <div class="help-body">
-        <p>Claude のチャットに写真を送って読み取ってもらい、答えを shiftflow に貼り付けます。</p>
+        <p>「読み取る」でエラーが出たり、押せなかったりしたときは、<b>Claude のアプリを開いて</b>、チャットで読み取ってもらいます。その答えを shiftflow に貼り付けます。</p>
         <ol>
           <li>上で名前・月を入れて、下の「指示文をコピー」を押します。</li>
-          <li>Claude のアプリで新しいチャットを開き、勤務表の写真を付けて、指示文を貼り付けて送ります。</li>
+          <li>Claude のアプリを開いて新しいチャットを作り、勤務表の写真を付けて、指示文を貼り付けて送ります。</li>
           <li>返ってきた答え(「shiftflow:…」で始まる文字)を、「コピー」で写します。</li>
           <li>shiftflow の勤務入力画面で「貼り付けで取込」を押し、貼り付けて「取り込む」を押します。</li>
         </ol>
@@ -254,7 +254,7 @@ details.chat .help-body { padding: 0 12px 12px; }
   // ---------- Claude ----------
   // 読み取るボタンは、ここでは無効にしない(ログイン済みでも、開いた直後は Claude につながっていないことがある)。
   // 押したときと、画面に戻ったときに、つなぎ直す。つながらないときだけ、押した後にお願いを出す
-  const LOGIN_MSG = "この画面では、ページから Claude を使えませんでした。ログインしていないか、お使いの Claude アプリがこの機能にまだ対応していません(iPhone のアプリは未対応のことがあります)。Android か PC で開くか、下の「読み取るが使えないとき」の方法を使ってください。";
+  const LOGIN_MSG = "この画面では、Claude につながりませんでした(ログインしていない、またはお使いの端末・アプリがこの機能に対応していません)。下の「エラーが出る・読み取れないとき」を開いて、Claude のアプリを開いてチャットで読み取ってください。";
   const NO_IMAGE_MSG = "この画面からは写真を Claude に送れません。Claude のアプリか、ブラウザの claude.ai で開いてください。";
   let connecting = null;
   let why = "";               // つながらなかった理由(原因を調べるため、画面に小さく出す)
