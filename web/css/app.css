@@ -27,7 +27,7 @@ button {
 button:disabled { opacity: 0.5; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
-input[type="text"], input[type="email"], input[type="password"], input:not([type]) {
+input[type="text"], input[type="email"], input[type="password"], input[type="url"], input:not([type]) {
   font: inherit; font-size: 1rem; padding: 8px; border: 1px solid #bbb; border-radius: 6px; width: 100%;
 }
 

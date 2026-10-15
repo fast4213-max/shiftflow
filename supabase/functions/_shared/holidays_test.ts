@@ -1,10 +1,11 @@
 // 祝日の取り直しのテスト(Supabase・Google は偽物)
 //   deno test supabase/functions --allow-read --allow-env
 
-import { assert, assertEquals } from "jsr:@std/assert@1";
+import { assert, assertEquals, assertRejects } from "jsr:@std/assert@1";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.117.2";
 import { ensureHolidayYears } from "./holidays.ts";
 import { retryPolicy } from "./google.ts";
+import { AppError } from "./http.ts";
 
 // テスト用の使い捨て鍵でサービスアカウントを用意する(shift-calendar_test.ts と同じ)
 const pair = await crypto.subtle.generateKey(
@@ -104,4 +105,19 @@ Deno.test("祝日の取り直しで Google が応答しないときも、3秒の
   const ms = Date.now() - t0;
   assert(ms < 6000, `待ちすぎ: ${ms}ms`); // 区切らないと、1回20秒待つ
   assertEquals(writes, []);
+});
+
+Deno.test("祝日: 去年〜再来年の外の年は、Google を呼ばずに 400(何度呼ばれても回数の枠を使わない。AD5)。キャッシュにある年は今までどおり", async () => {
+  const calls = googleDown();
+  for (const year of [thisYear + 3, 2100, thisYear - 2]) {
+    const { admin } = fakeAdmin([]);
+    const err = await assertRejects(() => ensureHolidayYears(admin, [year]), AppError);
+    assertEquals(err.status, 400);
+    assertEquals(err.code, "holiday_out_of_range");
+  }
+  assertEquals(calls(), 0);
+  // 前に取ってあった年(古い月の画面)は、範囲の外でもキャッシュを使う
+  const { admin } = fakeAdmin([{ year: thisYear - 3, source: "google", fetched_at: new Date().toISOString() }]);
+  await ensureHolidayYears(admin, [thisYear - 3]);
+  assertEquals(calls(), 0);
 });

@@ -252,8 +252,9 @@ function renderUsers() {
   }
 }
 $("user-search").addEventListener("input", () => stats && renderUsers());
-$("pin-close").addEventListener("click", () => {
-  $("pin-dialog").close();
+$("pin-close").addEventListener("click", () => $("pin-dialog").close());
+// Esc で閉じたときも、仮のPINを画面に残さない(AD12)
+$("pin-dialog").addEventListener("close", () => {
   $("pin-value").textContent = "";
 });
 
@@ -346,7 +347,19 @@ function renderOffices() {
   }
 }
 
-$("add-office").addEventListener("click", async () => {
+// 送っている間はボタンを押せなくする(2回押すと2回目が「同じ名前」の失敗になり、足せたのに失敗と出るため。AD11)
+async function whileBusy(id, fn) {
+  const b = $(id);
+  if (b.disabled) return;
+  b.disabled = true;
+  try {
+    await fn();
+  } finally {
+    b.disabled = false;
+  }
+}
+
+$("add-office").addEventListener("click", () => whileBusy("add-office", async () => {
   const name = $("new-office").value.trim();
   if (!name) return;
   if ([...name].length > OFFICE_NAME_MAX) return message(`区所の名前は${OFFICE_NAME_MAX}文字までにしてください。`, "error");
@@ -360,7 +373,7 @@ $("add-office").addEventListener("click", async () => {
   const added = stats.offices.find((o) => o.name === name);
   if (added) openPeriod(added.id, null);
   message("区所を追加しました。上の「マスタ」で、この区所のマスタの CSV を取り込んでください(切替日と名前も入れられます)。", "ok");
-});
+}));
 
 // ---------- マスタ(ダイヤ改正・ダイヤ修正ごと) ----------
 
@@ -681,7 +694,7 @@ $("period-save").addEventListener("click", async () => {
     (note ? " " + note : ""), "ok");
 });
 
-$("period-delete").addEventListener("click", async () => {
+$("period-delete").addEventListener("click", () => whileBusy("period-delete", async () => {
   const p = selectedPeriod();
   if (!p) return;
   const all = allChecked();
@@ -699,7 +712,7 @@ $("period-delete").addEventListener("click", async () => {
   selectedPeriodId = null;
   await refresh();
   periodMessage(all ? `${data}区所のマスタを消しました。` : "マスタを消しました。", "ok");
-});
+}));
 
 $("csv-download").addEventListener("click", () => {
   const office = selectedOffice();

@@ -52,7 +52,7 @@ async function loadNotices() {
   const box = $("notice-list");
   box.innerHTML = "";
   if (error) {
-    box.textContent = "読み込めませんでした: " + error.message;
+    box.textContent = "読み込めませんでした: " + friendlyText(error.message);
     return;
   }
   if (!data.length) {
@@ -77,9 +77,13 @@ async function loadNotices() {
     const delBtn = document.createElement("button");
     delBtn.textContent = "削除";
     delBtn.addEventListener("click", async () => {
-      if (!confirm(`「${n.title}」を削除しますか？`)) return;
+      if (delBtn.disabled || !confirm(`「${n.title}」を削除しますか？`)) return;
+      delBtn.disabled = true; // 2回押しで、消したあとに失敗の表示を出さない(AD11)
       const { error: delError } = await supabase.from("notices").delete().eq("id", n.id);
-      if (delError) return setMessage(delError.message, "error");
+      if (delError) {
+        delBtn.disabled = false;
+        return setMessage(delError.message, "error");
+      }
       if (editingId === n.id) resetForm();
       setMessage("削除しました。", "ok");
       loadNotices();

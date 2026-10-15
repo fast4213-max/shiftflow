@@ -28,7 +28,8 @@ begin
          'anon が実行できる関数が想定と違う: ' || (select string_agg(p.proname, ',') from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute'));
   -- サーバー専用の関数は、authenticated が実行できない
   foreach f in array array['create_inquiry(jsonb)', 'rate_limit_hit(text,integer,integer)', 'purge_old_contact()', 'purge_old_auth_attempts()',
-                           'purge_old_shift_records()', 'revoke_user_sessions(uuid,uuid)', 'check_signup_password(text)', 'auth_attempt_fail(text,integer,integer)'] loop
+                           'purge_old_shift_records()', 'revoke_user_sessions(uuid,uuid)', 'check_signup_password(text)', 'auth_attempt_fail(text,integer,integer)',
+                           'auth_attempt_fail_window(text,integer,integer,integer)'] loop
     assert not has_function_privilege('authenticated', ('public.' || f)::regprocedure, 'execute'), 'authenticated が ' || f || ' を実行できる';
     assert not has_function_privilege('anon', ('public.' || f)::regprocedure, 'execute'), 'anon が ' || f || ' を実行できる';
     assert has_function_privilege('service_role', ('public.' || f)::regprocedure, 'execute') or f in ('purge_old_auth_attempts()', 'purge_old_shift_records()'),
@@ -57,6 +58,19 @@ begin
     ('今日まで', today - 2, today), ('昨日まで', today - 2, today - 1), ('明日から', today + 1, null), ('ずっと', today - 5, null);
   assert (select count(*) from jsonb_array_elements(public.current_notices())) = 2, 'お知らせの期間が想定と違う';
   assert not exists (select 1 from jsonb_array_elements(public.current_notices()) x where x->>'title' in ('昨日まで', '明日から')), '期間外のお知らせが出る';
+
+  -- ログインの失敗を長い期間で数える(AD1): 前の失敗から期間内なら続けて数え、空いたら数え直す。上限でロック
+  delete from public.auth_attempts where key = 'emp-day:test';
+  for i in 1..2 loop
+    assert public.auth_attempt_fail_window('emp-day:test', 3, 60, 1440) is null, '上限より前にロックする';
+  end loop;
+  update public.auth_attempts set updated_at = now() - interval '61 minutes' where key = 'emp-day:test';
+  assert public.auth_attempt_fail_window('emp-day:test', 3, 60, 1440) is null, '期間が空いたのに数え直さない';
+  assert (select failed_count from public.auth_attempts where key = 'emp-day:test') = 1, '期間が空いたのに数え直さない(回数)';
+  perform public.auth_attempt_fail_window('emp-day:test', 3, 60, 1440);
+  assert public.auth_attempt_fail_window('emp-day:test', 3, 60, 1440) > now() + interval '23 hours', '上限で長くロックしない';
+  assert public.auth_attempt_locked_until('emp-day:test') is not null, 'ロック中にならない';
+  delete from public.auth_attempts where key = 'emp-day:test';
 
   -- 使い方リンク: 表示するものだけ並び順どおり。https 以外・10件超は DB が止める。並べ替えは端で動かない
   insert into public.guide_links (label, url, sort_order, visible) values

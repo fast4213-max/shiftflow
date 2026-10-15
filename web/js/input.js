@@ -73,6 +73,14 @@ async function load() {
   }
 }
 
+// 非番の日(前の日が泊)に残っている番号とメモを消す。戻り値は無い
+function clearOffdutyEntries() {
+  offdutyDays().forEach((_, key) => {
+    const e = state.entries[key];
+    if (e && (e.code || "").trim()) state.entries[key] = { code: "", memo: "" };
+  });
+}
+
 async function loadMonth(id) {
   $("title").textContent = state.year + "年" + state.month + "月";
   $("prev").disabled = isFirstMonth();
@@ -115,14 +123,15 @@ async function loadMonth(id) {
   state.holidays = holidays;
   // 非番の日に番号が残っていたら(前の月の月末を泊にしたときの1日など)、番号とメモを消す。
   // 登録でもサーバーが消す。残しておくと、非番のメモに前の番号のメモが出てしまうため
-  offdutyDays().forEach((_, key) => {
-    const e = state.entries[key];
-    if (e && (e.code || "").trim()) state.entries[key] = { code: "", memo: "" };
-  });
+  clearOffdutyEntries();
   state.dirty = false;
-  // その日のマスタに無い番号を、一覧の番号に合わせ直す(新しいマスタの CSV が入る前に入れた「1」→「特1」・全角など。AB5)
+  // その日のマスタに無い番号を、一覧の番号に合わせ直す(新しいマスタの CSV が入る前に入れた「1」→「特1」・全角など。AB5)。
+  // 合わせ直して泊になると翌日が非番になるので、もう一度片付ける(AD7)
   const matched = matchSavedCodes();
-  if (matched.length) state.dirty = true;
+  if (matched.length) {
+    state.dirty = true;
+    clearOffdutyEntries();
+  }
   render();
   scrollToToday();
   $("register").disabled = false;
@@ -378,10 +387,13 @@ function renderPeriodNote() {
     add("新しいマスタに無い番号があります: " + dropped.join("、") + "。手入力として登録されるので、メモに時間を入れるか、番号を選び直してください。", false);
   }
   const errors = periodErrors();
-  // 前の月の月末の泊のエラーは、メモを入れる1日の行に付ける(AB8)
+  // 前の月の月末の泊のエラーは、メモを入れる1日の行に付ける(AB8)。
+  // 月の途中の泊で、非番の退勤時間が分からないエラーも、メモを入れる非番の日(翌日)の行に付ける(AD8。月末の泊は翌月の画面で入れるので、月末の行)
+  const lastDay = addDays(nextFirst, -1);
   const byDate = new Map();
   errors.forEach((e) => {
-    const key = e.date < first ? first : e.date;
+    const next = addDays(e.date, 1);
+    const key = e.date < first ? first : e.kind === "offduty" && next <= lastDay ? next : e.date;
     if (!byDate.has(key)) byDate.set(key, e.message);
   });
   // CSV がまだ無い日のエラーは、切替日ごとに1行にまとめる(1日1行だと長くなるため。AB7)
@@ -586,7 +598,7 @@ $("register").addEventListener("click", async () => {
     // (auth_unavailable・bad_entries・bad_period・holiday_unavailable も、保存の前に止まるので何も変わっていない。Q2・S23)
     const untouched = [
       "busy", "not_configured", "not_verified", "no_office", "unauthenticated", "not_member",
-      "auth_unavailable", "bad_entries", "bad_period", "holiday_unavailable", "master_period",
+      "auth_unavailable", "bad_entries", "bad_period", "holiday_unavailable", "holiday_out_of_range", "master_period",
     ];
     setStatus(err.message + (untouched.includes(err.code)
       ? ""
@@ -823,10 +835,12 @@ $("reset-run").addEventListener("click", async () => {
   }
 });
 
-requireLogin("input.html", { needVerified: true })
+// 区所を選んでいれば入れる(接続テストの前でも、入力を「保存」で残せるように。登録はサーバーが接続テストを確かめる。AD2)
+requireLogin("input.html", { needOffice: true })
   .then((ctx) => {
     if (!ctx) return;
     state.officeId = ctx.settings.office_id;
+    $("setup-note").hidden = !!ctx.settings.verified_at;
     return load().then(() => {
       // 写真取込のリンクで開いたとき(ログインし直したあとも)は、最初の読み込みのあとで取り込む。
       // 読み込みに失敗したときは取り出さずに取っておき、画面を読み直したときに使う(K5)

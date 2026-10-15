@@ -13,12 +13,13 @@ import {
   validateName,
   validatePin,
 } from "./accounts.ts";
-import { assertNotLocked, clearFailures, recordFailure } from "./attempts.ts";
+import { assertNotLocked, assertPinNotLocked, clearFailures, clearPinFailures, type LockNotifier, recordFailure, recordPinFailure } from "./attempts.ts";
 import { sanitizeDbError } from "./db-error.ts";
 import { AppError } from "./http.ts";
 
 export type Session = { access_token: string; refresh_token: string };
-type Deps = { admin: SupabaseClient; anon: SupabaseClient };
+// notifyLock: PIN の長いロックがかかったときに知らせる(Discord)。無ければ知らせない
+type Deps = { admin: SupabaseClient; anon: SupabaseClient; notifyLock?: LockNotifier };
 
 // パスワードでサインインする。社員番号・PINの間違い(Supabase Auth の invalid_credentials)は null を返す。
 // それ以外の失敗は、PINが正しくても入れないので、間違いとして数えずにエラーにする:
@@ -80,7 +81,7 @@ export async function revokeSessions(admin: SupabaseClient, userId: string, keep
 // PINを変えたあとに入り直せなかったとき(Supabase Auth の混雑など)は、エラーにしない(PINはもう変わっているので)。
 // ログインを全部消して session: null を返し、画面は「新しいPINでログインし直してください」にする
 export async function changePin(
-  { admin, anon }: Deps,
+  { admin, anon, notifyLock }: Deps,
   user: { userId: string; employeeNo: string },
   body: Record<string, unknown>,
 ): Promise<{ ok: true; session: Session | null; sessionsCleared: boolean }> {
@@ -88,13 +89,12 @@ export async function changePin(
   const next = validatePin(body.new_pin, "新しいPIN");
   const email = emailFor(user.employeeNo);
 
-  const key = `emp:${user.employeeNo}`;
-  await assertNotLocked(admin, key);
+  await assertPinNotLocked(admin, user.employeeNo);
   if (!(await signIn(anon, email, passwordFor(current)))) {
-    await recordFailure(admin, key);
+    await recordPinFailure(admin, user.employeeNo, notifyLock);
     throw new AppError(401, "今のPINが違います。", "bad_credentials");
   }
-  await clearFailures(admin, key);
+  await clearPinFailures(admin, user.employeeNo);
 
   const { error: updateError } = await admin.auth.admin.updateUserById(user.userId, { password: passwordFor(next) });
   if (updateError) throw updateError;
@@ -117,7 +117,7 @@ export async function changePin(
   return { ok: true, session, sessionsCleared: await revokeSessions(admin, user.userId, keep) };
 }
 
-// 管理者が、利用者に仮のPINを発行する。その人のロック(失敗回数)と、ログイン状態(全部の端末)も消す
+// 管理者が、利用者に仮のPINを発行する。その人のロック(失敗回数。長い期間の分も)と、ログイン状態(全部の端末)も消す
 export async function resetPin(
   admin: SupabaseClient,
   target: { user_id: string; employee_no: string },
@@ -125,21 +125,20 @@ export async function resetPin(
   const pin = randomPin();
   const { error: updateError } = await admin.auth.admin.updateUserById(target.user_id, { password: passwordFor(pin) });
   if (updateError) throw updateError;
-  await admin.rpc("auth_attempt_reset", { p_key: `emp:${target.employee_no}` });
+  await clearPinFailures(admin, target.employee_no);
   const sessionsCleared = await revokeSessions(admin, target.user_id, null);
   return { ok: true, pin, sessionsCleared };
 }
 
 // 社員番号 + PIN でログインする
-export async function loginWithPin({ admin, anon }: Deps, body: Record<string, unknown>): Promise<Session> {
+export async function loginWithPin({ admin, anon, notifyLock }: Deps, body: Record<string, unknown>): Promise<Session> {
   const employeeNo = validateEmployeeNo(body.employee_no);
   const pin = validatePin(body.pin);
-  const key = `emp:${employeeNo}`;
 
-  await assertNotLocked(admin, key);
+  await assertPinNotLocked(admin, employeeNo);
   const session = await signIn(anon, emailFor(employeeNo), passwordFor(pin));
   if (!session) {
-    await recordFailure(admin, key);
+    await recordPinFailure(admin, employeeNo, notifyLock);
     // PINを変えた・再設定したあとは、スマホに保存した古いPINが自動で入ることがある(4桁の数字なので画面では見分けられない)
     throw new AppError(
       401,
@@ -148,7 +147,7 @@ export async function loginWithPin({ admin, anon }: Deps, body: Record<string, u
       "bad_credentials",
     );
   }
-  await clearFailures(admin, key);
+  await clearPinFailures(admin, employeeNo);
   return session;
 }
 

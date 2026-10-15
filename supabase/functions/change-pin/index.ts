@@ -3,13 +3,14 @@
 
 import { anonClient, requireMember } from "../_shared/auth.ts";
 import { AppError, readBody, serve } from "../_shared/http.ts";
+import { pinLockNotifier } from "../_shared/lock-notify.ts";
 import { changePin } from "../_shared/login-core.ts";
 
 serve(async (req) => {
   const ctx = await requireMember(req);
   if (!ctx.employeeNo) throw new AppError(400, "この操作は利用者だけができます。");
   return await changePin(
-    { admin: ctx.admin, anon: anonClient() },
+    { admin: ctx.admin, anon: anonClient(), notifyLock: pinLockNotifier(ctx.admin) },
     { userId: ctx.userId, employeeNo: ctx.employeeNo },
     await readBody(req),
   );

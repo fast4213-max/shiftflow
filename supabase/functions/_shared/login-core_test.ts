@@ -58,6 +58,22 @@ function fakes(
           }
           return Promise.resolve({ data: null, error: null });
         }
+        case "auth_attempt_fail_window": {
+          // 前の失敗から p_window_minutes 分より空いていたら数え直す(DB と同じ)
+          const cur = a ?? { count: 0, lockedUntil: null };
+          if (cur.lockedUntil && cur.lockedUntil <= Date.now()) {
+            cur.count = 0;
+            cur.lockedUntil = null;
+          }
+          cur.count++;
+          attempts.set(key, cur);
+          if (cur.count >= Number(args.p_max)) {
+            cur.count = 0;
+            cur.lockedUntil = Date.now() + Number(args.p_lock_minutes) * 60000;
+            return Promise.resolve({ data: new Date(cur.lockedUntil).toISOString(), error: null });
+          }
+          return Promise.resolve({ data: null, error: null });
+        }
         case "auth_attempt_reset":
           attempts.delete(key);
           return Promise.resolve({ data: null, error: null });
@@ -343,7 +359,7 @@ Deno.test("ログイン: 401・422 など invalid_credentials 以外の 4xx は�
     },
   } as unknown as SupabaseClient;
   assertEquals(await code(() => loginWithPin({ admin: old.deps.admin, anon: legacy }, { employee_no: "1234567", pin: "4829" })), "bad_credentials");
-  assertEquals(old.attempts.size, 1);
+  assertEquals([...old.attempts.keys()].sort(), ["emp-day:1234567", "emp:1234567"]); // 短い期間と長い期間(AD1)
 });
 
 Deno.test("管理者ログイン: Supabase Auth が使えないときは、分かるエラーにする", async () => {
@@ -511,3 +527,63 @@ Deno.test("管理者ログイン: 同時の別のログインにパスワード�
   assertEquals(await code(() => adminLogin(g.deps, { password: "admin-password-123" }, "admin-password-123")), "admin_busy");
 });
 
+
+// 短いロックが解けたことにする(15分たった)
+function expireShortLock(f: ReturnType<typeof fakes>, employeeNo: string) {
+  const a = f.attempts.get(`emp:${employeeNo}`);
+  if (a) a.lockedUntil = Date.now() - 1;
+}
+
+Deno.test("ログイン: 短いロックが解けても、長い期間で数え、20回で24時間ロックして知らせる(AD1)。正しいPINでも入れない", async () => {
+  const notified: string[] = [];
+  const f = fakes();
+  const deps = { ...f.deps, notifyLock: (no: string) => (notified.push(no), Promise.resolve()) };
+  await signUp(f.deps, reg, "ip");
+  let locked = 0;
+  for (let i = 0; i < 19; i++) {
+    expireShortLock(f, reg.employee_no);
+    if ((await code(() => loginWithPin(deps, { employee_no: reg.employee_no, pin: "0000" }))) === "locked") locked++;
+  }
+  assertEquals(locked, 3); // 5・10・15回目は短いロック
+  assertEquals(notified, []);
+  expireShortLock(f, reg.employee_no);
+  const err = await assertRejects(() => loginWithPin(deps, { employee_no: reg.employee_no, pin: "0000" }), AppError);
+  assertEquals(err.code, "locked");
+  assert(err.message.includes("24時間") && err.message.includes("再設定"));
+  assertEquals(notified, [reg.employee_no]);
+  // 短いロックが解けても、正しいPINでも入れない
+  expireShortLock(f, reg.employee_no);
+  assertEquals(await code(() => loginWithPin(deps, { employee_no: reg.employee_no, pin: reg.pin })), "locked");
+  // 管理者が PIN を再設定すると、すぐ入れる
+  const target = f.users.find((u) => u.email === emailFor(reg.employee_no))!;
+  const result = await resetPin(f.deps.admin, { user_id: target.id, employee_no: reg.employee_no });
+  assertEquals(f.attempts.has(`emp-day:${reg.employee_no}`), false);
+  await loginWithPin(deps, { employee_no: reg.employee_no, pin: result.pin });
+});
+
+Deno.test("ログイン: 成功すると長い期間の数えも0に戻る。知らせるのに失敗しても、ロックのエラーは返る(AD1)", async () => {
+  const f = fakes();
+  const deps = { ...f.deps, notifyLock: () => Promise.reject(new Error("discord down")) };
+  await signUp(f.deps, reg, "ip");
+  for (let i = 0; i < 4; i++) await code(() => loginWithPin(deps, { employee_no: reg.employee_no, pin: "0000" }));
+  await loginWithPin(deps, { employee_no: reg.employee_no, pin: reg.pin });
+  assertEquals(f.attempts.has(`emp-day:${reg.employee_no}`), false);
+  for (let i = 0; i < 20; i++) {
+    expireShortLock(f, reg.employee_no);
+    await code(() => loginWithPin(deps, { employee_no: reg.employee_no, pin: "0000" }));
+  }
+  expireShortLock(f, reg.employee_no);
+  assertEquals(await code(() => loginWithPin(deps, { employee_no: reg.employee_no, pin: reg.pin })), "locked");
+});
+
+Deno.test("PINの変更: ログインと同じく、長い期間でも数える(AD1)", async () => {
+  const f = fakes();
+  await signUp(f.deps, reg, "1.1.1.1");
+  const user = { userId: f.users[0].id, employeeNo: reg.employee_no };
+  for (let i = 0; i < 20; i++) {
+    expireShortLock(f, reg.employee_no);
+    await code(() => changePin(f.deps, user, { current_pin: "0000", new_pin: "1111" }));
+  }
+  expireShortLock(f, reg.employee_no);
+  assertEquals(await code(() => loginWithPin(f.deps, { employee_no: reg.employee_no, pin: reg.pin })), "locked");
+});

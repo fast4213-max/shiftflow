@@ -295,8 +295,10 @@ export function noticeElement(n, { clamp = 0, isNew = false } = {}) {
     const body = document.createElement("div");
     body.className = "notice-body";
     const chars = [...text];
-    if (clamp && chars.length > clamp) {
-      appendLinked(body, clampText(text, clamp) + "…");
+    // URL の途中で切らないために伸ばした結果、最後まで出せるときは「続きを読む」を付けない(AD9)
+    const short = clamp && chars.length > clamp ? clampText(text, clamp) : text;
+    if (short !== text) {
+      appendLinked(body, short + "…");
       const more = document.createElement("button");
       more.type = "button";
       more.className = "link-button";
@@ -472,9 +474,10 @@ export async function homePageFor(session, profile) {
 
 // ログイン必須のページの入口。
 //   needVerified: 区所を選んでいない・接続テスト済みでなければ設定画面へ
+//   needOffice  : 区所を選んでいなければ設定画面へ(勤務入力。接続テストの前でも「保存」できるように。AD2)
 //   needAdmin   : 管理者のページ(管理者以外は勤務入力へ)。利用者のページは管理者を管理画面へ返す
 // 戻り値: { session, profile, settings }(移動するときは null)
-export async function requireLogin(current, { needVerified = false, needAdmin = false } = {}) {
+export async function requireLogin(current, { needVerified = false, needOffice = false, needAdmin = false } = {}) {
   const session = await currentSession();
   if (!session) {
     go("index.html");
@@ -499,7 +502,7 @@ export async function requireLogin(current, { needVerified = false, needAdmin = 
   let settings = null;
   if (!isAdmin) {
     settings = await loadSettings(session);
-    if (needVerified && !isReady(settings)) {
+    if ((needVerified && !isReady(settings)) || (needOffice && !(settings && settings.office_id))) {
       go("settings.html");
       return null;
     }

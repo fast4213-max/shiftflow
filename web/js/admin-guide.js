@@ -50,7 +50,7 @@ async function load() {
   const box = $("guide-list");
   box.innerHTML = "";
   if (error) {
-    box.textContent = "読み込めませんでした: " + error.message;
+    box.textContent = "読み込めませんでした: " + friendlyText(error.message);
     return;
   }
   links = data;

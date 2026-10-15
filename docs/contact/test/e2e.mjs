@@ -694,11 +694,13 @@ await check("マスタの切替: 切替日の前日の泊の非番は、新し�
   // 休日の列が空なので、平休に関係なく新しいマスタの 8:05(前のマスタなら 9:30)。泊の出勤は前のマスタの 9:00
   assert.equal(await row(20).locator(".memo input").inputValue(), "8:05");
   assert.equal(await row(19).locator(".memo input").inputValue(), "9:00");
-  // 前のマスタだけにある泊(2)は、非番のメモに退勤時間を入れるまで赤い
+  // 前のマスタだけにある泊(2)は、非番のメモに退勤時間を入れるまで赤い。赤いのはメモを入れる非番の日の行(AD8)
+  const cls = async (d) => (await row(d).getAttribute("class")) || "";
   await pickCode(page, 19, "2");
-  assert.ok((await row(19).getAttribute("class")).includes("period-error"));
+  assert.ok((await cls(20)).includes("period-error"));
+  assert.ok(!(await cls(19)).includes("period-error"));
   await row(20).locator(".memo input").fill("9:00");
-  assert.ok(!(await row(19).getAttribute("class")).includes("period-error"));
+  assert.ok(!(await cls(20)).includes("period-error"));
   // 切替日から後の日の一覧は、新しいマスタの番号だけ
   await row(23).locator(".pick").click();
   assert.deepEqual(await page.$$eval("#picker-duty button", (b) => b.map((x) => x.textContent)), ["1", "9"]);
@@ -808,6 +810,35 @@ await check("マスタの切替: 保存してある番号が一覧に無けれ�
   assert.ok((await page.textContent("#status")).includes("一覧の番号に合わせました: 23日「7」→「特7」"));
   assert.deepEqual(errors, []);
   await ctx.close();
+});
+
+await check("読み込みで合わせ直した番号(「7」→「特7」)が泊なら、翌日(非番)に残っていた番号とメモを消す(AD7)", async () => {
+  const mm = String(thisMonth.m).padStart(2, "0");
+  const master = [...OLD_MASTER, ...NEW_MASTER, { period_id: 2, code: "特7", kind: "泊", weekday_start: "9:00", weekday_end: "8:00", holiday_start: "", holiday_end: "", stay: "", sort_order: 3 }];
+  const records = [{ date: `${thisMonth.y}-${mm}-23`, code: "7", memo: "" }, { date: `${thisMonth.y}-${mm}-24`, code: "9", memo: "13時 会議" }];
+  const { page, ctx, errors } = await open("input.html", { userId: "u1", opts: { profile: USER, master, periods: SWITCH_PERIODS, records } });
+  await page.waitForSelector("#register:not([disabled])");
+  const row = page.locator("#list tr").nth(23);
+  assert.equal(await row.locator(".memo input").inputValue(), "8:00");
+  assert.ok(!(await row.textContent()).includes("9"));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("勤務入力: 接続テストの前でも、区所を選んでいれば開けて「保存」できる(案内を出す)。区所が無ければ設定画面へ(AD2)", async () => {
+  const a = await open("input.html", { userId: "u1", opts: { profile: USER, settings: { verified_at: null } } });
+  await a.page.waitForSelector("#save:not([disabled])");
+  assert.ok(a.page.url().endsWith("input.html"));
+  assert.equal(await a.page.isVisible("#setup-note"), true);
+  assert.deepEqual(a.errors, []);
+  await a.ctx.close();
+  const b = await open("input.html", { userId: "u1", opts: { profile: USER } });
+  await b.page.waitForSelector("#save:not([disabled])");
+  assert.equal(await b.page.isVisible("#setup-note"), false);
+  await b.ctx.close();
+  const c = await open("input.html", { userId: "u1", opts: { profile: USER, settings: { office_id: null, verified_at: null } } });
+  await c.page.waitForURL(/settings\.html$/);
+  await c.ctx.close();
 });
 
 await check("マスタの切替: CSV がまだ無い日のエラーは1行にまとめ、黄色(無くなった番号)にしない(AB6・AB7)", async () => {
@@ -1298,8 +1329,12 @@ await check("お知らせの本文: https:// の URL は押せるリンクにな
     const e = m.noticeElement({ title: "t", body: "動画 https://drive.google.com/file/d/abc/view?usp=sharing 。<b>x</b> http://no.link/ javascript:alert(1)", level: "info", starts_on: "2026-10-15" });
     const c = m.noticeElement({ title: "t", body: "あ".repeat(5) + "https://example.com/abcdefghij" + "い".repeat(5), level: "info", starts_on: "2026-10-15" }, { clamp: 10 });
     const k = m.noticeElement({ title: "t", body: "(https://) と https:// だけ", level: "info", starts_on: "2026-10-15" });
+    // URL が切れ目をまたいで最後まで続くときは、全部出して「続きを読む」を付けない(AD9)
+    const tail = m.noticeElement({ title: "t", body: "あ".repeat(5) + "https://example.com/abcdefghij", level: "info", starts_on: "2026-10-15" }, { clamp: 10 });
     return {
       broken: k.querySelectorAll("a").length,
+      tailMore: tail.querySelectorAll("button").length,
+      tailText: tail.querySelector(".notice-body").textContent,
       links: [...e.querySelectorAll("a")].map((a) => [a.href, a.target, a.rel]),
       bold: e.querySelectorAll("b").length,
       clamp: [...c.querySelectorAll("a")].map((a) => a.textContent),
@@ -1308,6 +1343,8 @@ await check("お知らせの本文: https:// の URL は押せるリンクにな
   assert.deepEqual(r.links, [["https://drive.google.com/file/d/abc/view?usp=sharing", "_blank", "noopener noreferrer"]]);
   assert.equal(r.bold, 0);
   assert.equal(r.broken, 0);
+  assert.equal(r.tailMore, 0);
+  assert.ok(!r.tailText.endsWith("…"));
   assert.deepEqual(r.clamp, ["https://example.com/abcdefghij"]);
   assert.deepEqual(errors, []);
   await ctx.close();
@@ -1377,6 +1414,8 @@ await check("管理画面: 使い方リンクを足す・直す・並べ替え�
   const { page, ctx, be, errors } = await open("admin.html#notices", { userId: "a1", opts: { profile: ADMIN, guides: GUIDES }, viewport: { width: 1200, height: 900 } });
   await page.waitForSelector("#guide-list .notice-admin-row");
   assert.equal(await page.locator("#guide-list .notice-admin-row").count(), 4);
+  // URL の欄も、ほかの欄と同じ大きさ(iPhone で拡大されない16px。AD4)
+  assert.equal(await page.$eval("#guide-url", (e) => getComputedStyle(e).fontSize), "16px");
   // 誤り
   await page.click("#guide-save");
   assert.equal(await page.textContent("#guide-message"), "表示名を入力してください。");
@@ -1640,6 +1679,25 @@ await check("管理画面: 区所を足すと、今の最大の並びの番号+1
   await page.waitForFunction(() => document.getElementById("message").textContent.includes("区所を追加しました"));
   const posted = be.st.calls.find((c) => c.method === "POST" && c.path === "/rest/v1/offices").body;
   assert.deepEqual([posted.name, posted.sort_order], ["D区所", 8]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("管理画面: 区所の追加を2回押しても、1回だけ送る(AD11)。仮のPINは Esc で閉じても画面に残らない(AD12)", async () => {
+  const { page, ctx, be, errors } = await open("admin.html", { userId: "a1", opts: { profile: ADMIN, twoOffices: true }, viewport: { width: 1200, height: 900 } });
+  await page.click('.dtab[data-tab="master"]');
+  await page.waitForSelector("#offices tr td");
+  await page.fill("#new-office", "D区所");
+  await page.dblclick("#add-office");
+  await page.waitForFunction(() => document.getElementById("message").textContent.includes("区所を追加しました"));
+  assert.equal(be.st.calls.filter((c) => c.method === "POST" && c.path === "/rest/v1/offices").length, 1);
+  await page.evaluate(() => {
+    document.getElementById("pin-value").textContent = "1234";
+    document.getElementById("pin-dialog").showModal();
+  });
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => !document.getElementById("pin-dialog").open);
+  assert.equal(await page.textContent("#pin-value"), "");
   assert.deepEqual(errors, []);
   await ctx.close();
 });

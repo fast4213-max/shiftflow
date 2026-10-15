@@ -30,6 +30,12 @@ async function fetchYear(year: number): Promise<{ date: string; name: string }[]
   return [...map.entries()].map(([date, name]) => ({ date, name }));
 }
 
+// 祝日を取りに行ってよい年(去年〜再来年)。先の年は Google にまだ無く、取れないまま毎回 Google を呼ぶことになるため、
+// 呼び出しの回数の枠(全員で共通)を使い切られないよう、範囲の外は取りに行かない(AD5)
+export function holidayYearRange(thisYear = currentYearJst()): [number, number] {
+  return [thisYear - 1, thisYear + 2];
+}
+
 // 指定した年の祝日がキャッシュにあるようにする
 export async function ensureHolidayYears(admin: SupabaseClient, years: number[]): Promise<void> {
   const unique = [...new Set(years)];
@@ -37,12 +43,17 @@ export async function ensureHolidayYears(admin: SupabaseClient, years: number[])
   if (error) throw error;
 
   const thisYear = currentYearJst();
+  const [minYear, maxYear] = holidayYearRange(thisYear);
   for (const year of unique) {
     const row = (cached || []).find((r) => r.year === year);
     if (row) {
       if (row.source === "manual") continue;
       const stale = year >= thisYear && Date.now() - new Date(row.fetched_at).getTime() > REFRESH_MS;
       if (!stale) continue;
+    }
+
+    if (year < minYear || year > maxYear) {
+      throw new AppError(400, `${year}年の祝日はまだ読めません(読めるのは ${minYear}〜${maxYear}年です)。`, "holiday_out_of_range");
     }
 
     let holidays: { date: string; name: string }[] = [];
