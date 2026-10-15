@@ -188,7 +188,7 @@ fieldset.reply-via label.check { font-weight: normal; margin: 8px 0; }
 
 input[type="search"] { font: inherit; font-size: 16px; padding: 8px; border: 1px solid #bbb; border-radius: 6px; }
 
-/* ---------- 使い方リンク(はじめての方へ) ---------- */
+/* ---------- 使い方リンク(解説動画・資料) ---------- */
 .guide-links { margin: 14px 0 0; }
 .guide-heading { font-weight: bold; margin-bottom: 6px; }
 .guide-link { display: flex; align-items: center; gap: 10px; padding: 12px 14px; margin-bottom: 8px; background: #fff; border: 1px solid var(--accent); border-radius: 8px; text-decoration: none; font-weight: bold; overflow-wrap: anywhere; }

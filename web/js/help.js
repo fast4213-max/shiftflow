@@ -3,7 +3,7 @@
 import { $, callFunction, copyText, currentSession, loadProfile, renderTopbar, showGuideLinks } from "./app.js?v=dev";
 
 async function main() {
-  showGuideLinks("guide", { heading: "動画・まとめはこちら" }).catch(() => {});
+  showGuideLinks("guide").catch(() => {});
   let session = null;
   let profile = null;
   try {

@@ -36,7 +36,7 @@ function showTab(name) {
   const isUser = name === "user";
   $("user-form").classList.toggle("hidden", !isUser);
   $("admin-form").classList.toggle("hidden", isUser);
-  $("login-guide").classList.toggle("tab-hidden", !isUser); // 「はじめての方へ」は利用者向け。管理タブでは隠す
+  $("login-guide").classList.toggle("tab-hidden", !isUser); // 「解説動画・資料」は利用者向け。管理タブでは隠す
   $("tab-user").classList.toggle("active", isUser);
   $("tab-admin").classList.toggle("active", !isUser);
   $("tab-user").setAttribute("aria-selected", String(isUser));

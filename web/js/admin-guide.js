@@ -20,7 +20,7 @@ function resetForm() {
   $("guide-label").value = "";
   $("guide-url").value = "";
   document.querySelector('input[name="guide-kind"][value="video"]').checked = true;
-  $("guide-form-title").textContent = "使い方リンク(ログイン画面の「はじめての方へ」)";
+  $("guide-form-title").textContent = "使い方リンク(ログイン画面の「解説動画・資料」)";
   $("guide-save").textContent = "追加する";
   $("guide-cancel").classList.add("hidden");
 }
@@ -144,7 +144,7 @@ const save = () => run(async () => {
     if (!(data && data.length)) {
       // 書いた内容は残し、新しく足すフォームに切り替える
       editingId = null;
-      $("guide-form-title").textContent = "使い方リンク(ログイン画面の「はじめての方へ」)";
+      $("guide-form-title").textContent = "使い方リンク(ログイン画面の「解説動画・資料」)";
       $("guide-save").textContent = "追加する";
       $("guide-cancel").classList.add("hidden");
       return setMessage("このリンクが見つかりません(ほかの画面で消されたかもしれません)。直した内容は保存していません。もう一度押すと、新しく追加します。", "error");

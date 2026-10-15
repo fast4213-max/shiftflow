@@ -183,8 +183,8 @@ export async function fetchGuideLinks() {
   }
 }
 
-// 「はじめての方へ」の枠。文字は textContent、リンクは https:// だけ。0件なら null(枠ごと出さない)
-export function guideLinksElement(list, { heading = "はじめての方へ" } = {}) {
+// 「解説動画・資料」の枠。文字は textContent、リンクは https:// だけ。0件なら null(枠ごと出さない)
+export function guideLinksElement(list, { heading = "解説動画・資料" } = {}) {
   if (!list || !list.length) return null;
   const box = document.createElement("section");
   box.className = "guide-links";
