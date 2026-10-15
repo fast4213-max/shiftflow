@@ -1,0 +1,62 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><style>
+@page{size:1280px 720px;margin:0}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Noto Sans CJK JP","Noto Sans JP","IPAGothic","WenQuanYi Zen Hei",sans-serif;color:#202124}
+.p{width:1280px;height:720px;padding:48px 64px;page-break-after:always;position:relative;background:#fff;overflow:hidden}
+h1{font-size:44px;margin:0 0 8px}h2{font-size:36px;margin:0 0 6px}
+.sub{font-size:24px;color:#5f6368;margin-bottom:28px}
+.row{display:flex;gap:40px;align-items:flex-start}
+.day{width:300px;border:2px solid #dadce0;border-radius:12px;padding:12px;background:#fafafa}
+.day .d{text-align:center;font-weight:bold;font-size:22px;margin-bottom:6px}
+.pill{background:#795548;color:#fff;border-radius:6px;font-size:22px;padding:4px 10px;margin-top:6px}
+.pill.t{background:#4285f4}
+.hl{outline:4px solid #e53935}
+.n{display:inline-flex;width:34px;height:34px;border-radius:50%;background:#e53935;color:#fff;font-weight:bold;font-size:22px;align-items:center;justify-content:center;margin-right:10px;flex:none}
+ul.ex{list-style:none;padding:0;margin:0;font-size:26px;line-height:1.5}
+ul.ex li{display:flex;align-items:flex-start;margin:12px 0}
+.card{width:420px;border:2px solid #dadce0;border-radius:14px;padding:18px 22px;box-shadow:0 4px 14px #0002;font-size:24px}
+.card .ti{font-size:30px;font-weight:bold}.card .m{color:#5f6368;margin-top:8px;white-space:pre-line}
+.arrow{font-size:60px;color:#e53935;align-self:center}
+.foot{position:absolute;left:64px;bottom:28px;font-size:18px;color:#80868b}
+.note{background:#e8f0fe;border:2px solid #b7cdf5;border-radius:12px;padding:14px 18px;font-size:23px;margin-top:20px}
+</style></head><body>
+
+<div class="p"><h1>登録後、カレンダーにどう表示される?</h1>
+<div class="sub">設定画面の「2件で登録」などの選び方で、見え方が変わります</div>
+<ul class="ex" style="margin-top:40px">
+<li><span class="n">1</span>一段表示(初期設定): 番号の予定が1つ</li>
+<li><span class="n">2</span>二段表示: 出勤を2件で登録(番号 + 時間)</li>
+<li><span class="n">3</span>非番を2件で登録(〜 + 退勤時間)</li>
+<li><span class="n">4</span>予定の名前に時間を付ける</li>
+</ul><div class="foot">shiftflow 使い方</div></div>
+
+<div class="p"><h2>① 一段表示(初期設定)</h2><div class="sub">終日の予定が、番号のタイトルで1つ入ります</div>
+<div class="row"><div><div class="day"><div class="d">1</div><div class="pill hl">25</div></div></div><div class="arrow">→</div>
+<div><div style="font-size:26px;margin-bottom:10px"><b>予定をタップすると</b></div><div class="card"><div class="ti">25</div><div class="m">メモ欄: 出勤時間 など
+(泊の場合は2行目に泊地)</div></div></div></div>
+<div class="note">時間は予定の名前ではなく、タップして開いた「メモ」に入っています。</div><div class="foot">shiftflow 使い方</div></div>
+
+<div class="p"><h2>② 二段表示(出勤を2件で登録)</h2><div class="sub">Googleカレンダーだけで見る人向け。出勤の日に予定が2つ入ります</div>
+<div class="row"><div><div class="day"><div class="d">1</div><div class="pill">25</div><div class="pill t hl">10:00〜18:30</div></div></div><div class="arrow">→</div>
+<div><div style="font-size:26px;margin-bottom:10px"><b>タップすると</b></div>
+<ul class="ex"><li><span class="n">上</span>終日の「番号」: メモに時間</li><li><span class="n">下</span>時間つきの予定: 出勤〜退勤の時間が見える</li></ul></div></div>
+<div class="note">月の表示のままで、出勤時間がひと目で分かります。泊は出勤から1時間の予定になります。</div><div class="foot">shiftflow 使い方</div></div>
+
+<div class="p"><h2>③ 非番を2件で登録</h2><div class="sub">非番の日に予定が2つ入ります</div>
+<div class="row"><div><div class="day"><div class="d">2</div><div class="pill">〜</div><div class="pill t hl">9:02</div></div></div><div class="arrow">→</div>
+<div><div style="font-size:26px;margin-bottom:10px"><b>タップすると</b></div>
+<ul class="ex"><li><span class="n">上</span>終日の「〜」: メモに退勤時間</li><li><span class="n">下</span>時間つきの予定: 退勤時間(タイトルは時間だけ)</li></ul></div></div>
+<div class="note">時間の予定の色を変えたいときは、「非番の時間用」のカレンダーを別に作れます。</div><div class="foot">shiftflow 使い方</div></div>
+
+<div class="p"><h2>④ 予定の名前に時間を付ける</h2><div class="sub">1件のまま、タイトルに時間が付きます</div>
+<div class="row"><div><div class="day"><div class="d">1</div><div class="pill hl">1(10:00)</div></div><div class="day" style="margin-top:16px"><div class="d">2</div><div class="pill hl">〜(9:00)</div></div></div><div class="arrow">→</div>
+<div><ul class="ex"><li><span class="n">出</span>出勤: 番号のあとに出勤時間(例: 1(10:00))</li><li><span class="n">非</span>非番: 「〜」のあとに退勤時間(例: 〜(9:00))</li></ul></div></div>
+<div class="note">「2件で登録」と一緒に使うこともできます。休日(公休・年休など)には付きません。</div><div class="foot">shiftflow 使い方</div></div>
+
+<div class="p"><h2>設定を変えたあとの注意</h2><div class="sub">どの設定も共通です</div>
+<ul class="ex"><li><span class="n">!</span><b>次に登録する分から</b>変わります。登録済みの予定は変わりません</li>
+<li><span class="n">!</span>変えたい月は、勤務入力で<b>もう一度「登録」</b>します(予定は作り直されます)</li>
+<li><span class="n">!</span>チェックを外せば、元の1件表示に戻ります(これも登録し直した月から)</li>
+<li><span class="n">!</span>「勤務を時間つきの予定で登録する」がオンのあいだは、上の設定は使われません</li></ul>
+<div class="foot">shiftflow 使い方</div></div>
+</body></html>
