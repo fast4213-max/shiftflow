@@ -123,7 +123,16 @@ function masterCodeOf(value) {
   const typed = value.trim();
   const found = state.masterList.find((m) => m.code === typed) ||
     state.masterList.find((m) => half(m.code) === half(typed));
-  return found ? found.code : "";
+  if (found) return found.code;
+  // 数字だけで一覧に無いときは、頭に文字が付いた番号(勤務表の「1」→ 一覧の「特1」など)が1つだけあれば、それにする。
+  // 「特1」と「臨1」のように2つ以上あるときは、どれか決められないので手入力のまま
+  const digits = half(typed);
+  if (!/^\d+$/.test(digits)) return "";
+  const prefixed = state.masterList.filter((m) => {
+    const hit = half(m.code).match(/^(\D+)(\d+)$/);
+    return hit && hit[2] === digits;
+  });
+  return prefixed.length === 1 ? prefixed[0].code : "";
 }
 
 function entryOf(key) {
