@@ -201,7 +201,8 @@ export function guideLinksElement(list, { heading = "はじめての方へ" } = 
     a.rel = "noopener noreferrer";
     const icon = document.createElement("span");
     icon.className = "guide-icon";
-    icon.textContent = g.kind === "doc" ? "📄" : "▶";
+    icon.textContent = g.kind === "doc" ? "📄" : "▶\uFE0E"; // ▶ は文字の見た目に固定(iPhone で絵文字になるのを防ぐ)
+    icon.setAttribute("aria-hidden", "true"); // 読み上げは表示名だけ
     const text = document.createElement("span");
     text.textContent = g.label;
     a.append(icon, text);
@@ -229,7 +230,7 @@ export function shortDate(value) {
 
 // 本文の https:// から始まる URL を、押せるリンクにして入れる(それ以外は文字のまま。HTML としては読まない)。
 // 末尾の句読点・かっこはリンクに含めない。別タブで開く
-const URL_PATTERN = /https:\/\/[\x21\x23-\x26\x28-\x3b\x3d\x3f-\x7e]+/g; // 半角の記号・英数字だけ(日本語の文字や空白で終わる)
+const URL_PATTERN = /https:\/\/[A-Za-z0-9][\x21\x23-\x26\x28-\x3b\x3d\x3f-\x7e]*/g; // 半角の英数字から始まり、半角の記号・英数字が続く(日本語の文字や空白で終わる。「https://)」だけのものは対象外)
 
 function linkEnd(url) {
   return url.replace(/[、。,.)）」』】!！?？]+$/, "");

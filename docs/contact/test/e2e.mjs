@@ -1297,7 +1297,9 @@ await check("お知らせの本文: https:// の URL は押せるリンクにな
     const m = await import("/js/app.js");
     const e = m.noticeElement({ title: "t", body: "動画 https://drive.google.com/file/d/abc/view?usp=sharing 。<b>x</b> http://no.link/ javascript:alert(1)", level: "info", starts_on: "2026-10-15" });
     const c = m.noticeElement({ title: "t", body: "あ".repeat(5) + "https://example.com/abcdefghij" + "い".repeat(5), level: "info", starts_on: "2026-10-15" }, { clamp: 10 });
+    const k = m.noticeElement({ title: "t", body: "(https://) と https:// だけ", level: "info", starts_on: "2026-10-15" });
     return {
+      broken: k.querySelectorAll("a").length,
       links: [...e.querySelectorAll("a")].map((a) => [a.href, a.target, a.rel]),
       bold: e.querySelectorAll("b").length,
       clamp: [...c.querySelectorAll("a")].map((a) => a.textContent),
@@ -1305,6 +1307,7 @@ await check("お知らせの本文: https:// の URL は押せるリンクにな
   });
   assert.deepEqual(r.links, [["https://drive.google.com/file/d/abc/view?usp=sharing", "_blank", "noopener noreferrer"]]);
   assert.equal(r.bold, 0);
+  assert.equal(r.broken, 0);
   assert.deepEqual(r.clamp, ["https://example.com/abcdefghij"]);
   assert.deepEqual(errors, []);
   await ctx.close();
@@ -1322,12 +1325,18 @@ await check("使い方リンク: ログイン画面のカードの下に、並�
   await page.waitForSelector("#login-guide:not(.hidden) .guide-link");
   const links = await page.$$eval("#login-guide .guide-link", (as) => as.map((a) => [a.textContent, a.href, a.target, a.rel]));
   assert.deepEqual(links, [
-    ["▶新規登録のしかた", GUIDES[0].url, "_blank", "noopener noreferrer"],
-    ["▶写真取込のしかた", GUIDES[1].url, "_blank", "noopener noreferrer"],
+    ["▶\uFE0E新規登録のしかた", GUIDES[0].url, "_blank", "noopener noreferrer"],
+    ["▶\uFE0E写真取込のしかた", GUIDES[1].url, "_blank", "noopener noreferrer"],
     ["📄まとめ(文書)", GUIDES[3].url, "_blank", "noopener noreferrer"],
   ]);
   // カード(利用者のフォーム)より下
   assert.ok(await page.evaluate(() => document.getElementById("user-form").compareDocumentPosition(document.getElementById("login-guide")) & Node.DOCUMENT_POSITION_FOLLOWING));
+  assert.equal(await page.locator("#login-guide .guide-icon[aria-hidden=true]").count(), 3);
+  // 管理タブでは隠し、利用者タブに戻すと出る
+  await page.click("#tab-admin");
+  assert.equal(await page.isVisible("#login-guide"), false);
+  await page.click("#tab-user");
+  assert.equal(await page.isVisible("#login-guide"), true);
   await page.screenshot({ path: OUT + "login-guide.png", fullPage: true });
   assert.deepEqual(errors, []);
   await ctx.close();
@@ -1340,6 +1349,17 @@ await check("使い方リンク: ログイン画面のカードの下に、並�
     assert.deepEqual(o.errors, []);
     await o.ctx.close();
   }
+});
+
+await check("使い方リンク: 管理タブで開いたとき(index.html#admin)は、枠が出ない", async () => {
+  const { page, ctx, errors } = await open("index.html#admin", { opts: { guides: GUIDES } });
+  await page.waitForSelector("#login-guide .guide-link", { state: "attached" }); // 読み込み済み(でも見えない)
+  assert.equal(await page.isVisible("#tab-admin.active"), true);
+  assert.equal(await page.isVisible("#login-guide"), false);
+  await page.click("#tab-user");
+  assert.equal(await page.isVisible("#login-guide"), true);
+  assert.deepEqual(errors, []);
+  await ctx.close();
 });
 
 await check("使い方リンク: お知らせ画面・使い方ページにも出る。幅320pxではみ出さない", async () => {
@@ -1417,6 +1437,7 @@ await check("管理画面: お知らせを出す・直す・消す。期間の�
   const { page, ctx, be, errors } = await open("admin.html#notices", { userId: "a1", opts: { profile: ADMIN }, viewport: { width: 1200, height: 900 } });
   await page.waitForSelector("#notice-list .notice-admin-row");
   assert.equal(await page.inputValue("#notice-start"), today);
+  assert.ok((await page.textContent("label[for=notice-body]")).includes("https://"));
   await page.click("#notice-save");
   assert.equal(await page.textContent("#notice-message"), "タイトルを入力してください。");
   await page.fill("#notice-title", "新しいお知らせ");
