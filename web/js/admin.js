@@ -480,7 +480,7 @@ function renderMasterPane() {
     $("period-date").min = minDate;
     nameTouched = false;
     setPeriodName("ダイヤ改正");
-    $("period-help").textContent = "切替日(新しいダイヤの初日)と名前を入れて「切替日を保存」を押してから、CSV を取り込みます。日付だけ先に保存して、CSV はあとから入れてもかまいません。";
+    $("period-help").textContent = "切替日(新しいダイヤの初日)と名前を入れて「作る」を押してから、CSV を取り込みます。日付だけ先に作って、CSV はあとから入れてもかまいません。ダイヤ改正・ダイヤ修正の日はどの区所も同じなので、ふつうは「全部の区所に同じ切替日で作る」のままにします(CSV は区所ごと)。";
   } else if (p) {
     $("period-summary").textContent = periodLabel(p) + "(" + rangeText(p) + ")" +
       (p.id === periodIdOn(office, stats.today) ? " … 今使っているマスタ" : p.from > stats.today ? " … これから使うマスタ" : " … 前のマスタ");
@@ -494,6 +494,14 @@ function renderMasterPane() {
         : "切替日から、このマスタで登録されます。切替日の前日の泊は、非番の退勤時間だけこのマスタから入ります(同じ番号の泊が無いと、その人は非番のメモに退勤時間を入れる必要があります)。";
   }
   $("period-delete").hidden = isNew || !p || isBase || started;
+  // 全部の区所にまとめて(ダイヤ改正・ダイヤ修正の日はどの区所も同じ)。作るときは全部の区所、
+  // 直す・消すときは、同じ切替日のマスタがあるほかの区所。いちばん古いマスタ(区所ごとに日が違う)には出さない
+  const others = p ? sameDateOffices(office, p.from).length : stats.offices.length - 1;
+  $("period-all-label").hidden = isBase || !p && !isNew || others === 0;
+  $("period-all").checked = true;
+  $("period-all-text").textContent = isNew
+    ? `全部の区所(${stats.offices.length})に同じ切替日で作る`
+    : `同じ切替日のほかの区所(${others})もまとめて直す・消す`;
   $("period-csv").hidden = isNew;
   $("period-save").textContent = isNew ? "作る" : "切替日を保存";
   $("copy-prev").hidden = isNew || !p || isBase;
@@ -616,6 +624,13 @@ async function affectedNote(periodId) {
   return `切替日の前日から後の勤務を、もう保存・登録している人が ${data}人 います。その人は、その月をもう一度「登録」すると新しいマスタの時間になります(お知らせで知らせると確実です)。`;
 }
 
+// 同じ切替日のマスタがある、ほかの区所
+function sameDateOffices(office, from) {
+  return stats.offices.filter((o) => o.id !== office.id && periodsOf(o).some((p) => p.from === from));
+}
+
+const allChecked = () => !$("period-all-label").hidden && $("period-all").checked;
+
 $("period-save").addEventListener("click", async () => {
   const office = selectedOffice();
   if (!office) return;
@@ -624,32 +639,47 @@ $("period-save").addEventListener("click", async () => {
   const p = selectedPeriod();
   if (p && p.from === date && p.name === $("period-name").value) return periodMessage("変わっていません。");
   if (p && p.from !== date && p.from <= stats.today && !confirm("もう始まっているマスタの切替日を変えます。前後の日の時間が変わります。よろしいですか？")) return;
+  const all = allChecked();
   $("period-save").disabled = true;
-  const { data, error } = await supabase.rpc("save_master_period", {
-    p_office_id: office.id,
-    p_period_id: p ? p.id : null,
-    p_starts_on: date,
-    p_name: $("period-name").value,
-  });
+  // まとめるときは、全部の区所を1回で(1つでも失敗したら、どの区所も変えない)
+  const { data, error } = all
+    ? await supabase.rpc("save_master_period_all", { p_old_starts_on: p ? p.from : null, p_starts_on: date, p_name: $("period-name").value })
+    : await supabase.rpc("save_master_period", { p_office_id: office.id, p_period_id: p ? p.id : null, p_starts_on: date, p_name: $("period-name").value });
   $("period-save").disabled = false;
   if (error) return periodMessage(error.message, "error");
-  selectedPeriodId = data;
+  selectedPeriodId = all ? null : data;
   await refresh();
+  if (all) {
+    // 選んでいる区所の、作った・直した切替日を選び直す
+    const made = periodsOf(selectedOffice()).find((x) => x.from === date);
+    if (made) {
+      selectedPeriodId = made.id;
+      renderMasterPane();
+    }
+  }
   const saved = selectedPeriod();
-  const note = saved && saved.index > 0 && saved.count ? await affectedNote(data) : "";
-  periodMessage((p ? "切替日を保存しました。" : "「" + periodLabel(saved || { from: date, name: "" }) + "」を作りました。続けて CSV を取り込んでください。") +
+  const note = saved && saved.index > 0 && saved.count ? await affectedNote(saved.id) : "";
+  const where = all ? `${data}区所の` : "";
+  periodMessage((p ? where + "切替日を保存しました。" : where + "「" + periodLabel(saved || { from: date, name: "" }) + "」を作りました。" +
+    (all ? "CSV は区所ごとです。区所を切り替えて、それぞれ取り込んでください。" : "続けて CSV を取り込んでください。")) +
     (note ? " " + note : ""), "ok");
 });
 
 $("period-delete").addEventListener("click", async () => {
   const p = selectedPeriod();
   if (!p) return;
-  if (!confirm(`「${periodLabel(p)}」(${shortDate(p.from)}〜)のマスタを消しますか？\nこのマスタの番号(${p.count}件)も消えます。切替日より後の日は、前のマスタで登録されるようになります。`)) return;
-  const { error } = await supabase.rpc("delete_master_period", { p_period_id: p.id });
+  const all = allChecked();
+  const others = all ? sameDateOffices(selectedOffice(), p.from).map((o) => o.name) : [];
+  if (!confirm(`「${periodLabel(p)}」(${shortDate(p.from)}〜)のマスタを消しますか？` +
+    (others.length ? `\nほかの区所(${others.join("、")})の同じ切替日のマスタも消えます。` : "") +
+    `\nこのマスタの番号(${p.count}件)も消えます。切替日より後の日は、前のマスタで登録されるようになります。`)) return;
+  const { data, error } = all
+    ? await supabase.rpc("delete_master_period_all", { p_starts_on: p.from })
+    : await supabase.rpc("delete_master_period", { p_period_id: p.id });
   if (error) return periodMessage(error.message, "error");
   selectedPeriodId = null;
   await refresh();
-  periodMessage("マスタを消しました。", "ok");
+  periodMessage(all ? `${data}区所のマスタを消しました。` : "マスタを消しました。", "ok");
 });
 
 $("csv-download").addEventListener("click", () => {

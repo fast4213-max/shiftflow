@@ -199,4 +199,64 @@ begin
 end
 $$;
 
+-- マスタの切替日を全部の区所にまとめて作る・直す・消す。1つの区所で失敗したら、どの区所も変えない
+do $$
+declare
+  admin_id uuid := 'cccccccc-0000-4000-8000-000000000002';
+  a bigint;
+  b bigint;
+  today date := (now() at time zone 'Asia/Tokyo')::date;
+  d1 date := (now() at time zone 'Asia/Tokyo')::date + 40;
+  d2 date := (now() at time zone 'Asia/Tokyo')::date + 41;
+  failed boolean;
+  n int;
+begin
+  assert not has_function_privilege('anon', 'public.save_master_period_all(date,date,text)', 'execute'), 'anon が save_master_period_all を実行できる';
+  insert into public.offices (name, sort_order) values ('まとめA区', 998) returning id into a;
+  insert into public.offices (name, sort_order) values ('まとめB区', 999) returning id into b;
+  perform set_config('request.jwt.claim.sub', admin_id::text, true);
+  failed := false;
+  begin
+    perform public.save_master_period_all(null, d1, 'ダイヤ改正');
+  exception when others then failed := true;
+  end;
+  assert failed, '管理者でなくても、まとめて作れる';
+  insert into auth.users (id) values (admin_id);
+  insert into public.profiles (user_id, role) values (admin_id, 'admin');
+  -- ほかのテストの区所が残っていてもよいよう、数は2つ以上で見る
+  n := public.save_master_period_all(null, d1, 'ダイヤ改正');
+  assert n >= 2, 'まとめて作った区所の数が違う';
+  assert (select count(*) from public.master_periods where office_id in (a, b) and starts_on = d1 and name = 'ダイヤ改正') = 2, 'まとめて作れない';
+  -- もうある区所は、名前だけ直す(2つにならない)
+  perform public.save_master_period_all(null, d1, 'ダイヤ修正');
+  assert (select count(*) from public.master_periods where office_id = a and starts_on = d1) = 1, '同じ日の切替日が2つになった';
+  assert (select name from public.master_periods where office_id = b and starts_on = d1) = 'ダイヤ修正', '名前が直らない';
+  -- まとめて直す
+  perform public.save_master_period_all(d1, d2, 'ダイヤ改正');
+  assert (select count(*) from public.master_periods where office_id in (a, b) and starts_on = d2) = 2, 'まとめて直せない';
+  assert not exists (select 1 from public.master_periods where office_id in (a, b) and starts_on = d1), '前の切替日が残る';
+  -- B区だけ、いちばん古いマスタを d2 より後にする → 全部の区所に d1 を作ろうとすると B区で失敗し、A区にも作られない
+  delete from public.master_periods where office_id = b and starts_on = d2;
+  update public.master_periods set starts_on = today + 60 where office_id = b;
+  failed := false;
+  begin
+    perform public.save_master_period_all(null, d1, 'ダイヤ改正');
+  exception when others then
+    failed := true;
+    assert sqlerrm like 'まとめB区: %', '失敗した区所の名前が出ない: ' || sqlerrm;
+  end;
+  assert failed, 'B区で失敗しない';
+  assert not exists (select 1 from public.master_periods where office_id = a and starts_on = d1), '失敗したのに A区に作られた';
+  -- まとめて消す(まだ始まっていないものだけ)
+  n := public.delete_master_period_all(d2);
+  assert n = 1 and not exists (select 1 from public.master_periods where starts_on = d2 and office_id in (a, b)), 'まとめて消せない';
+  assert (select count(*) from public.master_periods where office_id in (a, b)) = 2, 'いちばん古いマスタまで消えた';
+
+  delete from public.offices where id in (a, b);
+  delete from public.profiles where user_id = admin_id;
+  delete from auth.users where id = admin_id;
+  perform set_config('request.jwt.claim.sub', '', true);
+end
+$$;
+
 select 'db_assert: all ok' as result;

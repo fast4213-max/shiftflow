@@ -116,3 +116,7 @@ button.danger-outline { color: var(--danger); border-color: var(--danger); backg
 /* 前のマスタと比べて、増えた行・変わった行 */
 table.master tr.added td { background: #e6f4ea; }
 table.master tr.changed td { background: #fff6d6; }
+.period-form label.period-all { flex-direction: row; align-items: center; color: var(--text); font-size: 0.9rem; padding-bottom: 8px; }
+.period-form label.period-all input { min-width: 0; width: auto; margin: 0 4px 0 0; }
+.period-form label[hidden] { display: none; }
+.period-tabs .chip.add.active { color: #fff; border-style: solid; }

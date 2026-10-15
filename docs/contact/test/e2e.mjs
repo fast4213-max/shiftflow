@@ -106,6 +106,7 @@ function backend(opts = {}) {
     if (path === "/rest/v1/shift_master") return json((opts.master || []).map((r) => ({ period_id: 1, ...r })));
     if (path === "/rest/v1/master_periods") return json(opts.periods || [{ id: 1, starts_on: "2026-10-03", name: "ダイヤ修正" }]);
     if (path === "/rest/v1/rpc/save_master_period") return json(opts.savedPeriodId || 3);
+    if (path === "/rest/v1/rpc/save_master_period_all") return json(st.offices.length);
     if (path === "/rest/v1/rpc/master_period_affected") return json(opts.affected || 0);
     if (path === "/rest/v1/rpc/save_month_records") return json(Object.keys((body && body.p_entries) || {}).length);
     // 勤務入力の「保存」は register-month に saveOnly で送る(17回目の N1)。登録は件数を返す
@@ -715,6 +716,34 @@ await check("マスタの切替(管理画面): タブ・CSV未登録の注意・
   const saved = be.st.calls.find((c) => c.path === "/rest/v1/rpc/save_master_period").body;
   assert.deepEqual(saved, { p_office_id: 1, p_period_id: null, p_starts_on: "2027-10-02", p_name: "ダイヤ修正" });
   await page.screenshot({ path: OUT + "period-admin.png", fullPage: true });
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("マスタの切替(管理画面): 次のマスタは、全部の区所にまとめて作れる(外すと、選んでいる区所だけ)", async () => {
+  const { page, ctx, be, errors } = await open("admin.html", { userId: "a1", opts: { profile: ADMIN, twoOffices: true }, viewport: { width: 1200, height: 900 } });
+  await page.click('.dtab[data-tab="master"]');
+  await page.waitForSelector("#period-tabs .chip.add");
+  // いちばん古いマスタ(区所ごとに日が違う)には出さない
+  assert.ok(await page.isHidden("#period-all-label"));
+  await page.click("#period-tabs .chip.add");
+  assert.equal(await page.textContent("#period-all-text"), "全部の区所(3)に同じ切替日で作る");
+  assert.ok(await page.isChecked("#period-all"));
+  await page.fill("#period-date", "2027-03-14");
+  await page.dispatchEvent("#period-date", "change");
+  await page.screenshot({ path: OUT + "period-admin-all.png" });
+  await page.click("#period-save");
+  await page.waitForFunction(() => document.getElementById("period-message").textContent.includes("3区所の"));
+  assert.ok((await page.textContent("#period-message")).includes("CSV は区所ごとです"));
+  assert.deepEqual(be.st.calls.find((c) => c.path === "/rest/v1/rpc/save_master_period_all").body,
+    { p_old_starts_on: null, p_starts_on: "2027-03-14", p_name: "ダイヤ改正" });
+  // チェックを外すと、選んでいる区所だけに作る
+  await page.click("#period-tabs .chip.add");
+  await page.uncheck("#period-all");
+  await page.fill("#period-date", "2027-10-02");
+  await page.click("#period-save");
+  await page.waitForFunction(() => document.getElementById("period-message").textContent.includes("を作りました"));
+  assert.equal(be.st.calls.filter((c) => c.path === "/rest/v1/rpc/save_master_period").length, 1);
   assert.deepEqual(errors, []);
   await ctx.close();
 });
