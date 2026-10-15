@@ -110,4 +110,93 @@ begin
 end
 $$;
 
+-- マスタの切替(ダイヤ改正・ダイヤ修正): 切替日の表の権限、管理者の関数(作る・変える・消す・CSV の入れ替え)、区所の追加
+do $$
+declare
+  admin_id uuid := 'cccccccc-0000-4000-8000-000000000001';
+  office bigint;
+  base bigint;
+  nxt bigint;
+  today date := (now() at time zone 'Asia/Tokyo')::date;
+  failed boolean;
+begin
+  assert (select relrowsecurity from pg_class where oid = 'public.master_periods'::regclass), 'master_periods の RLS が無効';
+  assert not has_table_privilege('anon', 'public.master_periods', 'select'), 'anon が master_periods を読める';
+  assert not has_table_privilege('authenticated', 'public.master_periods', 'insert, update, delete'), 'authenticated が master_periods を書ける';
+  assert has_table_privilege('authenticated', 'public.master_periods', 'select'), 'authenticated が master_periods を読めない';
+  assert not has_function_privilege('authenticated', 'public.purge_old_master_periods()', 'execute'), 'authenticated が purge_old_master_periods を実行できる';
+  assert has_function_privilege('authenticated', 'public.save_master_period(bigint,bigint,date,text)', 'execute'), 'save_master_period を実行できない';
+
+  -- 区所を足すと、切替日が1つできる
+  insert into public.offices (name, sort_order) values ('切替テスト区', 999) returning id into office;
+  select id into base from public.master_periods where office_id = office;
+  assert base is not null, '区所を足しても切替日ができない';
+  -- 管理者でないと作れない
+  perform set_config('request.jwt.claim.sub', admin_id::text, true);
+  failed := false;
+  begin
+    perform public.save_master_period(office, null, today + 30, 'ダイヤ改正');
+  exception when others then failed := true;
+  end;
+  assert failed, '管理者でなくても切替日を作れる';
+  insert into auth.users (id) values (admin_id);
+  insert into public.profiles (user_id, role) values (admin_id, 'admin');
+  -- いちばん古いマスタより前・今月より前の切替日は作れない。同じ日も作れない
+  failed := false;
+  begin
+    perform public.save_master_period(office, null, (date_trunc('month', today) - interval '1 day')::date, '');
+  exception when others then failed := true;
+  end;
+  assert failed, '今月より前の切替日を作れる';
+  nxt := public.save_master_period(office, null, today + 30, 'ダイヤ改正');
+  failed := false;
+  begin
+    perform public.save_master_period(office, null, today + 30, '');
+  exception when others then failed := true;
+  end;
+  assert failed, '同じ日の切替日を2つ作れる';
+  -- いちばん古いマスタの日は、次の切替日より前にだけ変えられる
+  failed := false;
+  begin
+    perform public.save_master_period(office, base, today + 40, '');
+  exception when others then failed := true;
+  end;
+  assert failed, 'いちばん古いマスタの日を、次の切替日より後にできる';
+  perform public.save_master_period(office, base, date '2026-10-03', 'ダイヤ修正');
+  -- CSV の入れ替えは切替日ごと。前のマスタは消えない
+  perform public.replace_shift_master(office, base, '[{"code":"1","kind":"泊","weekday_start":"9:00"}]'::jsonb);
+  perform public.replace_shift_master(office, nxt, '[{"code":"1","kind":"泊","weekday_start":"10:00"},{"code":"2","kind":"日勤","weekday_start":"8:00"}]'::jsonb);
+  assert (select count(*) from public.shift_master where period_id = base) = 1, '前のマスタが消えた';
+  assert (select count(*) from public.shift_master where period_id = nxt) = 2, '次のマスタが入らない';
+  assert public.master_period_on(office, today) = base, '今日のマスタが違う';
+  assert public.master_period_on(office, today + 30) = nxt, '切替日のマスタが違う';
+  assert public.master_period_on(office, date '2000-01-01') = base, '切替日より前の日に、いちばん古いマスタを使わない';
+  assert (select (o ->> 'master_count')::int from jsonb_array_elements(public.admin_stats() -> 'offices') o where (o ->> 'id')::bigint = office) = 1,
+         '概要の件数が今日のマスタの件数でない';
+  -- もう使っている(いちばん古い)マスタは消せない。まだ始まっていないものは消せて、行も消える
+  failed := false;
+  begin
+    perform public.delete_master_period(base);
+  exception when others then failed := true;
+  end;
+  assert failed, '使っているマスタを消せる';
+  perform public.delete_master_period(nxt);
+  assert not exists (select 1 from public.shift_master where period_id = nxt), '消した切替日の行が残る';
+
+  -- 古い切替日の自動削除: 次の切替日が前月の1日より前なら消える
+  --   2000-01-01 は次(2001-01-01)が前月の1日より前なので消える。2001-01-01 は次(base)が今月なので、前月の記録のために残す
+  insert into public.master_periods (office_id, starts_on, name) values (office, date '2000-01-01', '古い'), (office, date '2001-01-01', '前');
+  update public.master_periods set starts_on = date_trunc('month', today)::date where id = base;
+  perform public.purge_old_master_periods();
+  assert not exists (select 1 from public.master_periods where office_id = office and starts_on = date '2000-01-01'), '古い切替日が消えない';
+  assert exists (select 1 from public.master_periods where office_id = office and starts_on = date '2001-01-01'), '前月に使う切替日が消えた';
+  assert exists (select 1 from public.master_periods where id = base), '使っている切替日が消えた';
+
+  delete from public.offices where id = office;
+  delete from public.profiles where user_id = admin_id;
+  delete from auth.users where id = admin_id;
+  perform set_config('request.jwt.claim.sub', '', true);
+end
+$$;
+
 select 'db_assert: all ok' as result;

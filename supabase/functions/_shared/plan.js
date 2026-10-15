@@ -102,6 +102,62 @@ export function indexMaster(rows) {
   return map;
 }
 
+// ---------- マスタの切替(ダイヤ改正・ダイヤ修正) ----------
+// 区所のマスタは切替日ごとにある(master_periods)。ある日に使うマスタは、その日以前に始まったうちの最新。
+// いちばん古いマスタは、切替日より前の日にも使う(始まりの日は表示のためのもの)。
+// 切替日の前日の泊は、泊の日(出勤・泊地)は前のマスタ、非番の日(退勤)は新しいマスタの同じ番号を使う(buildPlan)。
+
+export class MasterSet {
+  // periods: master_periods の行 [{ id, starts_on, name }]、rows: shift_master の行(period_id 付き。sort_order の順)
+  constructor(periods, rows) {
+    this.periods = (periods || [])
+      .map((p) => {
+        const list = (rows || []).filter((r) => r.period_id === p.id);
+        return { id: p.id, from: p.starts_on, name: p.name || "", rows: list, map: indexMaster(list) };
+      })
+      .sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
+  }
+
+  // その日に使うマスタ({ id, from, name, rows, map })。切替日が1つも無ければ空のマスタ
+  periodOn(key) {
+    let found = this.periods[0];
+    for (const p of this.periods) if (p.from <= key) found = p;
+    return found || EMPTY_PERIOD;
+  }
+
+  // その日のマスタが、切替日だけ決まっていて行がまだ無い(CSV が未登録)か。
+  // いちばん古いマスタが空なのは、区所のマスタが空なだけ(今までと同じく、番号は手入力として入る)
+  missingOn(key) {
+    const p = this.periodOn(key);
+    return p !== this.periods[0] && p.rows.length === 0;
+  }
+
+  // from〜to(両端を含む)の間に始まる切替日
+  startsBetween(from, to) {
+    return this.periods.filter((p, i) => i > 0 && p.from >= from && p.from <= to);
+  }
+}
+
+const EMPTY_PERIOD = { id: null, from: "", name: "", rows: [], map: Object.create(null) };
+
+// その日に使うマスタ(indexMaster の形)。master が MasterSet でなければ(切替の無いマスタ)そのまま
+export function masterOn(master, key) {
+  return master instanceof MasterSet ? master.periodOn(key).map : master;
+}
+
+// 「2027年3月 ダイヤ改正」(名前が無ければ「2027年3月14日からのマスタ」)
+export function periodLabel(period) {
+  if (!period || !period.from) return "マスタ";
+  const [y, m, d] = period.from.split("-").map(Number);
+  return period.name ? y + "年" + m + "月 " + period.name : y + "年" + m + "月" + d + "日からのマスタ";
+}
+
+// "2027-03-14" → "3/14"
+export function shortDate(key) {
+  const [, m, d] = key.split("-").map(Number);
+  return m + "/" + d;
+}
+
 export function pickTime(times, dayType) {
   return times[dayType] || times["平日"] || "";
 }
@@ -170,32 +226,40 @@ export function codeOf(entry) {
 //   entries        { "yyyy-MM-dd": { code, memo } }  (memo は手修正したときだけ)
 //   prevLastCode   前月末の番号(1日が非番かどうかの判定用)
 //   nextFirstEntry 翌月1日の記録(月末が泊なら非番のメモに、泊でなければ翌月1日の予定に使う)
-//   master         indexMaster() の結果
+//   master         indexMaster() の結果、または切替のあるマスタ(MasterSet。日ごとに、その日のマスタを引く)
 //   holidays       祝日の配列または Set(前月末〜翌月2日を含める。泊の日と翌日の平休で出勤・退勤の列を選ぶため)
 // 非番の日は番号を無視する。翌月1日の予定も含める(月末が泊なら非番、泊でなければ翌月1日の記録の予定)。
 // 月末を泊から戻したとき、翌月1日の非番を消したあとに翌月1日の予定を作り直すため。
+// errors: マスタの切替で登録できない日 [{ date, message }](空でなければ、保存も登録もしない)
+//   - 切替日から後の日に番号があるのに、その切替日のマスタがまだ無い
+//   - 切替日の前日の泊で、非番の日(切替日)のマスタがまだ無い
+//   - 切替日の前日の泊で、新しいマスタに同じ番号の泊が無く、非番の日のメモ(退勤時間)も無い
 export function buildPlan({ year, month, entries, prevLastCode, nextFirstEntry, master, holidays }) {
   const days = daysInMonth(year, month);
   const cleanEntries = {};
   const events = [];
+  const errors = [];
 
   for (let d = 1; d <= days + 1; d++) {
     const key = d > days ? addDays(dateKey(year, month, days), 1) : dateKey(year, month, d);
     const e = normalizeEntry(d > days ? nextFirstEntry : (entries || {})[key]);
     const dayType = dayTypeOf(key, holidays);
+    const prevKey = addDays(key, -1);
 
-    const prevCode = d === 1 ? prevLastCode : codeOf(cleanEntries[dateKey(year, month, d - 1)]);
-    const prevMaster = master[prevCode];
+    const prevCode = d === 1 ? prevLastCode : codeOf(cleanEntries[prevKey]);
+    const prevMaster = masterOn(master, prevKey)[prevCode];
     if (prevMaster && prevMaster.type === "泊") {
       // 番号が残っている日のメモは、その番号(勤務の日)のためのものなので使わない
       // (前月末を泊にしたとき、翌月1日の記録に番号とメモが残っていることがある)
       const memo = e.code ? "" : e.memo;
+      const off = offdutyEntryOf(master, prevKey, key, prevCode);
+      if (off.error && (off.missing || !memo)) errors.push({ date: prevKey, message: off.error });
       events.push({
         date: key,
         calendar: "work",
         kind: "offduty",
         title: OFFDUTY_TITLE,
-        description: memo || offdutyMemo(prevMaster, dayTypeOf(addDays(key, -1), holidays), dayType),
+        description: memo || (off.entry ? offdutyMemo(off.entry, dayTypeOf(prevKey, holidays), dayType) : ""),
       });
       if (d <= days && memo) {
         cleanEntries[key] = { code: "", memo };
@@ -206,7 +270,11 @@ export function buildPlan({ year, month, entries, prevLastCode, nextFirstEntry, 
     if (d <= days) cleanEntries[key] = e;
     if (!e.code) continue;
 
-    const entry = master[e.code];
+    // 翌月1日の記録(翌月の入力)は、翌月の登録で確かめる
+    if (d <= days && master instanceof MasterSet && master.missingOn(key)) {
+      errors.push({ date: key, message: missingMessage(master.periodOn(key), key) });
+    }
+    const entry = masterOn(master, key)[e.code];
     if (entry && entry.type === "休日") {
       events.push({ date: key, calendar: "holiday", kind: "day", title: e.code, description: e.memo });
     } else {
@@ -221,5 +289,39 @@ export function buildPlan({ year, month, entries, prevLastCode, nextFirstEntry, 
     }
   }
 
-  return { entries: cleanEntries, events: events };
+  return { entries: cleanEntries, events: events, errors: errors };
+}
+
+// 泊の翌日(非番の日 key)の退勤時間に使うマスタの行。泊の日(prevKey)と同じマスタなら、その泊の行。
+// 切替日の前日の泊なら、非番の日(切替日)のマスタの同じ番号の泊。
+//   { entry, error, missing }  entry が null なら、退勤時間はマスタから分からない(error に理由)。
+//   missing: 非番の日のマスタがまだ無い(メモに退勤時間を書いても登録できない)
+export function offdutyEntryOf(master, prevKey, key, prevCode) {
+  const prev = masterOn(master, prevKey)[prevCode] || null;
+  if (!(master instanceof MasterSet)) return { entry: prev, error: "", missing: false };
+  const from = master.periodOn(prevKey);
+  const to = master.periodOn(key);
+  if (from === to) return { entry: prev, error: "", missing: false };
+  const label = periodLabel(to) + "(" + shortDate(to.from) + "〜)";
+  if (master.missingOn(key)) {
+    return {
+      entry: null,
+      missing: true,
+      error: shortDate(prevKey) + "の泊(" + prevCode + ")の非番の退勤時間が分かりません。" + label +
+        "のマスタがまだ登録されていないためです(管理者がマスタを入れると登録できます)。",
+    };
+  }
+  const next = to.map[prevCode];
+  if (next && next.type === "泊") return { entry: next, error: "", missing: false };
+  return {
+    entry: null,
+    missing: false,
+    error: shortDate(prevKey) + "の泊(" + prevCode + ")の非番の退勤時間が、" + label + "のマスタにありません(同じ番号の泊がありません)。" +
+      shortDate(key) + "(非番)のメモに退勤時間(例 9:00)を入れてください。",
+  };
+}
+
+function missingMessage(period, key) {
+  return shortDate(key) + ": " + periodLabel(period) + "(" + shortDate(period.from) + "〜)のマスタがまだ登録されていません。" +
+    shortDate(period.from) + "から後の日は、管理者がマスタを入れるまで番号を入れて登録できません。";
 }

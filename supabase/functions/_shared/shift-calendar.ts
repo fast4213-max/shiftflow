@@ -1,7 +1,7 @@
 // 利用者の勤務用・休日用・非番の時間用カレンダーへの登録・削除。
 // カレンダーIDは必ず user_settings から読む(リクエスト本文の値は使わない)。
 
-import { addDays, daysInMonth, dateKey } from "./plan.js";
+import { addDays, daysInMonth, dateKey, MasterSet, masterOn } from "./plan.js";
 import type { Context } from "./auth.ts";
 import { AppError } from "./http.ts";
 import { APP_TAG, calendarAccessError, deleteEvent, insertAllDayEvent, insertTimedEvent, listEvents, runPool, withRetryBudget } from "./google.ts";
@@ -267,24 +267,35 @@ export function staleNextMonthRecords(
     nextFirstOffduty: boolean;
     nextFirstCode: string;
     newlyOffduty?: boolean;
-    master: Record<string, any>; // indexMaster() の結果
+    master: Record<string, any>; // indexMaster() の結果、または MasterSet(日ごとのマスタ)
   },
 ): { date: string; memoOnly: boolean }[] {
   if (nextFirstOffduty) {
     if (!nextFirstCode) return newlyOffduty ? [{ date: nextFirst, memoOnly: true }] : [];
     const stale = [{ date: nextFirst, memoOnly: false }];
-    if (master[nextFirstCode]?.type === "泊") stale.push({ date: addDays(nextFirst, 1), memoOnly: true });
+    if (masterOn(master, nextFirst)[nextFirstCode]?.type === "泊") stale.push({ date: addDays(nextFirst, 1), memoOnly: true });
     return stale;
   }
-  return master[lastCode]?.type === "泊" ? [{ date: nextFirst, memoOnly: true }] : [];
+  return masterOn(master, addDays(nextFirst, -1))[lastCode]?.type === "泊" ? [{ date: nextFirst, memoOnly: true }] : [];
 }
 
 // 翌月1日が今回はじめて非番になったか(登録する前の月末が泊でなく、今回の月末が泊)。
 // そのとき翌月1日の番号の無いメモは、非番のメモに使わない(W6)
 export function nextFirstNewlyOffduty(
-  { lastCode, nextFirstOffduty, master }: { lastCode: string; nextFirstOffduty: boolean; master: Record<string, any> },
+  { last, lastCode, nextFirstOffduty, master }: { last: string; lastCode: string; nextFirstOffduty: boolean; master: Record<string, any> },
 ): boolean {
-  return nextFirstOffduty && master[lastCode]?.type !== "泊";
+  return nextFirstOffduty && masterOn(master, last)[lastCode]?.type !== "泊";
+}
+
+// 区所のマスタを、切替日(ダイヤ改正・ダイヤ修正)ごとに読む。日ごとに、その日のマスタを引ける(MasterSet)
+export async function loadMasterSet(ctx: Context, officeId: number): Promise<MasterSet> {
+  const [periodsRes, rowsRes] = await Promise.all([
+    ctx.db.from("master_periods").select("id, starts_on, name").eq("office_id", officeId),
+    ctx.db.from("shift_master").select("*").eq("office_id", officeId).order("sort_order"),
+  ]);
+  if (periodsRes.error) throw periodsRes.error;
+  if (rowsRes.error) throw rowsRes.error;
+  return new MasterSet(periodsRes.data || [], rowsRes.data || []);
 }
 
 // staleNextMonthRecords の記録を消す(利用者の権限で消すので、本人の記録だけが対象)
@@ -350,8 +361,9 @@ export function splitDayEvents(events: PlannedEvent[], master: Record<string, an
   return events.map((e) => {
     if (e.calendar !== "work" || e.kind !== "day") return e;
     // マスタにない番号(手入力)は日勤と同じ扱い(休日の番号は休日用カレンダーなので、上で外れる)
-    if (!master[e.title] && isOffTitle(e.title)) return e;
-    const type = master[e.title]?.type ?? "日勤";
+    const m = masterOn(master, e.date);
+    if (!m[e.title] && isOffTitle(e.title)) return e;
+    const type = m[e.title]?.type ?? "日勤";
     if (type !== "日勤" && type !== "泊") return e;
     const time = e.description.split("\n")[0].trim();
     const range = parseTimeRange(time);
@@ -373,7 +385,7 @@ export function splitDayEvents(events: PlannedEvent[], master: Record<string, an
 export function splitOffdutyEvents(events: PlannedEvent[], master: Record<string, any>): PlannedEvent[] {
   return events.map((e) => {
     if (e.calendar !== "work" || e.second) return e;
-    const manual = e.kind === "day" && !master[e.title] && isOffdutyTitle(e.title);
+    const manual = e.kind === "day" && !masterOn(master, e.date)[e.title] && isOffdutyTitle(e.title);
     if (e.kind !== "offduty" && !manual) return e;
     const end = parseOffdutyTime(e.description.split("\n")[0]);
     if (end === null) return e;
@@ -409,12 +421,13 @@ export function addTimeToTitles(
   return events.map((e) => {
     if (e.calendar !== "work" || TITLE_TIME_END.test(e.title)) return e;
     const firstLine = e.description.split("\n")[0];
-    const manual = e.kind === "day" && !master[e.title];
+    const m = masterOn(master, e.date);
+    const manual = e.kind === "day" && !m[e.title];
     let min: number | null = null;
     if (e.kind === "offduty" || (manual && isOffdutyTitle(e.title))) {
       if (offduty) min = titleTimeOf(firstLine, true);
     } else if (e.kind === "day" && day && !(manual && isOffTitle(e.title))) {
-      const type = master[e.title]?.type ?? "日勤";
+      const type = m[e.title]?.type ?? "日勤";
       if (type === "日勤" || type === "泊") min = titleTimeOf(firstLine, false);
     }
     return min === null ? e : { ...e, title: `${e.title}(${formatMinutes(min)})` };
@@ -472,12 +485,13 @@ export function toTimedEvents(
       out.push(e);
       continue;
     }
-    const manual = !master[e.title];
+    const m = masterOn(master, e.date);
+    const manual = !m[e.title];
     if (e.kind !== "day" || (manual && isOffTitle(e.title))) {
       out.push(e);
       continue;
     }
-    const type = master[e.title]?.type ?? "日勤";
+    const type = m[e.title]?.type ?? "日勤";
     const lines = e.description.split("\n");
     const head = leadingTime(lines[0], parseTimeRange);
     if (!head || (type !== "日勤" && type !== "泊")) {
@@ -491,7 +505,7 @@ export function toTimedEvents(
       // 泊: 翌日の非番(マスタの泊なら自動の非番、手入力なら手入力の非番)の退勤時間まで
       const pair = type === "泊"
         ? next?.kind === "offduty"
-        : next?.kind === "day" && !master[next.title] && isOffdutyTitle(next.title);
+        : next?.kind === "day" && !masterOn(master, next.date)[next.title] && isOffdutyTitle(next.title);
       const nextLines = next ? next.description.split("\n") : [];
       const off = pair ? leadingTime(nextLines[0], parseOffdutyTime) : null;
       if (!off || !next) {

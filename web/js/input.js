@@ -1,6 +1,9 @@
 // 勤務入力画面
 import { friendlyText, $, callFunction, requireLogin, supabase } from "./app.js?v=dev";
-import { addDays, dateKey, dayTypeOf, daysInMonth, describe, dutyMemo, holidayYearsFor, indexMaster, offdutyMemo, pad } from "./plan.js?v=dev";
+import {
+  addDays, buildPlan, dateKey, dayTypeOf, daysInMonth, describe, dutyMemo, holidayYearsFor, MasterSet, masterOn, offdutyEntryOf, offdutyMemo, pad,
+  periodLabel, shortDate,
+} from "./plan.js?v=dev";
 import { PHOTO_IMPORT_URL } from "./config.js?v=dev";
 import { captureImportFromHash, decodeImport, stashImport, takePendingImport } from "./photo-import.js?v=dev";
 
@@ -18,8 +21,7 @@ function nowParts() {
 const state = {
   year: nowParts().year,
   month: nowParts().month,
-  masterList: [],
-  master: {},
+  master: new MasterSet([], []), // 区所のマスタ(切替日 = ダイヤ改正・ダイヤ修正ごと)。日ごとに masterOn で引く
   entries: {},       // { "yyyy-MM-dd": { code, memo } }  memo は手修正したときだけ
   prevLastCode: "",
   officeId: null,
@@ -83,17 +85,19 @@ async function loadMonth(id) {
   const last = dateKey(state.year, state.month, daysInMonth(state.year, state.month));
   const prevLast = addDays(first, -1);
   const nextFirst = addDays(last, 1);
-  const [masterRes, recordsRes, holidays] = await Promise.all([
+  // マスタは切替日(ダイヤ改正・ダイヤ修正)ごとに読む。日ごとに、その日のマスタを使う
+  const [periodsRes, masterRes, recordsRes, holidays] = await Promise.all([
+    supabase.from("master_periods").select("id, starts_on, name").eq("office_id", state.officeId),
     supabase.from("shift_master").select("*").eq("office_id", state.officeId).order("sort_order"),
     supabase.from("shift_records").select("date, code, memo").gte("date", prevLast).lte("date", last),
     loadHolidays(prevLast, nextFirst),
   ]);
   if (id !== state.loadId) return; // 読み込み中に別の月へ移動した
+  if (periodsRes.error) throw periodsRes.error;
   if (masterRes.error) throw masterRes.error;
   if (recordsRes.error) throw recordsRes.error;
 
-  state.masterList = masterRes.data || [];
-  state.master = indexMaster(state.masterList);
+  state.master = new MasterSet(periodsRes.data || [], masterRes.data || []);
   state.entries = {};
   state.prevLastCode = "";
   (recordsRes.data || []).forEach((r) => {
@@ -113,22 +117,33 @@ async function loadMonth(id) {
   $("register").disabled = false;
   $("save").disabled = false;
   $("reset").disabled = false;
-  setStatus(state.masterList.length ? "" : "この区所の勤務の番号の一覧(マスタ)が空です。管理者に登録を頼んでください。", !state.masterList.length);
+  const hasMaster = state.master.periods.some((p) => p.rows.length);
+  setStatus(hasMaster ? "" : "この区所の勤務の番号の一覧(マスタ)が空です。管理者に登録を頼んでください。", !hasMaster);
 }
 
-// 手入力した番号が一覧にあれば、一覧の番号を返す(無ければ "")。
+// その日に使うマスタ(番号 → 行)と、その日の番号の一覧(並び順)
+function masterAt(key) {
+  return masterOn(state.master, key);
+}
+
+function masterRowsAt(key) {
+  return state.master.periodOn(key).rows;
+}
+
+// 手入力した番号が、その日(key)の一覧にあれば、一覧の番号を返す(無ければ "")。
 // 全角の英数字は半角にして比べる(スマホの日本語キーボードで「１０１」と入っても、一覧の「101」として扱うため)
-function masterCodeOf(value) {
+function masterCodeOf(value, key) {
   const half = (s) => s.replace(/[！-～]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).trim();
   const typed = value.trim();
-  const found = state.masterList.find((m) => m.code === typed) ||
-    state.masterList.find((m) => half(m.code) === half(typed));
+  const list = masterRowsAt(key);
+  const found = list.find((m) => m.code === typed) ||
+    list.find((m) => half(m.code) === half(typed));
   if (found) return found.code;
   // 数字だけで一覧に無いときは、頭に文字が付いた番号(勤務表の「1」→ 一覧の「特1」など)が1つだけあれば、それにする。
   // 「特1」と「臨1」のように2つ以上あるときは、どれか決められないので手入力のまま
   const digits = half(typed);
   if (!/^\d+$/.test(digits)) return "";
-  const prefixed = state.masterList.filter((m) => {
+  const prefixed = list.filter((m) => {
     const hit = half(m.code).match(/^(\D+)(\d+)$/);
     return hit && hit[2] === digits;
   });
@@ -140,16 +155,16 @@ function entryOf(key) {
   return state.entries[key];
 }
 
-// 非番の日 → 前日の泊のマスタ。前日の番号で決める(非番の日は番号なし扱い。サーバーの buildPlan と同じ判定)。
+// 非番の日 → 前日の泊の番号。前日の番号で、前日のマスタを見て決める(非番の日は番号なし扱い。サーバーの buildPlan と同じ判定)。
 // 非番の日の番号は無視する(登録時もサーバーが無視する)。番号を変えて非番になった日の番号は codeChanged で消す
 function offdutyDays() {
   const days = new Map();
   let prevCode = state.prevLastCode;
   for (let d = 1; d <= daysInMonth(state.year, state.month); d++) {
     const key = dateKey(state.year, state.month, d);
-    const prevMaster = state.master[prevCode];
+    const prevMaster = masterAt(addDays(key, -1))[prevCode];
     const offduty = !!(prevMaster && prevMaster.type === "泊");
-    if (offduty) days.set(key, prevMaster);
+    if (offduty) days.set(key, prevCode);
     prevCode = offduty ? "" : ((state.entries[key] || {}).code || "").trim();
   }
   return days;
@@ -160,6 +175,7 @@ function render() {
   const list = $("list");
   list.innerHTML = "";
   state.offduty = offdutyDays();
+  const errors = renderPeriodNote();
 
   for (let d = 1; d <= daysInMonth(year, month); d++) {
     const key = dateKey(year, month, d);
@@ -167,13 +183,16 @@ function render() {
     const dayType = dayTypeOf(key, state.holidays);
     const weekday = new Date(year, month - 1, d).getDay();
 
-    const prevMaster = state.offduty.get(key);
-    const offduty = !!prevMaster;
+    const offduty = state.offduty.has(key);
 
     const tr = document.createElement("tr");
     if (key === nowParts().key) tr.classList.add("today");
     const imported = state.imported.has(key);
     if (imported) tr.classList.add("imported");
+    if (errors.has(key)) {
+      tr.classList.add("period-error");
+      tr.title = errors.get(key);
+    }
 
     const dayTd = document.createElement("td");
     dayTd.className = "day";
@@ -205,17 +224,19 @@ function render() {
       span.className = "offduty";
       span.textContent = "非番";
       codeTd.appendChild(span);
-      autoMemo = offdutyMemo(prevMaster, dayTypeOf(addDays(key, -1), state.holidays), dayType);
+      // 退勤時間は非番の日のマスタから(切替日の前日の泊は、新しいマスタの同じ番号。無ければ空で、メモに入れてもらう)
+      const off = offdutyEntryOf(state.master, addDays(key, -1), key, state.offduty.get(key));
+      autoMemo = off.entry ? offdutyMemo(off.entry, dayTypeOf(addDays(key, -1), state.holidays), dayType) : "";
     } else {
       // 番号は前後の空白を除いて見る(登録時もサーバーが除く)
       const code = e.code.trim();
-      const entry = state.master[code];
+      const entry = masterAt(key)[code];
       const isManual = !!e.code && !entry;
       const pick = document.createElement("button");
       pick.className = "pick";
       pick.textContent = isManual ? "手入力" : code;
       pick.addEventListener("click", () => {
-        openPicker(d + "(" + WEEKDAYS[weekday] + ")", isManual ? MANUAL : code, (value) => {
+        openPicker(d + "(" + WEEKDAYS[weekday] + ")", key, isManual ? MANUAL : code, (value) => {
           e.code = value === MANUAL ? " " : value;
           e.memo = "";
           codeChanged();
@@ -237,7 +258,7 @@ function render() {
         // 入れ終えたとき、一覧にある番号なら(全角で入れても)、その番号として表示し直す
         // (登録ではサーバーが一覧の番号として扱う。泊なら翌日が非番になる)
         input.addEventListener("change", () => {
-          const value = masterCodeOf(input.value);
+          const value = masterCodeOf(input.value, key);
           if (!value) return;
           e.code = value;
           codeChanged();
@@ -265,7 +286,7 @@ function render() {
       edited();
     });
     // 写真取込で入った、一覧にない番号(変・臨時など)で時間が空の日は、メモに時間を入れるよう目立たせる
-    const needTime = () => imported && !offduty && !!e.code.trim() && !state.master[e.code.trim()] &&
+    const needTime = () => imported && !offduty && !!e.code.trim() && !masterAt(key)[e.code.trim()] &&
       !/^[〜~\-ー—]$|休/.test(e.code.trim()) && !e.memo;
     if (needTime()) {
       tr.classList.add("needtime");
@@ -285,9 +306,53 @@ function render() {
   }
 }
 
+// マスタの切替(ダイヤ改正・ダイヤ修正)がこの月にあれば、一覧の上に知らせる。
+// 登録できない日(切替日のマスタがまだ無い・新しいマスタに同じ泊が無い)も、サーバーと同じ buildPlan で調べて並べる。
+// 戻り値: 登録できない日 → 理由(その行を赤くする)
+function renderPeriodNote() {
+  const { year, month } = state;
+  const first = dateKey(year, month, 1);
+  const nextFirst = addDays(dateKey(year, month, daysInMonth(year, month)), 1);
+  const note = $("period-note");
+  note.innerHTML = "";
+  const add = (text, isError) => {
+    const p = document.createElement("p");
+    p.textContent = text;
+    if (isError) p.className = "error";
+    note.appendChild(p);
+  };
+  state.master.startsBetween(first, nextFirst).forEach((p) => {
+    const when = p.from === nextFirst ? "翌月1日" : Number(p.from.slice(8)) + "日";
+    add(when + "から「" + periodLabel(p) + "」のマスタになります" + (p.rows.length
+      ? "(前の日の泊の、非番の退勤時間も新しいマスタから入ります)。"
+      : "。まだ管理者がマスタを入れていないので、" + shortDate(p.from) + "から後の日と、前の日の泊は登録できません。"), !p.rows.length);
+  });
+  const { errors } = buildPlan({
+    year, month, entries: state.entries, prevLastCode: state.prevLastCode, nextFirstEntry: null, master: state.master, holidays: state.holidays,
+  });
+  const byDate = new Map();
+  errors.forEach((e) => {
+    if (!byDate.has(e.date)) byDate.set(e.date, e.message);
+  });
+  [...new Set(errors.map((e) => e.message))].forEach((m) => add(m, true));
+  note.hidden = !note.childElementCount;
+  return byDate;
+}
+
 function edited() {
   state.dirty = true;
   state.edits++;
+  refreshPeriodErrors();
+}
+
+// 書いている途中(メモ・手入力の番号)でも、登録できない日の知らせと赤い行を合わせる(一覧は作り直さない。入力中の欄が消えないように)
+function refreshPeriodErrors() {
+  const errors = renderPeriodNote();
+  [...$("list").children].forEach((tr, i) => {
+    const key = dateKey(state.year, state.month, i + 1);
+    tr.classList.toggle("period-error", errors.has(key));
+    tr.title = errors.get(key) || "";
+  });
 }
 
 function changed() {
@@ -320,13 +385,14 @@ function scrollToToday() {
 // 番号の選択: 一覧をボタンのグリッドで出す(プルダウンだと縦に長いため)
 let onPick = null;
 
-function openPicker(title, current, callback) {
+// 一覧は、その日(key)のマスタの番号(切替日から後の日は、新しいマスタの番号)
+function openPicker(title, key, current, callback) {
   onPick = callback;
   $("picker-title").textContent = title;
   [["picker-duty", (m) => m.kind !== "休日"], ["picker-off", (m) => m.kind === "休日"]].forEach(([id, match]) => {
     const grid = $(id);
     grid.innerHTML = "";
-    state.masterList.filter(match).forEach((m) => {
+    masterRowsAt(key).filter(match).forEach((m) => {
       const button = document.createElement("button");
       button.textContent = m.code;
       button.className = (m.kind === "休日" ? "holiday" : "") + (m.code === current ? " current" : "");
@@ -425,7 +491,7 @@ $("register").addEventListener("click", async () => {
     // (auth_unavailable・bad_entries・bad_period・holiday_unavailable も、保存の前に止まるので何も変わっていない。Q2・S23)
     const untouched = [
       "busy", "not_configured", "not_verified", "no_office", "unauthenticated", "not_member",
-      "auth_unavailable", "bad_entries", "bad_period", "holiday_unavailable",
+      "auth_unavailable", "bad_entries", "bad_period", "holiday_unavailable", "master_period",
     ];
     setStatus(err.message + (untouched.includes(err.code)
       ? ""
@@ -553,7 +619,7 @@ async function applyImport(text) {
     setStatus("写真取込をやめました。");
     return;
   }
-  if (!sameMonth || !state.masterList.length) {
+  if (!sameMonth || !state.master.periods.length) {
     state.dirty = false;
     state.year = year;
     state.month = month;
@@ -569,7 +635,8 @@ async function applyImport(text) {
   const entries = {};
   days.forEach(({ code, memo }, d) => {
     // 一覧にある番号は(全角で読んでいても)一覧の番号に。無い番号は手入力として入る
-    entries[dateKey(year, month, d)] = { code: masterCodeOf(code) || code, memo };
+    const key = dateKey(year, month, d);
+    entries[key] = { code: masterCodeOf(code, key) || code, memo };
   });
   state.entries = entries;
   // 泊の翌日(非番)の番号は消す(「—」を読んだ「〜」など)。メモは残す(非番の日に書いた退勤時間)
@@ -581,8 +648,8 @@ async function applyImport(text) {
   window.scrollTo(0, 0);
   const needTime = document.querySelectorAll("#list tr.needtime").length;
   // 一覧(マスタ)にない番号を並べる。休みの番号が一覧にないと、登録で勤務用カレンダーに入るので知らせる(L3)
-  const unknown = [...new Set(Object.values(state.entries).map((e) => e.code.trim())
-    .filter((c) => c && !state.master[c] && !/^[〜~\-ー—]$/.test(c)))];
+  const unknown = [...new Set(Object.entries(state.entries).map(([key, e]) => [key, e.code.trim()])
+    .filter(([key, c]) => c && !masterAt(key)[c] && !/^[〜~\-ー—]$/.test(c)).map(([, c]) => c))];
   const offUnknown = unknown.filter((c) => /休/.test(c) && !/[出勤]/.test(c));
   setStatus("写真取込: " + (who ? "「" + who + "」の行の" : "") + days.size + "日分を入れました。確かめて「登録」(カレンダーに入れる)か「保存」(入力だけ残す)を押してください。" +
     (unknown.length ? "一覧にない番号: " + unknown.join("、") + "(手入力として入りました)。" : "") +

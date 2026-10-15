@@ -3,10 +3,11 @@
 
 import { requireMember } from "../_shared/auth.ts";
 import { readBody, serve, yearMonthOf } from "../_shared/http.ts";
-import { addDays, codeOf, dateKey, daysInMonth, indexMaster } from "../_shared/plan.js";
+import { addDays, codeOf, dateKey, daysInMonth } from "../_shared/plan.js";
 import {
   deleteAppEvents,
   deleteRecords,
+  loadMasterSet,
   loadVerifiedCalendars,
   staleNextMonthRecords,
   withUserLock,
@@ -24,14 +25,13 @@ serve(async (req) => {
     const lastRes = await ctx.db.from("shift_records").select("code").eq("date", last).maybeSingle();
     if (lastRes.error) throw lastRes.error;
     if (codeOf(lastRes.data) && calendars.officeId) {
-      const masterRes = await ctx.db.from("shift_master").select("*").eq("office_id", calendars.officeId);
-      if (masterRes.error) throw masterRes.error;
+      const master = await loadMasterSet(ctx, calendars.officeId);
       await deleteRecords(ctx, staleNextMonthRecords({
         nextFirst: addDays(last, 1),
         lastCode: codeOf(lastRes.data),
         nextFirstOffduty: false,
         nextFirstCode: "",
-        master: indexMaster(masterRes.data || []),
+        master,
       }));
     }
 

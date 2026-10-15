@@ -2,7 +2,7 @@
 //   deno test supabase/functions --allow-read
 
 import { assertEquals } from "jsr:@std/assert@1";
-import { buildPlan, dayTypeOf, holidayYearsFor, indexMaster } from "./plan.js";
+import { buildPlan, dayTypeOf, holidayYearsFor, indexMaster, MasterSet, masterOn, periodLabel } from "./plan.js";
 
 // 架空のマスタ
 const master = indexMaster([
@@ -277,4 +277,91 @@ Deno.test("翌休泊: 月末の泊は、翌月1日の平休で選ぶ", () => {
   assertEquals(oct.events.find((e: { date: string }) => e.date === "2026-10-31")?.description.split("\n")[1], "泊地E");
   const sep = buildPlan({ year: 2026, month: 9, prevLastCode: "", nextFirstEntry: null, master: m, holidays: [], entries: { "2026-09-30": { code: "303", memo: "" } } });
   assertEquals(sep.events.find((e: { date: string }) => e.date === "2026-09-30")?.description.split("\n")[1], "泊地D");
+});
+
+// ---------- マスタの切替(ダイヤ改正・ダイヤ修正) ----------
+// 架空のマスタ(実データは書かない)。2026-11-14(土) から次のマスタ
+const PERIODS = [
+  { id: 1, starts_on: "2026-10-03", name: "ダイヤ修正" },
+  { id: 2, starts_on: "2026-11-14", name: "ダイヤ改正" },
+];
+const OLD_ROWS = [
+  { period_id: 1, code: "1", kind: "泊", weekday_start: "9:00", weekday_end: "9:30", holiday_start: "", holiday_end: "", stay: "泊地A" },
+  { period_id: 1, code: "2", kind: "泊", weekday_start: "9:05", weekday_end: "9:35", holiday_start: "", holiday_end: "", stay: "" },
+  { period_id: 1, code: "5", kind: "日勤", weekday_start: "8:00", weekday_end: "17:00", holiday_start: "", holiday_end: "", stay: "" },
+];
+const NEW_ROWS = [
+  { period_id: 2, code: "1", kind: "泊", weekday_start: "10:00", weekday_end: "8:10", holiday_start: "", holiday_end: "8:20", stay: "泊地B" },
+  { period_id: 2, code: "5", kind: "日勤", weekday_start: "7:00", weekday_end: "16:00", holiday_start: "7:30", holiday_end: "15:00", stay: "" },
+];
+const novPlan = (master: MasterSet, entries: Record<string, unknown>, opts: Record<string, unknown> = {}) =>
+  buildPlan({ year: 2026, month: 11, entries, prevLastCode: "", nextFirstEntry: null, master, holidays: [], ...opts });
+
+Deno.test("切替: 切替日より前は前のマスタ、切替日からは新しいマスタ", () => {
+  const set = new MasterSet(PERIODS, [...OLD_ROWS, ...NEW_ROWS]);
+  const p = novPlan(set, { "2026-11-12": { code: "5", memo: "" }, "2026-11-16": { code: "5", memo: "" } });
+  assertEquals(p.errors, []);
+  assertEquals(p.events.map((e) => [e.date, e.description]), [["2026-11-12", "8:00〜17:00"], ["2026-11-16", "7:00〜16:00"]]);
+  // いちばん古いマスタは、その切替日より前の日にも使う
+  assertEquals(masterOn(set, "2026-09-01")["5"].start.平日, "8:00");
+  assertEquals(set.periodOn("2026-11-13").name, "ダイヤ修正");
+  assertEquals(set.periodOn("2026-11-14").name, "ダイヤ改正");
+  assertEquals(periodLabel(set.periodOn("2026-11-14")), "2026年11月 ダイヤ改正");
+  assertEquals(periodLabel({ from: "2027-03-14", name: "" }), "2027年3月14日からのマスタ");
+});
+
+Deno.test("切替: 切替日の前日の泊は、出勤・泊地が前のマスタ、非番の退勤が新しいマスタ", () => {
+  const set = new MasterSet(PERIODS, [...OLD_ROWS, ...NEW_ROWS]);
+  const p = novPlan(set, { "2026-11-13": { code: "1", memo: "" } }, { holidays: [] });
+  assertEquals(p.errors, []);
+  assertEquals(p.events.map((e) => [e.date, e.title, e.description]), [
+    ["2026-11-13", "1", "9:00\n泊地A"],
+    ["2026-11-14", "〜", "8:20"], // 14日は土曜(休日)なので、新しいマスタの休日退勤
+  ]);
+});
+
+Deno.test("切替: 新しいマスタに同じ番号の泊が無ければエラー。非番のメモに退勤時間があれば通る", () => {
+  const set = new MasterSet(PERIODS, [...OLD_ROWS, ...NEW_ROWS]);
+  const p = novPlan(set, { "2026-11-13": { code: "2", memo: "" } });
+  assertEquals(p.errors.length, 1);
+  assertEquals(p.errors[0].date, "2026-11-13");
+  assertEquals(p.errors[0].message.includes("2026年11月 ダイヤ改正(11/14〜)のマスタにありません"), true);
+  assertEquals(p.events.find((e) => e.date === "2026-11-14")?.description, "");
+  const ok = novPlan(set, { "2026-11-13": { code: "2", memo: "" }, "2026-11-14": { code: "", memo: "9:00" } });
+  assertEquals(ok.errors, []);
+  assertEquals(ok.events.find((e) => e.date === "2026-11-14")?.description, "9:00");
+});
+
+Deno.test("切替: 新しいマスタが未登録なら、前日の泊も、切替日から後の番号もエラー(メモがあっても)", () => {
+  const set = new MasterSet(PERIODS, OLD_ROWS);
+  assertEquals(set.missingOn("2026-11-13"), false);
+  assertEquals(set.missingOn("2026-11-14"), true);
+  const p = novPlan(set, {
+    "2026-11-13": { code: "1", memo: "" },
+    "2026-11-14": { code: "", memo: "9:00" },
+    "2026-11-16": { code: "公休", memo: "" },
+    "2026-11-12": { code: "5", memo: "" },
+  });
+  assertEquals(p.errors.map((e) => e.date), ["2026-11-13", "2026-11-16"]);
+  assertEquals(p.errors[0].message.includes("まだ登録されていないため"), true);
+  // 前日が日勤・番号の無い日だけなら、エラーにならない
+  assertEquals(novPlan(set, { "2026-11-13": { code: "5", memo: "" }, "2026-11-20": { code: "", memo: "メモ" } }).errors, []);
+});
+
+Deno.test("切替: 月末の泊で翌月1日から新しいマスタ。翌月1日の非番は新しいマスタの退勤", () => {
+  const set = new MasterSet([{ id: 1, starts_on: "2026-10-03", name: "" }, { id: 2, starts_on: "2026-12-01", name: "ダイヤ改正" }],
+    [...OLD_ROWS, ...NEW_ROWS]);
+  const p = novPlan(set, { "2026-11-30": { code: "1", memo: "" } });
+  assertEquals(p.errors, []);
+  assertEquals(p.events.find((e) => e.date === "2026-12-01")?.description, "8:10");
+  const missing = novPlan(new MasterSet([{ id: 1, starts_on: "2026-10-03", name: "" }, { id: 2, starts_on: "2026-12-01", name: "" }], OLD_ROWS),
+    { "2026-11-30": { code: "1", memo: "" } });
+  assertEquals(missing.errors.map((e) => e.date), ["2026-11-30"]);
+});
+
+Deno.test("切替: 前の月の月末の泊(prevLastCode)は、前の月末のマスタで泊かを決める", () => {
+  const set = new MasterSet([{ id: 1, starts_on: "2026-10-03", name: "" }, { id: 2, starts_on: "2026-11-01", name: "" }], [...OLD_ROWS, ...NEW_ROWS]);
+  // 「2」は前のマスタだけにある泊。11/1 は新しいマスタに「2」が無いのでエラー(メモを書けば通る)
+  assertEquals(novPlan(set, {}, { prevLastCode: "2" }).errors.map((e) => e.date), ["2026-10-31"]);
+  assertEquals(novPlan(set, { "2026-11-01": { code: "", memo: "9:00" } }, { prevLastCode: "2" }).errors, []);
 });

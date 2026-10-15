@@ -16,7 +16,7 @@ select o.id, v.code, v.kind, v.ws, v.we, v.hs, v.he, v.stay, v.ord
          ('年休', '休日', '', '', '', '', '', 6)
        ) as v(code, kind, ws, we, hs, he, stay, ord)
  where o.name = 'サンプル区'
-on conflict (office_id, code) do nothing;
+on conflict do nothing;
 
 -- ローカルで試すときの利用者・管理者は、画面の「新規登録」と、Edge Function の admin-login で作る
 -- (SQL で直接 auth.users には入れない)

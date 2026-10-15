@@ -6,7 +6,7 @@
 import { requireMember } from "../_shared/auth.ts";
 import { loadHolidays } from "../_shared/holidays.ts";
 import { AppError, entriesFrom, readBody, serve, yearMonthOf } from "../_shared/http.ts";
-import { addDays, buildPlan, codeOf, dateKey, daysInMonth, indexMaster } from "../_shared/plan.js";
+import { addDays, buildPlan, codeOf, dateKey, daysInMonth } from "../_shared/plan.js";
 import {
   addTimeToTitles,
   createEvents,
@@ -14,6 +14,7 @@ import {
   deleteRecords,
   eventsToRegister,
   listAppEvents,
+  loadMasterSet,
   loadVerifiedCalendars,
   nextFirstNewlyOffduty,
   shouldKeepTimedNextFirst,
@@ -42,23 +43,27 @@ serve(async (req) => {
 
     // 月末(last)は、登録する前の番号を見るために読む(翌月1日の非番が変わるかどうか)
     // 祝日は前月末〜翌月2日を読む(泊の日と翌日の平休で、出勤・退勤の列を選ぶため。翌月1日の泊の出勤は翌月2日を見る)
-    const [masterRes, recordsRes, holidays] = await Promise.all([
-      ctx.db.from("shift_master").select("*").eq("office_id", calendars.officeId).order("sort_order"),
+    // マスタは切替日(ダイヤ改正・ダイヤ修正)ごとに読み、日ごとにその日のマスタを使う
+    const [master, recordsRes, holidays] = await Promise.all([
+      loadMasterSet(ctx, calendars.officeId as number),
       ctx.db.from("shift_records").select("date, code, memo").in("date", [prevLast, last, nextFirst]),
       loadHolidays(ctx.admin, prevLast, addDays(nextFirst, 1)),
     ]);
-    if (masterRes.error) throw masterRes.error;
     if (recordsRes.error) throw recordsRes.error;
     const byDate = Object.fromEntries((recordsRes.data || []).map((r) => [r.date, r]));
-    const master = indexMaster(masterRes.data || []);
 
     const planOf = (nextFirstEntry: { code: string; memo: string } | undefined) =>
       buildPlan({ year, month, entries, prevLastCode: codeOf(byDate[prevLast]), nextFirstEntry, master, holidays });
     let plan = planOf(byDate[nextFirst]);
+    // マスタの切替で登録できない日があれば、保存もしない(何も変えずに止める)
+    if (plan.errors.length) {
+      const more = plan.errors.length > 1 ? `(ほかに${plan.errors.length - 1}件)` : "";
+      throw new AppError(400, plan.errors[0].message + more, "master_period");
+    }
     const nextFirstOffduty = plan.events.some((e) => e.date === nextFirst && e.kind === "offduty");
     // 月末が今回はじめて泊になったなら、翌月1日の番号の無いメモ(別の用事のメモ)を非番のメモに使わない(W6)。
     // 画面が、月の中で新しく非番になった日のメモを消すのと同じ。前から泊なら、手で書いた非番のメモなのでそのまま使う
-    const newlyOffduty = nextFirstNewlyOffduty({ lastCode: codeOf(byDate[last]), nextFirstOffduty, master });
+    const newlyOffduty = nextFirstNewlyOffduty({ last, lastCode: codeOf(byDate[last]), nextFirstOffduty, master });
     if (newlyOffduty && byDate[nextFirst] && !codeOf(byDate[nextFirst])) {
       plan = planOf({ code: "", memo: "" });
     }

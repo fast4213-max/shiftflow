@@ -14,8 +14,7 @@
   <div class="dash-tabs" role="tablist">
     <button class="dtab active" data-tab="overview" role="tab">概要</button>
     <button class="dtab" data-tab="users" role="tab">利用者</button>
-    <button class="dtab" data-tab="master" role="tab">マスタ表</button>
-    <button class="dtab" data-tab="import" role="tab">マスタ登録</button>
+    <button class="dtab" data-tab="master" role="tab">マスタ</button>
     <button class="dtab" data-tab="contact" role="tab">お問い合わせ<span id="contact-badge" class="tab-badge hidden"></span></button>
     <button class="dtab" data-tab="notices" role="tab">お知らせ</button>
     <button class="dtab" data-tab="settings" role="tab">設定</button>
@@ -60,28 +59,65 @@
       </div>
     </section>
 
-    <!-- マスタ表 -->
+    <!-- マスタ(ダイヤ改正・ダイヤ修正ごと)と区所 -->
     <section id="pane-master" class="pane hidden">
       <div class="panel">
         <div class="panel-head">
-          <h2>マスタ表</h2>
-          <div class="row">
-            <select id="view-office"></select>
-            <button id="csv-download">CSVで保存</button>
+          <h2>マスタ</h2>
+          <select id="master-office" aria-label="区所"></select>
+        </div>
+        <p class="muted">ダイヤ改正(3月)・ダイヤ修正(10月)ごとにマスタを持ちます。切替日から、新しいマスタで登録されます(切替日の前日の泊は、非番の退勤時間だけ新しいマスタ)。</p>
+        <div class="chips period-tabs" id="period-tabs" role="tablist"></div>
+
+        <div id="period-body">
+          <p id="period-summary" class="period-summary"></p>
+          <div class="period-form">
+            <label>切替日 <input type="date" id="period-date"></label>
+            <label>名前
+              <select id="period-name">
+                <option value="ダイヤ改正">ダイヤ改正</option>
+                <option value="ダイヤ修正">ダイヤ修正</option>
+                <option value="">(名前なし)</option>
+              </select>
+            </label>
+            <button id="period-save" class="primary">切替日を保存</button>
+            <button id="period-delete" class="danger-outline">このマスタを消す</button>
+          </div>
+          <p class="muted" id="period-help"></p>
+          <p id="period-message" class="message" aria-live="polite"></p>
+
+          <div id="period-csv">
+            <h3>CSV</h3>
+            <div class="row">
+              <button id="csv-download">CSVで保存</button>
+              <button id="copy-prev">前のマスタをコピーして入れる</button>
+            </div>
+            <label for="csv-file">CSV を取り込む(このマスタを丸ごと入れ替えます。ほかのマスタは変わりません)</label>
+            <input type="file" id="csv-file" accept=".csv,text/csv">
+            <p class="muted">1行目は <code>番号,種別,平日出勤,平日退勤,休日出勤,休日退勤,泊,平休出勤,平休退勤,休平出勤,休平退勤,翌休泊</code>(「泊」と、平休・休平の4列と、翌休泊は無くてもよい)。種別は 泊 / 日勤 / 休日。平休は「平日に泊→翌日が休日」、休平は「休日に泊→翌日が平日」のときの泊の出勤・退勤(空なら今までどおり平日・休日の列を使う。泊の行だけに書く)。翌休泊は、泊の翌日(非番の日)が休日(土日・祝日・年末年始)のときの泊地(「翌土休日は○○泊り」のような行路。空なら「泊」の泊地。泊の行だけに書く)。時刻の欄の「-」「×」など記号だけのものは空として扱います。番号の全角の英数字は半角にそろえて取り込みます。</p>
+            <p id="csv-message" class="message" aria-live="polite"></p>
+            <div id="csv-preview" class="hidden">
+              <strong id="csv-summary"></strong>
+              <p class="muted">取り込む内容です。時刻はそろえた形で表示しています。赤い行は直してから取り込んでください。</p>
+              <div class="scroll-x"><table class="list master"><thead></thead><tbody id="csv-rows"></tbody></table></div>
+              <div class="row" style="margin-top: 12px">
+                <button id="csv-apply" class="primary">この内容で入れ替える</button>
+                <button id="csv-cancel">やめる</button>
+              </div>
+            </div>
+
+            <h3>マスタ表 <span id="master-count" class="muted"></span></h3>
+            <p id="master-diff" class="muted"></p>
+            <div class="scroll-x"><table class="list master"><thead></thead><tbody id="master"></tbody></table></div>
           </div>
         </div>
-        <div class="scroll-x"><table class="list master"><thead></thead><tbody id="master"></tbody></table></div>
-        <p class="muted" id="master-count"></p>
       </div>
-    </section>
 
-    <!-- マスタ登録 -->
-    <section id="pane-import" class="pane hidden">
       <div class="panel">
         <h2>区所</h2>
         <div class="scroll-x">
           <table class="list">
-            <thead><tr><th>区所</th><th>マスタ</th><th>利用者</th><th></th></tr></thead>
+            <thead><tr><th>区所</th><th>今のマスタ</th><th>利用者</th><th></th></tr></thead>
             <tbody id="offices"></tbody>
           </table>
         </div>
@@ -90,25 +126,6 @@
         <div class="row">
           <input id="new-office" maxlength="60" autocomplete="off" placeholder="区所の名前(60文字まで)">
           <button id="add-office" class="primary">追加</button>
-        </div>
-      </div>
-
-      <div class="panel">
-        <h2>CSV を取り込む</h2>
-        <label for="import-office">区所</label>
-        <select id="import-office"></select>
-        <label for="csv-file">CSV ファイル(この区所のマスタを丸ごと入れ替えます)</label>
-        <input type="file" id="csv-file" accept=".csv,text/csv">
-        <p class="muted">1行目は <code>番号,種別,平日出勤,平日退勤,休日出勤,休日退勤,泊,平休出勤,平休退勤,休平出勤,休平退勤,翌休泊</code>(「泊」と、平休・休平の4列と、翌休泊は無くてもよい)。種別は 泊 / 日勤 / 休日。平休は「平日に泊→翌日が休日」、休平は「休日に泊→翌日が平日」のときの泊の出勤・退勤(空なら今までどおり平日・休日の列を使う。泊の行だけに書く)。翌休泊は、泊の翌日(非番の日)が休日(土日・祝日・年末年始)のときの泊地(「翌土休日は○○泊り」のような行路。空なら「泊」の泊地。泊の行だけに書く)。時刻の欄の「-」「×」など記号だけのものは空として扱います。番号の全角の英数字は半角にそろえて取り込みます。</p>
-        <p id="csv-message" class="message" aria-live="polite"></p>
-        <div id="csv-preview" class="hidden">
-          <strong id="csv-summary"></strong>
-          <p class="muted">取り込む内容です。時刻はそろえた形で表示しています。赤い行は直してから取り込んでください。</p>
-          <div class="scroll-x"><table class="list master"><thead></thead><tbody id="csv-rows"></tbody></table></div>
-          <div class="row" style="margin-top: 12px">
-            <button id="csv-apply" class="primary">この内容で入れ替える</button>
-            <button id="csv-cancel">やめる</button>
-          </div>
         </div>
       </div>
     </section>

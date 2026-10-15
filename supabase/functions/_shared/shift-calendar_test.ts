@@ -32,7 +32,7 @@ import {
   retryPolicy,
   withRetryBudget,
 } from "./google.ts";
-import { buildPlan, indexMaster } from "./plan.js";
+import { buildPlan, indexMaster, MasterSet } from "./plan.js";
 
 // テスト用の使い捨て鍵でサービスアカウントを用意する
 const pair = await crypto.subtle.generateKey(
@@ -185,7 +185,7 @@ Deno.test("W6: 月末が今回はじめて泊になったら、翌月1日のメ�
     // register-month と同じ手順
     let plan = buildPlan({ year: 2026, month: 10, entries, prevLastCode: "", nextFirstEntry: memoOnly, master, holidays: [] });
     const nextFirstOffduty = plan.events.some((e) => e.date === "2026-11-01" && e.kind === "offduty");
-    const newlyOffduty = nextFirstNewlyOffduty({ lastCode, nextFirstOffduty, master });
+    const newlyOffduty = nextFirstNewlyOffduty({ last: "2026-10-31", lastCode, nextFirstOffduty, master });
     if (newlyOffduty) plan = buildPlan({ year: 2026, month: 10, entries, prevLastCode: "", nextFirstEntry: { code: "", memo: "" }, master, holidays: [] });
     const off = plan.events.find((e) => e.date === "2026-11-01");
     const stale = staleNextMonthRecords({ nextFirst: "2026-11-01", lastCode, nextFirstOffduty, nextFirstCode: "", master, newlyOffduty });
@@ -204,7 +204,7 @@ Deno.test("W6: 月末が今回はじめて泊になったら、翌月1日のメ�
   assertEquals(kept.off?.description, "健康診断");
   assertEquals(kept.stale, []);
   // 翌月1日が非番にならないなら、新しく非番になったことにはならない
-  assertEquals(nextFirstNewlyOffduty({ lastCode: "201", nextFirstOffduty: false, master }), false);
+  assertEquals(nextFirstNewlyOffduty({ last: "2026-10-31", lastCode: "201", nextFirstOffduty: false, master }), false);
 });
 
 Deno.test("createEvents: 終日予定(終了日は翌日)に印を付けて作る", async () => {
@@ -1012,4 +1012,17 @@ Deno.test("shouldKeepTimedNextFirst: 前の登録が途中で止まったあと�
   assertEquals(keep, true);
   const registered = eventsToRegister(planned, existing, nextFirst, true).filter((e) => !keep || e.date !== nextFirst);
   assertEquals(registered, []);
+});
+
+Deno.test("マスタの切替: 予定の日のマスタで番号の種別を見る(2件・名前に時間・時間つき)", () => {
+  // 架空のマスタ。「7」は前のマスタでは泊、11/14 からのマスタでは日勤。「公休」は新しいマスタにだけある
+  const set = new MasterSet([{ id: 1, starts_on: "2026-10-03", name: "" }, { id: 2, starts_on: "2026-11-14", name: "" }], [
+    { period_id: 1, code: "7", kind: "泊", weekday_start: "10:00", weekday_end: "9:00", holiday_start: "", holiday_end: "", stay: "" },
+    { period_id: 2, code: "7", kind: "日勤", weekday_start: "8:00", weekday_end: "17:00", holiday_start: "", holiday_end: "", stay: "" },
+  ]);
+  const ev = (date: string, description: string) => ({ date, calendar: "work", kind: "day", title: "7", description });
+  const split = splitDayEvents([ev("2026-11-10", "10:00"), ev("2026-11-16", "8:00〜17:00")], set);
+  assertEquals(split.map((e) => [e.second?.startMin, e.second?.endMin]), [[600, 660], [480, 1020]]);
+  const stale = staleNextMonthRecords({ nextFirst: "2026-11-14", lastCode: "7", nextFirstOffduty: false, nextFirstCode: "", master: set });
+  assertEquals(stale, [{ date: "2026-11-14", memoOnly: true }]); // 11/13 は前のマスタで泊
 });

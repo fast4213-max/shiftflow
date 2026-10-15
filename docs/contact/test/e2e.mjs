@@ -91,12 +91,22 @@ function backend(opts = {}) {
     if (path === "/rest/v1/rpc/admin_stats" && opts.statsAbort) return route.abort("failed");
     if (path === "/rest/v1/rpc/admin_stats" && opts.statsFail) return json({ message: "statement timeout" }, 500);
     if (path === "/rest/v1/rpc/admin_stats" && opts.twoOffices) {
-      const offices = [...st.offices].sort((a, b) => a.sort_order - b.sort_order).map((o) => ({ id: o.id, name: o.name, master_count: 1, user_count: 1 }));
-      return json({ users: 1, verified: 1, active_30d: 1, signups_7d: 0, signup_password_set: true, offices, no_office: 0, users_list: [] });
+      const offices = [...st.offices].sort((a, b) => a.sort_order - b.sort_order).map((o) => ({ id: o.id, name: o.name, master_count: 1, user_count: 1, periods: [{ id: o.id * 100, starts_on: "2026-10-03", name: "ダイヤ修正", count: 1 }] }));
+      return json({ users: 1, verified: 1, active_30d: 1, signups_7d: 0, signup_password_set: true, today: "2026-10-15", offices, no_office: 0, users_list: [] });
     }
-    if (path === "/rest/v1/rpc/admin_stats") return json({ users: 1, verified: 1, active_30d: 1, signups_7d: 0, signup_password_set: true, offices: [{ id: 1, name: "A区所", master_count: 1, user_count: 1 }], no_office: 0, users_list: [] });
+    if (path === "/rest/v1/rpc/admin_stats") {
+      return json({
+        users: 1, verified: 1, active_30d: 1, signups_7d: 0, signup_password_set: true, today: "2026-10-15",
+        offices: [{ id: 1, name: "A区所", master_count: 1, user_count: 1, periods: opts.adminPeriods || [{ id: 1, starts_on: "2026-10-03", name: "ダイヤ修正", count: 1 }] }],
+        no_office: 0, users_list: [],
+      });
+    }
     if (path === "/rest/v1/shift_master" && opts.masterFail) return json({ message: "boom" }, 500);
-    if (path === "/rest/v1/shift_master") return json(opts.master || []);
+    // マスタは切替日(ダイヤ改正・ダイヤ修正)ごと。period_id の無い偽物の行は、いちばん古い切替日(id 1)の行にする
+    if (path === "/rest/v1/shift_master") return json((opts.master || []).map((r) => ({ period_id: 1, ...r })));
+    if (path === "/rest/v1/master_periods") return json(opts.periods || [{ id: 1, starts_on: "2026-10-03", name: "ダイヤ修正" }]);
+    if (path === "/rest/v1/rpc/save_master_period") return json(opts.savedPeriodId || 3);
+    if (path === "/rest/v1/rpc/master_period_affected") return json(opts.affected || 0);
     if (path === "/rest/v1/rpc/save_month_records") return json(Object.keys((body && body.p_entries) || {}).length);
     // 勤務入力の「保存」は register-month に saveOnly で送る(17回目の N1)。登録は件数を返す
     if (path === "/functions/v1/register-month") {
@@ -567,6 +577,113 @@ await check("勤務入力: 泊地は、翌日が休日なら翌休泊、平日�
   // 翌休泊が空なら、翌日が休日でも泊
   await pick(fri, "302");
   assert.equal(await stayOf(fri), "泊地C");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// ---------- マスタの切替(ダイヤ改正・ダイヤ修正) ----------
+// 表示中の月(今月)の20日から、次のマスタに切り替わる
+const thisMonth = (() => { const t = new Date(); return { y: t.getFullYear(), m: t.getMonth() + 1 }; })();
+const switchDay = `${thisMonth.y}-${String(thisMonth.m).padStart(2, "0")}-20`;
+const SWITCH_PERIODS = [{ id: 1, starts_on: "2000-01-01", name: "ダイヤ修正" }, { id: 2, starts_on: switchDay, name: "ダイヤ改正" }];
+const OLD_MASTER = [
+  { period_id: 1, code: "1", kind: "泊", weekday_start: "9:00", weekday_end: "9:30", holiday_start: "", holiday_end: "", stay: "", sort_order: 1 },
+  { period_id: 1, code: "2", kind: "泊", weekday_start: "9:10", weekday_end: "9:40", holiday_start: "", holiday_end: "", stay: "", sort_order: 2 },
+];
+const NEW_MASTER = [
+  { period_id: 2, code: "1", kind: "泊", weekday_start: "10:00", weekday_end: "8:05", holiday_start: "", holiday_end: "", stay: "", sort_order: 1 },
+  { period_id: 2, code: "9", kind: "日勤", weekday_start: "7:00", weekday_end: "15:00", holiday_start: "", holiday_end: "", stay: "", sort_order: 2 },
+];
+const pickCode = async (page, d, code) => {
+  await page.locator("#list tr").nth(d - 1).locator(".pick").click();
+  await page.click(`#picker-duty button:text-is("${code}")`);
+};
+
+await check("マスタの切替: 次のマスタが未登録なら、上に知らせ、切替日の前日の泊と切替日から後の番号の行を赤くする", async () => {
+  const { page, ctx, errors } = await open("input.html", { userId: "u1", opts: { profile: USER, master: OLD_MASTER, periods: SWITCH_PERIODS } });
+  await page.waitForSelector("#register:not([disabled])");
+  assert.ok((await page.textContent("#period-note")).includes("20日から「" + thisMonth.y + "年" + thisMonth.m + "月 ダイヤ改正」のマスタになります。まだ管理者がマスタを入れていない"));
+  await pickCode(page, 19, "1");
+  const row = (d) => page.locator("#list tr").nth(d - 1);
+  assert.ok((await row(19).getAttribute("class")).includes("period-error"));
+  assert.ok((await page.textContent("#period-note")).includes("非番の退勤時間が分かりません"));
+  // 切替日から後の日に手入力すると、その行も赤くなる
+  await row(22).locator(".pick").click();
+  await page.click("#picker-manual");
+  await row(22).locator(".code input").fill("公休");
+  assert.ok((await row(22).getAttribute("class")).includes("period-error"));
+  await page.screenshot({ path: OUT + "period-input-missing.png", fullPage: true });
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("マスタの切替: 切替日の前日の泊の非番は、新しいマスタの退勤。切替日から後の一覧は新しいマスタの番号", async () => {
+  const { page, ctx, errors } = await open("input.html", { userId: "u1", opts: { profile: USER, master: [...OLD_MASTER, ...NEW_MASTER], periods: SWITCH_PERIODS } });
+  await page.waitForSelector("#register:not([disabled])");
+  assert.ok((await page.textContent("#period-note")).includes("非番の退勤時間も新しいマスタから入ります"));
+  const row = (d) => page.locator("#list tr").nth(d - 1);
+  await pickCode(page, 19, "1");
+  // 休日の列が空なので、平休に関係なく新しいマスタの 8:05(前のマスタなら 9:30)。泊の出勤は前のマスタの 9:00
+  assert.equal(await row(20).locator(".memo input").inputValue(), "8:05");
+  assert.equal(await row(19).locator(".memo input").inputValue(), "9:00");
+  // 前のマスタだけにある泊(2)は、非番のメモに退勤時間を入れるまで赤い
+  await pickCode(page, 19, "2");
+  assert.ok((await row(19).getAttribute("class")).includes("period-error"));
+  await row(20).locator(".memo input").fill("9:00");
+  assert.ok(!(await row(19).getAttribute("class")).includes("period-error"));
+  // 切替日から後の日の一覧は、新しいマスタの番号だけ
+  await row(23).locator(".pick").click();
+  assert.deepEqual(await page.$$eval("#picker-duty button", (b) => b.map((x) => x.textContent)), ["1", "9"]);
+  await page.click("#picker-cancel");
+  await row(12).locator(".pick").click();
+  assert.deepEqual(await page.$$eval("#picker-duty button", (b) => b.map((x) => x.textContent)), ["1", "2"]);
+  await page.click("#picker-cancel");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("マスタの切替(管理画面): タブ・CSV未登録の注意・次のマスタを作る(月で名前を選ぶ)・前のマスタとの違い", async () => {
+  const adminPeriods = [{ id: 1, starts_on: "2026-10-03", name: "ダイヤ修正", count: 2 }, { id: 2, starts_on: "2027-03-14", name: "ダイヤ改正", count: 0 }];
+  const { page, ctx, be, errors } = await open("admin.html", {
+    userId: "a1", opts: { profile: ADMIN, adminPeriods, master: OLD_MASTER }, viewport: { width: 1200, height: 900 },
+  });
+  await page.waitForSelector("#alerts .alert");
+  assert.ok((await page.textContent("#alerts")).includes("A区所: 「2027年3月 ダイヤ改正」(3/14〜、あと150日)のマスタ(CSV)がまだありません"));
+  await page.click('.dtab[data-tab="master"]');
+  await page.waitForFunction(() => document.getElementById("master-count").textContent.startsWith("2件"));
+  const chips = await page.$$eval("#period-tabs .chip", (b) => b.map((x) => x.textContent));
+  assert.deepEqual(chips, ["2026年10月 ダイヤ修正使用中10/3〜3/13", "2027年3月 ダイヤ改正⚠CSV未登録3/14〜", "＋ 次のマスタ"]);
+  assert.ok(await page.isHidden("#period-delete")); // 使っているマスタは消せない
+  // 次のマスタのタブ: 消せる。前のマスタをコピーできる
+  await page.click("#period-tabs .chip >> nth=1");
+  assert.ok(await page.isVisible("#period-delete"));
+  assert.ok(await page.isVisible("#copy-prev"));
+  // 次のマスタを作る: 10月を選ぶと名前がダイヤ修正になる
+  await page.click("#period-tabs .chip.add");
+  assert.ok(await page.isHidden("#period-csv"));
+  await page.fill("#period-date", "2027-10-02");
+  await page.dispatchEvent("#period-date", "change");
+  assert.equal(await page.inputValue("#period-name"), "ダイヤ修正");
+  await page.click("#period-save");
+  await page.waitForFunction(() => document.getElementById("period-message").textContent.includes("を作りました"));
+  const saved = be.st.calls.find((c) => c.path === "/rest/v1/rpc/save_master_period").body;
+  assert.deepEqual(saved, { p_office_id: 1, p_period_id: null, p_starts_on: "2027-10-02", p_name: "ダイヤ修正" });
+  await page.screenshot({ path: OUT + "period-admin.png", fullPage: true });
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("マスタの切替(管理画面): 次のマスタの表は、前のマスタより増えた行が緑・変わった行が黄", async () => {
+  const adminPeriods = [{ id: 1, starts_on: "2026-10-03", name: "ダイヤ修正", count: 2 }, { id: 2, starts_on: "2027-03-14", name: "ダイヤ改正", count: 2 }];
+  const { page, ctx, errors } = await open("admin.html", {
+    userId: "a1", opts: { profile: ADMIN, adminPeriods, master: [...OLD_MASTER, ...NEW_MASTER] }, viewport: { width: 1200, height: 900 },
+  });
+  await page.click('.dtab[data-tab="master"]');
+  await page.waitForFunction(() => document.getElementById("master-count").textContent.startsWith("2件"));
+  await page.click("#period-tabs .chip >> nth=1");
+  assert.deepEqual(await page.$$eval("#master tr", (r) => r.map((x) => x.className)), ["changed", "added"]);
+  assert.equal(await page.textContent("#master-diff"), "前のマスタ(2026年10月 ダイヤ修正)と比べて: 増えた 1(緑)・変わった 1(黄)・無くなった 1(2)");
+  await page.screenshot({ path: OUT + "period-admin-diff.png", fullPage: true });
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -1190,7 +1307,7 @@ const officeOrders = (be) => be.st.calls.filter((c) => c.method === "PATCH" && c
 
 await check("管理画面: 区所の↑↓で順が入れ替わる。端のボタンは押せない(Y5)", async () => {
   const { page, ctx, be, errors } = await open("admin.html", { userId: "a1", opts: { profile: ADMIN, twoOffices: true }, viewport: { width: 1200, height: 900 } });
-  await page.click('.dtab[data-tab="import"]');
+  await page.click('.dtab[data-tab="master"]');
   await page.waitForSelector("#offices tr td");
   assert.deepEqual(await officeNames(page), ["A区所", "B区所", "C区所"]);
   const rows = page.locator("#offices tr");
@@ -1207,7 +1324,7 @@ await check("管理画面: 区所の↑↓で順が入れ替わる。端のボ�
 await check("管理画面: 区所を足すと、今の最大の並びの番号+1 で入る(区所の数+1 ではない。R8)", async () => {
   const { page, ctx, be, errors } = await open("admin.html", { userId: "a1", opts: { profile: ADMIN, twoOffices: true }, viewport: { width: 1200, height: 900 } });
   be.st.offices[2].sort_order = 7; // 途中の区所を消したあと、のつもり(1・2・7)
-  await page.click('.dtab[data-tab="import"]');
+  await page.click('.dtab[data-tab="master"]');
   await page.waitForSelector("#offices tr td");
   await page.fill("#new-office", "D区所");
   await page.click("#add-office");
@@ -1220,7 +1337,7 @@ await check("管理画面: 区所を足すと、今の最大の並びの番号+1
 
 await check("管理画面: 区所の並び替えを連打しても、2回目は送らない。送っている間はボタンを押せない(Y1)", async () => {
   const { page, ctx, be } = await open("admin.html", { userId: "a1", opts: { profile: ADMIN, twoOffices: true, officeDelay: 300 }, viewport: { width: 1200, height: 900 } });
-  await page.click('.dtab[data-tab="import"]');
+  await page.click('.dtab[data-tab="master"]');
   await page.waitForSelector("#offices tr td");
   const down = page.locator("#offices tr").nth(0).locator("button", { hasText: "↓" });
   await down.click();
@@ -1234,7 +1351,7 @@ await check("管理画面: 区所の並び替えを連打しても、2回目は�
 
 await check("管理画面: 並び替えの途中で失敗したら、そこで止めて知らせ、並びを読み直す(Y1)", async () => {
   const { page, ctx, be } = await open("admin.html", { userId: "a1", opts: { profile: ADMIN, twoOffices: true, officeFailId: 1 }, viewport: { width: 1200, height: 900 } });
-  await page.click('.dtab[data-tab="import"]');
+  await page.click('.dtab[data-tab="master"]');
   await page.waitForSelector("#offices tr td");
   await page.locator("#offices tr").nth(1).locator("button", { hasText: "↑" }).click();
   await page.waitForSelector("#message.error");
@@ -1247,7 +1364,7 @@ await check("管理画面: 並び替えの途中で失敗したら、そこで�
 
 await check("幅320px: 管理画面の区所の行(↑ ↓ 名前変更 削除)が、はみ出さない(Y5)", async () => {
   const { page, ctx } = await open("admin.html", { userId: "a1", opts: { profile: ADMIN, twoOffices: true }, viewport: { width: 320, height: 640 } });
-  await page.click('.dtab[data-tab="import"]');
+  await page.click('.dtab[data-tab="master"]');
   await page.waitForSelector("#offices tr td");
   const [sw, iw] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
   assert.ok(sw <= iw, `${sw} > ${iw}`);
