@@ -126,6 +126,7 @@ details.card > summary { cursor: pointer; font-weight: bold; }
 .notice-date { color: var(--muted); font-size: 0.8rem; }
 .notice-title { font-weight: bold; }
 .notice-body { white-space: pre-wrap; font-size: 0.92rem; }
+.notice-body a { color: var(--accent, #2563eb); text-decoration: underline; word-break: break-all; }
 button.link-button { border: none; background: none; color: var(--accent); padding: 0; font-size: 0.85rem; text-decoration: underline; }
 /* 上のメニューの「お知らせ」の、まだ見ていないお知らせの印 */
 .topbar a.has-dot { position: relative; }

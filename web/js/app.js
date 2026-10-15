@@ -174,6 +174,41 @@ export function shortDate(value) {
   return m ? `${Number(m[1])}/${Number(m[2])}` : "";
 }
 
+// 本文の https:// から始まる URL を、押せるリンクにして入れる(それ以外は文字のまま。HTML としては読まない)。
+// 末尾の句読点・かっこはリンクに含めない。別タブで開く
+const URL_PATTERN = /https:\/\/[\x21\x23-\x26\x28-\x3b\x3d\x3f-\x7e]+/g; // 半角の記号・英数字だけ(日本語の文字や空白で終わる)
+
+function linkEnd(url) {
+  return url.replace(/[、。,.)）」』】!！?？]+$/, "");
+}
+
+export function appendLinked(el, text) {
+  let last = 0;
+  for (const m of text.matchAll(URL_PATTERN)) {
+    const url = linkEnd(m[0]);
+    if (m.index > last) el.append(text.slice(last, m.index));
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = url;
+    el.appendChild(a);
+    last = m.index + url.length;
+  }
+  if (last < text.length) el.append(text.slice(last));
+}
+
+// 長い本文を途中で切るとき、URL の途中で切らない(切るとリンクが壊れるので、その URL の終わりまで残す)
+function clampText(text, max) {
+  const chars = [...text];
+  let cut = chars.slice(0, max).join("").length; // 文字数 → text 上の位置
+  for (const m of text.matchAll(URL_PATTERN)) {
+    const end = m.index + linkEnd(m[0]).length;
+    if (m.index < cut && cut < end) cut = end;
+  }
+  return text.slice(0, cut);
+}
+
 // お知らせ1件の表示。文字は textContent だけで入れる(HTML として読まない)。
 // clamp: 本文が長いときは途中までにして「続きを読む」を付ける(ログイン画面用)
 export function noticeElement(n, { clamp = 0, isNew = false } = {}) {
@@ -207,18 +242,19 @@ export function noticeElement(n, { clamp = 0, isNew = false } = {}) {
     body.className = "notice-body";
     const chars = [...text];
     if (clamp && chars.length > clamp) {
-      body.textContent = chars.slice(0, clamp).join("") + "…";
+      appendLinked(body, clampText(text, clamp) + "…");
       const more = document.createElement("button");
       more.type = "button";
       more.className = "link-button";
       more.textContent = "続きを読む";
       more.addEventListener("click", () => {
-        body.textContent = text;
+        body.textContent = "";
+        appendLinked(body, text);
         more.remove();
       });
       item.append(body, more);
     } else {
-      body.textContent = text;
+      appendLinked(body, text);
       item.appendChild(body);
     }
   }

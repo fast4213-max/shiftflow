@@ -1271,6 +1271,25 @@ await check("管理画面: 区所の名前は60文字まで(Q9)", async () => {
   void be;
 });
 
+await check("お知らせの本文: https:// の URL は押せるリンクになる(句読点は含めない・HTML は読まない・途中で切っても壊れない)", async () => {
+  const { page, ctx, errors } = await open("index.html");
+  const r = await page.evaluate(async () => {
+    const m = await import("/js/app.js");
+    const e = m.noticeElement({ title: "t", body: "動画 https://drive.google.com/file/d/abc/view?usp=sharing 。<b>x</b> http://no.link/ javascript:alert(1)", level: "info", starts_on: "2026-10-15" });
+    const c = m.noticeElement({ title: "t", body: "あ".repeat(5) + "https://example.com/abcdefghij" + "い".repeat(5), level: "info", starts_on: "2026-10-15" }, { clamp: 10 });
+    return {
+      links: [...e.querySelectorAll("a")].map((a) => [a.href, a.target, a.rel]),
+      bold: e.querySelectorAll("b").length,
+      clamp: [...c.querySelectorAll("a")].map((a) => a.textContent),
+    };
+  });
+  assert.deepEqual(r.links, [["https://drive.google.com/file/d/abc/view?usp=sharing", "_blank", "noopener noreferrer"]]);
+  assert.equal(r.bold, 0);
+  assert.deepEqual(r.clamp, ["https://example.com/abcdefghij"]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await check("管理画面: お知らせを出す・直す・消す。期間の誤りは止める", async () => {
   const { page, ctx, be, errors } = await open("admin.html#notices", { userId: "a1", opts: { profile: ADMIN }, viewport: { width: 1200, height: 900 } });
   await page.waitForSelector("#notice-list .notice-admin-row");
