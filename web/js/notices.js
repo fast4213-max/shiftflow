@@ -1,5 +1,5 @@
 // お知らせ(ログイン後)。いま表示中のお知らせを全部出し、見た印をこの端末に残す(メニューの赤い点が消える)
-import { friendlyText, $, fetchNotices, markNoticesSeen, noticeElement, requireLogin, unseenNotices } from "./app.js?v=dev";
+import { friendlyText, $, fetchNotices, markNoticesSeen, noticeElement, requireLogin, showGuideLinks, unseenNotices } from "./app.js?v=dev";
 
 function setMessage(text, kind) {
   $("message").textContent = friendlyText(text) || "";
@@ -9,6 +9,7 @@ function setMessage(text, kind) {
 async function main() {
   const ctx = await requireLogin("notices.html");
   if (!ctx) return;
+  showGuideLinks("guide").catch(() => {});
   const list = await fetchNotices();
   if (list === null) {
     // 読めなかったときは、「見た記録」を触らない(空で上書きすると、見たお知らせの赤い点と NEW が戻る)

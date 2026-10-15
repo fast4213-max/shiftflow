@@ -49,6 +49,9 @@
       <button id="admin-login" class="primary block" type="submit">管理画面に入る</button>
       <p id="admin-message" class="message" aria-live="polite"></p>
     </form>
+
+    <!-- はじめての方へ(管理画面の「使い方リンク」。0件・読めないときは出さない) -->
+    <div id="login-guide" class="hidden"></div>
   </main>
   <!-- 読み込めないとき(電波・広告ブロック)は、上の load-error を出す。読み込み中に押したときは load-wait。フォームは onsubmit で送らない -->
   <script type="module" src="js/index.js?v=dev" onerror="document.getElementById('load-wait').classList.add('hidden'); document.getElementById('load-error').classList.remove('hidden')"></script>

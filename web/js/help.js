@@ -1,8 +1,9 @@
 // 使い方ページ。未ログインでも読める。
 // ログイン済みの利用者にだけ、登録用アドレス(サービスアカウントのメール)を表示する。
-import { $, callFunction, copyText, currentSession, loadProfile, renderTopbar } from "./app.js?v=dev";
+import { $, callFunction, copyText, currentSession, loadProfile, renderTopbar, showGuideLinks } from "./app.js?v=dev";
 
 async function main() {
+  showGuideLinks("guide", { heading: "動画・まとめはこちら" }).catch(() => {});
   let session = null;
   let profile = null;
   try {

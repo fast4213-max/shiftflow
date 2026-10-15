@@ -187,3 +187,9 @@ fieldset.reply-via label.check { font-weight: normal; margin: 8px 0; }
 .page { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
 
 input[type="search"] { font: inherit; font-size: 16px; padding: 8px; border: 1px solid #bbb; border-radius: 6px; }
+
+/* ---------- 使い方リンク(はじめての方へ) ---------- */
+.guide-links { margin: 14px 0 0; }
+.guide-heading { font-weight: bold; margin-bottom: 6px; }
+.guide-link { display: flex; align-items: center; gap: 10px; padding: 12px 14px; margin-bottom: 8px; background: #fff; border: 1px solid var(--accent); border-radius: 8px; text-decoration: none; font-weight: bold; overflow-wrap: anywhere; }
+.guide-icon { flex: none; width: 1.6em; text-align: center; }

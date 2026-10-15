@@ -1,7 +1,7 @@
 // 最初の画面: 利用者(社員番号+PIN)と管理(管理用パスワード)のタブ
 import {
   friendlyText, $, AUTOFILL_HINT, callFunction, canSaveLogin, configured, currentSession, fetchNotices, go, homePageFor, loadProfile, noticeElement,
-  renderTopbar, startSession, STORAGE_HELP, supabase, toHalfWidth,
+  renderTopbar, showGuideLinks, startSession, STORAGE_HELP, supabase, toHalfWidth,
 } from "./app.js?v=dev";
 
 renderTopbar("index.html");
@@ -25,6 +25,7 @@ async function showLoginNotices() {
   box.classList.remove("hidden");
 }
 showLoginNotices().catch(() => {});
+showGuideLinks("login-guide").catch(() => {});
 
 function setMessage(id, text, kind) {
   $(id).textContent = friendlyText(text) || "";

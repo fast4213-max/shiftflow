@@ -168,6 +168,59 @@ export function markNoticesSeen(list) {
   } catch (_) { /* 保存できない端末では何もしない */ }
 }
 
+// ---------- 使い方リンク(動画・文書。管理画面から登録) ----------
+
+// 読めない・遅い(6秒)ときは null。0件は空の配列
+export async function fetchGuideLinks() {
+  if (!configured) return null;
+  const timeout = new Promise((resolve) => setTimeout(() => resolve({ data: null, error: new Error("timeout") }), 6000));
+  try {
+    const { data, error } = await Promise.race([supabase.rpc("current_guide_links"), timeout]);
+    if (error || !Array.isArray(data)) return null;
+    return data.filter((g) => g && typeof g.label === "string" && /^https:\/\//.test(String(g.url)));
+  } catch (_) {
+    return null;
+  }
+}
+
+// 「はじめての方へ」の枠。文字は textContent、リンクは https:// だけ。0件なら null(枠ごと出さない)
+export function guideLinksElement(list, { heading = "はじめての方へ" } = {}) {
+  if (!list || !list.length) return null;
+  const box = document.createElement("section");
+  box.className = "guide-links";
+  box.setAttribute("aria-label", heading);
+  const h = document.createElement("div");
+  h.className = "guide-heading";
+  h.textContent = heading;
+  box.appendChild(h);
+  list.forEach((g) => {
+    const a = document.createElement("a");
+    a.className = "guide-link";
+    a.href = g.url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    const icon = document.createElement("span");
+    icon.className = "guide-icon";
+    icon.textContent = g.kind === "doc" ? "📄" : "▶";
+    const text = document.createElement("span");
+    text.textContent = g.label;
+    a.append(icon, text);
+    box.appendChild(a);
+  });
+  return box;
+}
+
+// 読んで、あれば指定の場所(空の div)に出す。読めなくても何も出さない(画面の動きを止めない)
+export async function showGuideLinks(id, opts) {
+  const el = typeof id === "string" ? document.getElementById(id) : id;
+  if (!el) return;
+  const box = guideLinksElement(await fetchGuideLinks().catch(() => null), opts);
+  if (box) {
+    el.replaceChildren(box);
+    el.classList.remove("hidden");
+  }
+}
+
 // 日付("2026-10-06")を "10/6" に
 export function shortDate(value) {
   const m = String(value || "").match(/^\d{4}-(\d{2})-(\d{2})/);

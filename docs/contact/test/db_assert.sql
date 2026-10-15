@@ -16,7 +16,7 @@ begin
     assert (select relrowsecurity from pg_class where oid = ('public.' || t)::regclass), t || ' の RLS が無効';
   end loop;
   -- お知らせ・その他の表: RLS が有効で、未ログインは読めない
-  foreach t in array array['notices', 'profiles', 'offices', 'shift_master', 'user_settings', 'shift_records'] loop
+  foreach t in array array['notices', 'guide_links', 'profiles', 'offices', 'shift_master', 'user_settings', 'shift_records'] loop
     assert (select relrowsecurity from pg_class where oid = ('public.' || t)::regclass), t || ' の RLS が無効';
     assert not has_table_privilege('anon', 'public.' || t, 'select'), 'anon が ' || t || ' を読める';
   end loop;
@@ -24,7 +24,7 @@ begin
   assert (select coalesce(string_agg(p.proname, ',' order by p.proname), '')
             from pg_proc p join pg_namespace n on n.oid = p.pronamespace
            where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute'))
-         = 'contact_offices,current_notices,keepalive',
+         = 'contact_offices,current_guide_links,current_notices,keepalive',
          'anon が実行できる関数が想定と違う: ' || (select string_agg(p.proname, ',') from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute'));
   -- サーバー専用の関数は、authenticated が実行できない
   foreach f in array array['create_inquiry(jsonb)', 'rate_limit_hit(text,integer,integer)', 'purge_old_contact()', 'purge_old_auth_attempts()',
@@ -57,6 +57,43 @@ begin
     ('今日まで', today - 2, today), ('昨日まで', today - 2, today - 1), ('明日から', today + 1, null), ('ずっと', today - 5, null);
   assert (select count(*) from jsonb_array_elements(public.current_notices())) = 2, 'お知らせの期間が想定と違う';
   assert not exists (select 1 from jsonb_array_elements(public.current_notices()) x where x->>'title' in ('昨日まで', '明日から')), '期間外のお知らせが出る';
+
+  -- 使い方リンク: 表示するものだけ並び順どおり。https 以外・10件超は DB が止める。並べ替えは端で動かない
+  insert into public.guide_links (label, url, sort_order, visible) values
+    ('二番目', 'https://example.com/b', 2, true), ('一番目', 'https://example.com/a', 1, true), ('隠す', 'https://example.com/c', 3, false);
+  assert (select string_agg(x->>'label', ',' order by ord) from jsonb_array_elements(public.current_guide_links()) with ordinality t(x, ord)) = '一番目,二番目', '使い方リンクの並び・表示が想定と違う';
+  begin
+    insert into public.guide_links (label, url) values ('x', 'http://example.com');
+    assert false, 'http のリンクが入る';
+  exception when check_violation then null; end;
+  begin
+    insert into public.guide_links (label, url) values ('x', 'javascript:alert(1)');
+    assert false, 'javascript: のリンクが入る';
+  exception when check_violation then null; end;
+  begin
+    insert into public.guide_links (label, url) values ('x', 'https://example.com/a b');
+    assert false, '空白入りのリンクが入る';
+  exception when check_violation then null; end;
+  begin
+    insert into public.guide_links (label, url) values ('', 'https://example.com/a');
+    assert false, '空の表示名が入る';
+  exception when check_violation then null; end;
+  begin
+    insert into public.guide_links (label, url) values (repeat('あ', 21), 'https://example.com/a');
+    assert false, '21文字の表示名が入る';
+  exception when check_violation then null; end;
+  begin
+    insert into public.guide_links (label, url, kind) values ('x', 'https://example.com/a', 'movie');
+    assert false, '知らない種類が入る';
+  exception when check_violation then null; end;
+  insert into public.guide_links (label, url) select 'n' || g, 'https://example.com/' || g from generate_series(1, 7) g;
+  begin
+    insert into public.guide_links (label, url) values ('11件目', 'https://example.com/z');
+    assert false, '11件目が入る';
+  exception when raise_exception then null; end;
+  assert not has_function_privilege('anon', 'public.move_guide_link(bigint,int)', 'execute'), 'anon が move_guide_link を実行できる';
+  assert not has_table_privilege('anon', 'public.guide_links', 'select'), 'anon が guide_links を読める';
+  delete from public.guide_links;
 
   r := public.create_inquiry('{"request_key":"aaaaaaaa-0000-4000-8000-000000000001","logged_in":false,"employee_no":"1234567","name":"x","office_name":"y","kind":"login","reply_via":"screen","body":"b"}');
   assert (r->>'duplicate')::boolean = false, '最初の送信が重複扱い';
@@ -332,6 +369,26 @@ begin
   assert public.master_affected_users(c, today + 30) = 0, 'ほかの区所の人を数える';
   assert public.master_affected_users(a, today + 31) = 0, '2日前の勤務を数える';
   assert not has_function_privilege('anon', 'public.master_affected_users(bigint,date)', 'execute'), 'anon が master_affected_users を実行できる';
+
+  -- 使い方リンクの並べ替え(管理者): 動かす・端では動かない・同じ数字や抜けがあっても 1,2,3… に直る
+  declare g1 bigint; g2 bigint; g3 bigint;
+  begin
+    insert into public.guide_links (label, url, sort_order) values ('g1', 'https://example.com/1', 5) returning id into g1;
+    insert into public.guide_links (label, url, sort_order) values ('g2', 'https://example.com/2', 5) returning id into g2;
+    insert into public.guide_links (label, url, sort_order) values ('g3', 'https://example.com/3', 9) returning id into g3;
+    perform public.move_guide_link(g1, -1); -- 先頭は動かない(振り直しだけ)
+    assert (select string_agg(label, ',' order by sort_order) from public.guide_links) = 'g1,g2,g3', '先頭を上へで並びが変わる';
+    assert (select string_agg(sort_order::text, ',' order by sort_order) from public.guide_links) = '1,2,3', '並びが 1,2,3 に直らない';
+    perform public.move_guide_link(g1, 1);
+    assert (select string_agg(label, ',' order by sort_order) from public.guide_links) = 'g2,g1,g3', '下へ動かない';
+    perform public.move_guide_link(g3, 1); -- 末尾は動かない
+    assert (select string_agg(label, ',' order by sort_order) from public.guide_links) = 'g2,g1,g3', '末尾を下へで並びが変わる';
+    begin
+      perform public.move_guide_link(-1, 1);
+      assert false, '無いリンクを動かせる';
+    exception when raise_exception then null; end;
+    delete from public.guide_links;
+  end;
 
   delete from public.shift_records r where r.user_id = uid;
   delete from public.user_settings s where s.user_id = uid;

@@ -4,6 +4,7 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL, TOKEN_EXPIRES } from "./config.js?v=de
 import { checkMasterRows, masterRowsFromCsv, masterToCsv, readTextFile } from "./csv.js?v=dev";
 import { initContactAdmin } from "./admin-contact.js?v=dev";
 import { initNoticesAdmin } from "./admin-notices.js?v=dev";
+import { initGuideAdmin } from "./admin-guide.js?v=dev";
 import { addDays, periodLabel, shortDate } from "./plan.js?v=dev";
 
 const MASTER_COLUMNS = [
@@ -855,6 +856,7 @@ requireLogin("admin.html", { needAdmin: true })
     try {
       initContactAdmin();
       initNoticesAdmin();
+      initGuideAdmin();
     } catch (err) {
       message(err.message || String(err), "error");
     }

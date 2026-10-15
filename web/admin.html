@@ -161,6 +161,24 @@
     <!-- お知らせ -->
     <section id="pane-notices" class="pane hidden">
       <div class="panel">
+        <h2 id="guide-form-title">使い方リンク(ログイン画面の「はじめての方へ」)</h2>
+        <p class="muted">動画や資料のリンクを登録すると、ログイン画面・お知らせ・使い方ページに、ボタンで出ます。Google ドライブの共有は「リンクを知っている全員」にしてください。最大10件。</p>
+        <label for="guide-label">表示名(20文字まで)</label>
+        <input id="guide-label" maxlength="20" autocomplete="off" placeholder="例: 新規登録のしかた">
+        <label for="guide-url">リンク(https:// から)</label>
+        <input id="guide-url" type="url" maxlength="500" autocomplete="off" placeholder="https://drive.google.com/…">
+        <div class="row">
+          <label class="check inline"><input type="radio" name="guide-kind" value="video" checked> ▶ 動画</label>
+          <label class="check inline"><input type="radio" name="guide-kind" value="doc"> 📄 文書</label>
+        </div>
+        <div class="row" style="margin-top: 12px">
+          <button id="guide-save" class="primary">追加する</button>
+          <button id="guide-cancel" class="hidden">編集をやめる</button>
+        </div>
+        <p id="guide-message" class="message" aria-live="polite"></p>
+        <div id="guide-list"></div>
+      </div>
+      <div class="panel">
         <h2 id="notice-form-title">お知らせを出す</h2>
         <label for="notice-title">タイトル(100文字まで)</label>
         <input id="notice-title" maxlength="100" autocomplete="off">

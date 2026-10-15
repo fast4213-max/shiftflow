@@ -35,6 +35,7 @@ const NOTICES = [
 // 偽の Supabase
 function backend(opts = {}) {
   const st = { calls: [], inquiries: [], notices: [...NOTICES], nextNotice: 10,
+    guides: (opts.guides || []).map((g, i) => ({ id: i + 1, kind: "video", visible: true, sort_order: i + 1, ...g })), nextGuide: 100,
     offices: [{ id: 1, name: "A区所", sort_order: 1 }, { id: 2, name: "B区所", sort_order: 2 }, { id: 3, name: "C区所", sort_order: 3 }] };
   const handler = async (route) => {
     const req = route.request();
@@ -126,6 +127,25 @@ function backend(opts = {}) {
     if (path === "/rest/v1/holiday_years") return json([{ year: 2026 }, { year: 2027 }]);
     if (path === "/rest/v1/holidays") return json([]);
     if (path === "/functions/v1/sync-holidays") return json({ holidays: [] });
+    if (path === "/rest/v1/rpc/current_guide_links") {
+      if (opts.guidesFail) return json({ message: "boom" }, 500);
+      return json(st.guides.filter((g) => g.visible).sort((a, b) => a.sort_order - b.sort_order).map(({ id, label, url, kind }) => ({ id, label, url, kind })));
+    }
+    if (path === "/rest/v1/rpc/move_guide_link") {
+      const list = st.guides.sort((a, b) => a.sort_order - b.sort_order);
+      const i = list.findIndex((g) => g.id === body.p_id); const j = i + (body.p_delta < 0 ? -1 : 1);
+      if (i < 0) return json({ message: "リンクが見つかりません" }, 400);
+      if (j >= 0 && j < list.length) [list[i], list[j]] = [list[j], list[i]];
+      list.forEach((g, k) => { g.sort_order = k + 1; });
+      return json(null, 204);
+    }
+    if (path === "/rest/v1/guide_links") {
+      const id = Number((url.searchParams.get("id") || "").replace("eq.", ""));
+      if (req.method() === "GET") return json([...st.guides].sort((a, b) => a.sort_order - b.sort_order));
+      if (req.method() === "POST") { st.guides.push({ id: st.nextGuide++, visible: true, ...body }); return json(null, 201); }
+      if (req.method() === "PATCH") { const g = st.guides.find((x) => x.id === id); if (g) Object.assign(g, body); return json(g ? [{ id }] : []); }
+      if (req.method() === "DELETE") { st.guides = st.guides.filter((g) => g.id !== id); return json(null, 204); }
+    }
     if (path === "/rest/v1/notices") {
       if (req.method() === "GET") return json(st.notices);
       if (req.method() === "POST") { st.notices.unshift({ id: st.nextNotice++, ...body, updated_at: new Date().toISOString() }); return json(null, 201); }
@@ -1286,6 +1306,109 @@ await check("お知らせの本文: https:// の URL は押せるリンクにな
   assert.deepEqual(r.links, [["https://drive.google.com/file/d/abc/view?usp=sharing", "_blank", "noopener noreferrer"]]);
   assert.equal(r.bold, 0);
   assert.deepEqual(r.clamp, ["https://example.com/abcdefghij"]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+const GUIDES = [
+  { label: "新規登録のしかた", url: "https://drive.google.com/file/d/AAA/view?usp=sharing" },
+  { label: "写真取込のしかた", url: "https://drive.google.com/file/d/BBB/view" },
+  { label: "隠したもの", url: "https://drive.google.com/file/d/CCC/view", visible: false },
+  { label: "まとめ(文書)", url: "https://drive.google.com/file/d/DDD/view", kind: "doc" },
+];
+
+await check("使い方リンク: ログイン画面のカードの下に、並びどおり・表示中だけ・別タブのリンクで出る。0件・読めないときは枠ごと出ない", async () => {
+  const { page, ctx, errors } = await open("index.html", { opts: { guides: GUIDES } });
+  await page.waitForSelector("#login-guide:not(.hidden) .guide-link");
+  const links = await page.$$eval("#login-guide .guide-link", (as) => as.map((a) => [a.textContent, a.href, a.target, a.rel]));
+  assert.deepEqual(links, [
+    ["▶新規登録のしかた", GUIDES[0].url, "_blank", "noopener noreferrer"],
+    ["▶写真取込のしかた", GUIDES[1].url, "_blank", "noopener noreferrer"],
+    ["📄まとめ(文書)", GUIDES[3].url, "_blank", "noopener noreferrer"],
+  ]);
+  // カード(利用者のフォーム)より下
+  assert.ok(await page.evaluate(() => document.getElementById("user-form").compareDocumentPosition(document.getElementById("login-guide")) & Node.DOCUMENT_POSITION_FOLLOWING));
+  await page.screenshot({ path: OUT + "login-guide.png", fullPage: true });
+  assert.deepEqual(errors, []);
+  await ctx.close();
+  for (const opts of [{}, { guides: GUIDES, guidesFail: true }]) {
+    const o = await open("index.html", { opts });
+    await o.page.waitForSelector("#login-notices:not(.hidden)");
+    await o.page.waitForTimeout(300);
+    assert.equal(await o.page.locator("#login-guide .guide-link").count(), 0);
+    assert.equal(await o.page.isVisible("#login-guide"), false);
+    assert.deepEqual(o.errors, []);
+    await o.ctx.close();
+  }
+});
+
+await check("使い方リンク: お知らせ画面・使い方ページにも出る。幅320pxではみ出さない", async () => {
+  const long = [{ label: "とても長い名前をつけた動画のリンク", url: "https://drive.google.com/file/d/" + "x".repeat(200) }];
+  for (const [path, opts] of [["notices.html", { profile: USER }], ["help.html", {}]]) {
+    const { page, ctx, errors } = await open(path, { userId: path === "notices.html" ? "u1" : null, opts: { ...opts, guides: long }, viewport: { width: 320, height: 700 } });
+    await page.waitForSelector("#guide .guide-link");
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), path + " が横にはみ出す");
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+});
+
+await check("管理画面: 使い方リンクを足す・直す・並べ替える・隠す・消す。https 以外と10件超は止める", async () => {
+  const { page, ctx, be, errors } = await open("admin.html#notices", { userId: "a1", opts: { profile: ADMIN, guides: GUIDES }, viewport: { width: 1200, height: 900 } });
+  await page.waitForSelector("#guide-list .notice-admin-row");
+  assert.equal(await page.locator("#guide-list .notice-admin-row").count(), 4);
+  // 誤り
+  await page.click("#guide-save");
+  assert.equal(await page.textContent("#guide-message"), "表示名を入力してください。");
+  await page.fill("#guide-label", "新しい動画");
+  await page.fill("#guide-url", "http://example.com/a");
+  await page.click("#guide-save");
+  assert.ok((await page.textContent("#guide-message")).includes("https://"));
+  await page.fill("#guide-url", "javascript:alert(1)");
+  await page.click("#guide-save");
+  assert.ok((await page.textContent("#guide-message")).includes("https://"));
+  assert.ok(!be.st.calls.some((c) => c.path === "/rest/v1/guide_links" && c.method === "POST"));
+  // 足す
+  await page.fill("#guide-url", "https://drive.google.com/file/d/EEE/view");
+  await page.click("#guide-save");
+  await page.waitForSelector("#guide-message.ok");
+  const post = be.st.calls.find((c) => c.path === "/rest/v1/guide_links" && c.method === "POST").body;
+  assert.deepEqual({ ...post }, { label: "新しい動画", url: "https://drive.google.com/file/d/EEE/view", kind: "video", sort_order: 5 });
+  await page.waitForFunction(() => document.querySelectorAll("#guide-list .notice-admin-row").length === 5);
+  // 直す
+  await page.click("#guide-list .notice-admin-row:nth-child(5) >> text=編集");
+  assert.equal(await page.inputValue("#guide-label"), "新しい動画");
+  await page.fill("#guide-label", "直した動画");
+  await page.click("#guide-save");
+  await page.waitForSelector("#guide-message.ok");
+  assert.equal(be.st.guides.find((g) => g.label === "直した動画").url, "https://drive.google.com/file/d/EEE/view");
+  // 並べ替え(先頭の↑は押せない。2番目を上へ)
+  assert.equal(await page.locator("#guide-list .notice-admin-row:nth-child(1) button:has-text('↑')").isDisabled(), true);
+  await page.click("#guide-list .notice-admin-row:nth-child(2) button:has-text('↑')");
+  await page.waitForFunction(() => document.querySelector("#guide-list .notice-admin-row strong").textContent.includes("写真取込"));
+  // 隠す → 表示するもの(RPC)から消える
+  await page.click("#guide-list .notice-admin-row:nth-child(1) button:has-text('隠す')");
+  await page.waitForFunction(() => document.querySelector("#guide-list .notice-admin-row .status-badge").textContent === "非表示");
+  assert.equal(be.st.guides.filter((g) => g.visible).length, 3);
+  // 消す
+  page.removeAllListeners("dialog");
+  page.on("dialog", (d) => d.accept());
+  await page.click("#guide-list .notice-admin-row:nth-child(1) button:has-text('削除')");
+  await page.waitForFunction(() => document.querySelectorAll("#guide-list .notice-admin-row").length === 4);
+  await page.screenshot({ path: OUT + "admin-guide.png", fullPage: true });
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("管理画面: 使い方リンクが10件あるときは、足せない", async () => {
+  const ten = Array.from({ length: 10 }, (_, i) => ({ label: "L" + i, url: "https://example.com/" + i }));
+  const { page, ctx, be, errors } = await open("admin.html#notices", { userId: "a1", opts: { profile: ADMIN, guides: ten }, viewport: { width: 1200, height: 900 } });
+  await page.waitForFunction(() => document.querySelectorAll("#guide-list .notice-admin-row").length === 10);
+  await page.fill("#guide-label", "11件目");
+  await page.fill("#guide-url", "https://example.com/11");
+  await page.click("#guide-save");
+  assert.ok((await page.textContent("#guide-message")).includes("10件まで"));
+  assert.ok(!be.st.calls.some((c) => c.path === "/rest/v1/guide_links" && c.method === "POST"));
   assert.deepEqual(errors, []);
   await ctx.close();
 });
