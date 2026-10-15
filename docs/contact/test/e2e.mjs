@@ -111,9 +111,10 @@ function backend(opts = {}) {
     // 勤務入力の「保存」は register-month に saveOnly で送る(17回目の N1)。登録は件数を返す
     if (path === "/functions/v1/register-month") {
       await new Promise((r) => setTimeout(r, 300)); // 保存・登録の間の画面(押せないボタン)を確かめられるように
-      return json(body && body.saveOnly ? { saved: true } : { count: 0, skipped: 0 });
+      if (body && body.saveOnly) return json(opts.periodError ? { saved: true, periodError: opts.periodError } : { saved: true });
+      return json({ count: 0, skipped: 0 });
     }
-    if (path === "/rest/v1/shift_records") return json([]);
+    if (path === "/rest/v1/shift_records") return json(opts.records || []);
     if (path === "/rest/v1/holiday_years") return json([{ year: 2026 }, { year: 2027 }]);
     if (path === "/rest/v1/holidays") return json([]);
     if (path === "/functions/v1/sync-holidays") return json({ holidays: [] });
@@ -612,7 +613,44 @@ await check("マスタの切替: 次のマスタが未登録なら、上に知�
   await page.click("#picker-manual");
   await row(22).locator(".code input").fill("公休");
   assert.ok((await row(22).getAttribute("class")).includes("period-error"));
+  // 新しいマスタがまだ無い日の一覧は空なので、理由を出す。前の日は出さない
+  await row(23).locator(".pick").click();
+  assert.ok((await page.textContent("#picker-note")).includes("のマスタが、まだ登録されていません"));
+  await page.click("#picker-cancel");
+  await row(12).locator(".pick").click();
+  assert.ok(await page.isHidden("#picker-note"));
+  await page.click("#picker-cancel");
   await page.screenshot({ path: OUT + "period-input-missing.png", fullPage: true });
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("マスタの切替: 登録できない日があっても「保存」はできる(登録できない理由を添える)", async () => {
+  const { page, ctx, be, errors } = await open("input.html", {
+    userId: "u1", opts: { profile: USER, master: OLD_MASTER, periods: SWITCH_PERIODS, periodError: "10/22: まだ登録されていません。" },
+  });
+  await page.waitForSelector("#register:not([disabled])");
+  await pickCode(page, 19, "1");
+  await page.click("#save");
+  await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("保存しました"));
+  assert.ok((await page.textContent("#status")).includes("今は登録できません。10/22: まだ登録されていません。"));
+  assert.ok(be.st.calls.some((c) => c.path === "/functions/v1/register-month" && c.body.saveOnly === true));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("マスタの切替: 新しいマスタで無くなった番号を入れてある日は、上に知らせて黄色にする", async () => {
+  const mm = String(thisMonth.m).padStart(2, "0");
+  const records = [{ date: `${thisMonth.y}-${mm}-23`, code: "2", memo: "" }, { date: `${thisMonth.y}-${mm}-12`, code: "2", memo: "" }];
+  const { page, ctx, errors } = await open("input.html", { userId: "u1", opts: { profile: USER, master: [...OLD_MASTER, ...NEW_MASTER], periods: SWITCH_PERIODS, records } });
+  await page.waitForSelector("#register:not([disabled])");
+  assert.ok((await page.textContent("#period-note")).includes("新しいマスタに無い番号があります: 23日の「2」。"));
+  const row = (d) => page.locator("#list tr").nth(d - 1);
+  assert.ok((await row(23).getAttribute("class")).includes("needtime"));
+  assert.ok(!(await row(12).getAttribute("class") || "").includes("needtime")); // 前のマスタの日は、その番号がある
+  // 時間を入れると黄色が消える
+  await row(23).locator(".memo input").fill("9:00〜17:00");
+  assert.ok(!(await row(23).getAttribute("class")).includes("needtime"));
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -661,9 +699,17 @@ await check("マスタの切替(管理画面): タブ・CSV未登録の注意・
   // 次のマスタを作る: 10月を選ぶと名前がダイヤ修正になる
   await page.click("#period-tabs .chip.add");
   assert.ok(await page.isHidden("#period-csv"));
+  assert.equal(await page.getAttribute("#period-date", "min"), "2026-10-04"); // 今月の1日より、いちばん古いマスタの翌日が後
   await page.fill("#period-date", "2027-10-02");
   await page.dispatchEvent("#period-date", "change");
   assert.equal(await page.inputValue("#period-name"), "ダイヤ修正");
+  // 名前を手で選んだあとは、切替日を変えても名前を変えない
+  await page.selectOption("#period-name", "");
+  await page.fill("#period-date", "2027-03-02");
+  await page.dispatchEvent("#period-date", "change");
+  assert.equal(await page.inputValue("#period-name"), "");
+  await page.selectOption("#period-name", "ダイヤ修正");
+  await page.fill("#period-date", "2027-10-02");
   await page.click("#period-save");
   await page.waitForFunction(() => document.getElementById("period-message").textContent.includes("を作りました"));
   const saved = be.st.calls.find((c) => c.path === "/rest/v1/rpc/save_master_period").body;

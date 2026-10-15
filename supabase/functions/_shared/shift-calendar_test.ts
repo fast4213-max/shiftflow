@@ -12,6 +12,7 @@ import {
   isOffTitle,
   listAppEvents,
   nextFirstNewlyOffduty,
+  periodErrorText,
   parseOffdutyTime,
   parseTimeRange,
   type PlannedEvent,
@@ -32,7 +33,7 @@ import {
   retryPolicy,
   withRetryBudget,
 } from "./google.ts";
-import { buildPlan, indexMaster, MasterSet } from "./plan.js";
+import { buildPlan, codeOf, indexMaster, MasterSet } from "./plan.js";
 
 // テスト用の使い捨て鍵でサービスアカウントを用意する
 const pair = await crypto.subtle.generateKey(
@@ -1025,4 +1026,26 @@ Deno.test("マスタの切替: 予定の日のマスタで番号の種別を見�
   assertEquals(split.map((e) => [e.second?.startMin, e.second?.endMin]), [[600, 660], [480, 1020]]);
   const stale = staleNextMonthRecords({ nextFirst: "2026-11-14", lastCode: "7", nextFirstOffduty: false, nextFirstCode: "", master: set });
   assertEquals(stale, [{ date: "2026-11-14", memoOnly: true }]); // 11/13 は前のマスタで泊
+});
+
+Deno.test("マスタの切替: 登録の確かめは、翌月1日のメモを外して組み立て直したあとの予定で行う(登録の流れ)", () => {
+  // 架空のマスタ。12/1 から次のマスタ。「2」は前のマスタだけにある泊
+  const set = new MasterSet([{ id: 1, starts_on: "2026-10-03", name: "" }, { id: 2, starts_on: "2026-12-01", name: "" }], [
+    { period_id: 1, code: "2", kind: "泊", weekday_start: "9:00", weekday_end: "9:30", holiday_start: "", holiday_end: "", stay: "" },
+    { period_id: 2, code: "5", kind: "日勤", weekday_start: "8:00", weekday_end: "17:00", holiday_start: "", holiday_end: "", stay: "" },
+  ]);
+  // 登録する前の月末は泊でなく(今回はじめて泊)、翌月1日には別の用事のメモだけがある
+  const byDate: Record<string, { code: string; memo: string }> = { "2026-11-30": { code: "", memo: "" }, "2026-12-01": { code: "", memo: "歯医者" } };
+  const entries = { "2026-11-30": { code: "2", memo: "" } };
+  const planOf = (nextFirstEntry: { code: string; memo: string }) =>
+    buildPlan({ year: 2026, month: 11, entries, prevLastCode: "", nextFirstEntry, master: set, holidays: [] });
+  let plan = planOf(byDate["2026-12-01"]);
+  assertEquals(plan.errors, []); // 用事のメモを退勤時間とみなすので、最初の組み立てではエラーにならない
+  const nextFirstOffduty = plan.events.some((e) => e.date === "2026-12-01" && e.kind === "offduty");
+  if (nextFirstNewlyOffduty({ last: "2026-11-30", lastCode: codeOf(byDate["2026-11-30"]), nextFirstOffduty, master: set })) {
+    plan = planOf({ code: "", memo: "" });
+  }
+  assertEquals(periodErrorText(plan.errors).includes("翌月の画面で、12/1(非番)のメモに退勤時間"), true);
+  assertEquals(periodErrorText([]), "");
+  assertEquals(periodErrorText([{ date: "a", message: "x。" }, { date: "b", message: "y" }]), "x。(ほかに1件)");
 });

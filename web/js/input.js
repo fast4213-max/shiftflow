@@ -24,6 +24,7 @@ const state = {
   master: new MasterSet([], []), // 区所のマスタ(切替日 = ダイヤ改正・ダイヤ修正ごと)。日ごとに masterOn で引く
   entries: {},       // { "yyyy-MM-dd": { code, memo } }  memo は手修正したときだけ
   prevLastCode: "",
+  nextFirstEntry: null, // 翌月1日の記録(月末の泊の非番のメモ。サーバーと同じに、登録できない日を調べるため)
   officeId: null,
   holidays: [],
   offduty: new Map(), // 表示中の非番の日(番号を変えたとき、非番になった・非番でなくなった日を調べるため)
@@ -89,7 +90,7 @@ async function loadMonth(id) {
   const [periodsRes, masterRes, recordsRes, holidays] = await Promise.all([
     supabase.from("master_periods").select("id, starts_on, name").eq("office_id", state.officeId),
     supabase.from("shift_master").select("*").eq("office_id", state.officeId).order("sort_order"),
-    supabase.from("shift_records").select("date, code, memo").gte("date", prevLast).lte("date", last),
+    supabase.from("shift_records").select("date, code, memo").gte("date", prevLast).lte("date", nextFirst),
     loadHolidays(prevLast, nextFirst),
   ]);
   if (id !== state.loadId) return; // 読み込み中に別の月へ移動した
@@ -100,8 +101,10 @@ async function loadMonth(id) {
   state.master = new MasterSet(periodsRes.data || [], masterRes.data || []);
   state.entries = {};
   state.prevLastCode = "";
+  state.nextFirstEntry = null;
   (recordsRes.data || []).forEach((r) => {
     if (r.date === prevLast) state.prevLastCode = r.code;
+    else if (r.date === nextFirst) state.nextFirstEntry = { code: r.code, memo: r.memo };
     else state.entries[r.date] = { code: r.code, memo: r.memo };
   });
   state.holidays = holidays;
@@ -285,8 +288,10 @@ function render() {
       memoInput.className = e.memo ? "override" : "";
       edited();
     });
-    // 写真取込で入った、一覧にない番号(変・臨時など)で時間が空の日は、メモに時間を入れるよう目立たせる
-    const needTime = () => imported && !offduty && !!e.code.trim() && !masterAt(key)[e.code.trim()] &&
+    // 写真取込で入った、一覧にない番号(変・臨時など)で時間が空の日は、メモに時間を入れるよう目立たせる。
+    // 前のマスタにはあって、その日のマスタ(切替日から後の新しいマスタ)で無くなった番号も同じ(手入力になり、時間が入らないため)
+    const dropped = !offduty && droppedCode(key, e.code.trim());
+    const needTime = () => (imported || dropped) && !offduty && !!e.code.trim() && !masterAt(key)[e.code.trim()] &&
       !/^[〜~\-ー—]$|休/.test(e.code.trim()) && !e.memo;
     if (needTime()) {
       tr.classList.add("needtime");
@@ -304,6 +309,13 @@ function render() {
 
     list.appendChild(tr);
   }
+}
+
+// 前のマスタにはあって、その日のマスタで無くなった番号か(切替日から後の日)
+function droppedCode(key, code) {
+  if (!code) return false;
+  const i = state.master.periods.indexOf(state.master.periodOn(key));
+  return i > 0 && !state.master.periods[i].map[code] && !!state.master.periods[i - 1].map[code];
 }
 
 // マスタの切替(ダイヤ改正・ダイヤ修正)がこの月にあれば、一覧の上に知らせる。
@@ -327,8 +339,18 @@ function renderPeriodNote() {
       ? "(前の日の泊の、非番の退勤時間も新しいマスタから入ります)。"
       : "。まだ管理者がマスタを入れていないので、" + shortDate(p.from) + "から後の日と、前の日の泊は登録できません。"), !p.rows.length);
   });
+  // 新しいマスタで無くなった番号を入れてある日(手入力になって時間が入らない。行は黄色)
+  const dropped = [];
+  for (let d = 1; d <= daysInMonth(year, month); d++) {
+    const key = dateKey(year, month, d);
+    const code = ((state.entries[key] || {}).code || "").trim();
+    if (!state.offduty.has(key) && droppedCode(key, code)) dropped.push(d + "日の「" + code + "」");
+  }
+  if (dropped.length) {
+    add("新しいマスタに無い番号があります: " + dropped.join("、") + "。手入力として登録されるので、メモに時間を入れるか、番号を選び直してください。", false);
+  }
   const { errors } = buildPlan({
-    year, month, entries: state.entries, prevLastCode: state.prevLastCode, nextFirstEntry: null, master: state.master, holidays: state.holidays,
+    year, month, entries: state.entries, prevLastCode: state.prevLastCode, nextFirstEntry: state.nextFirstEntry, master: state.master, holidays: state.holidays,
   });
   const byDate = new Map();
   errors.forEach((e) => {
@@ -389,6 +411,12 @@ let onPick = null;
 function openPicker(title, key, current, callback) {
   onPick = callback;
   $("picker-title").textContent = title;
+  // 切替日から後で、新しいマスタがまだ無い日は、一覧が空になるので理由を出す
+  const period = state.master.periodOn(key);
+  $("picker-note").hidden = !state.master.missingOn(key);
+  $("picker-note").textContent = state.master.missingOn(key)
+    ? shortDate(period.from) + "からの「" + periodLabel(period) + "」のマスタが、まだ登録されていません(管理者が入れるまで、この日は登録できません)。"
+    : "";
   [["picker-duty", (m) => m.kind !== "休日"], ["picker-off", (m) => m.kind === "休日"]].forEach(([id, match]) => {
     const grid = $(id);
     grid.innerHTML = "";
@@ -527,7 +555,7 @@ $("save").addEventListener("click", async () => {
   setStatus("保存中…");
   const edits = state.edits;
   try {
-    await callFunction("register-month", {
+    const result = await callFunction("register-month", {
       year: state.year,
       month: state.month,
       entries: state.entries,
@@ -538,7 +566,9 @@ $("save").addEventListener("click", async () => {
       state.dirty = false;
       clearImported();
     }
-    setStatus("保存しました。カレンダーにはまだ入っていません(入れるときは「登録」を押してください)。" +
+    // マスタの切替で登録できない日があっても、保存はできる(登録はマスタが入ってから)
+    setStatus("保存しました。カレンダーにはまだ入っていません(" +
+      (result && result.periodError ? "今は登録できません。" + result.periodError : "入れるときは「登録」を押してください") + ")。" +
       (editedMeanwhile ? "保存中に変えたところは、まだ保存していません。" : ""));
   } catch (err) {
     setStatus("保存できませんでした。" + (err.message || String(err)), true);

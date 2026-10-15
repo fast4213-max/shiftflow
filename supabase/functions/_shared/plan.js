@@ -252,7 +252,7 @@ export function buildPlan({ year, month, entries, prevLastCode, nextFirstEntry, 
       // 番号が残っている日のメモは、その番号(勤務の日)のためのものなので使わない
       // (前月末を泊にしたとき、翌月1日の記録に番号とメモが残っていることがある)
       const memo = e.code ? "" : e.memo;
-      const off = offdutyEntryOf(master, prevKey, key, prevCode);
+      const off = offdutyEntryOf(master, prevKey, key, prevCode, d > days);
       if (off.error && (off.missing || !memo)) errors.push({ date: prevKey, message: off.error });
       events.push({
         date: key,
@@ -296,7 +296,8 @@ export function buildPlan({ year, month, entries, prevLastCode, nextFirstEntry, 
 // 切替日の前日の泊なら、非番の日(切替日)のマスタの同じ番号の泊。
 //   { entry, error, missing }  entry が null なら、退勤時間はマスタから分からない(error に理由)。
 //   missing: 非番の日のマスタがまだ無い(メモに退勤時間を書いても登録できない)
-export function offdutyEntryOf(master, prevKey, key, prevCode) {
+//   nextMonth: 非番の日が翌月(月末の泊)。メモは翌月の画面で入れるので、そう書く
+export function offdutyEntryOf(master, prevKey, key, prevCode, nextMonth = false) {
   const prev = masterOn(master, prevKey)[prevCode] || null;
   if (!(master instanceof MasterSet)) return { entry: prev, error: "", missing: false };
   const from = master.periodOn(prevKey);
@@ -317,7 +318,7 @@ export function offdutyEntryOf(master, prevKey, key, prevCode) {
     entry: null,
     missing: false,
     error: shortDate(prevKey) + "の泊(" + prevCode + ")の非番の退勤時間が、" + label + "のマスタにありません(同じ番号の泊がありません)。" +
-      shortDate(key) + "(非番)のメモに退勤時間(例 9:00)を入れてください。",
+      (nextMonth ? "翌月の画面で、" : "") + shortDate(key) + "(非番)のメモに退勤時間(例 9:00)を入れてください。",
   };
 }
 

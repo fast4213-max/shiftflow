@@ -298,6 +298,12 @@ export async function loadMasterSet(ctx: Context, officeId: number): Promise<Mas
   return new MasterSet(periodsRes.data || [], rowsRes.data || []);
 }
 
+// マスタの切替で登録できない理由(buildPlan の errors)を1つの文にする。無ければ ""
+export function periodErrorText(errors: { date: string; message: string }[]): string {
+  if (!errors.length) return "";
+  return errors[0].message + (errors.length > 1 ? `(ほかに${errors.length - 1}件)` : "");
+}
+
 // staleNextMonthRecords の記録を消す(利用者の権限で消すので、本人の記録だけが対象)
 export async function deleteRecords(ctx: Context, records: { date: string; memoOnly: boolean }[]): Promise<void> {
   for (const r of records) {

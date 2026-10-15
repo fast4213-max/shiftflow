@@ -30,6 +30,7 @@ let masterRows = null;
 let masterRowsOfficeId = null;
 let selectedPeriodId = null; // 選んでいる切替日の id。"new" は「次のマスタ」を作るところ
 let pendingRows = null;
+let nameTouched = false; // 「次のマスタ」で名前を手で選んだか(選んだあとは、切替日を変えても名前を変えない)
 
 function message(text, kind) {
   $("message").textContent = friendlyText(text) || "";
@@ -470,18 +471,21 @@ function renderMasterPane() {
   const isBase = !!p && p.index === 0;
   const started = !!p && p.from <= stats.today;
 
+  // 選べる切替日: 今月の1日から後、かつ、いちばん古いマスタの切替日より後(サーバーと同じ。いちばん古いマスタは決まりなし)
+  const firstOfMonth = stats.today.slice(0, 8) + "01";
+  const minDate = list.length && addDays(list[0].from, 1) > firstOfMonth ? addDays(list[0].from, 1) : firstOfMonth;
   if (isNew) {
     $("period-summary").textContent = "次のマスタを作る";
-    const last = list[list.length - 1];
     $("period-date").value = "";
-    $("period-date").min = last ? addDays(last.from, 1) : "";
+    $("period-date").min = minDate;
+    nameTouched = false;
     setPeriodName("ダイヤ改正");
     $("period-help").textContent = "切替日(新しいダイヤの初日)と名前を入れて「切替日を保存」を押してから、CSV を取り込みます。日付だけ先に保存して、CSV はあとから入れてもかまいません。";
   } else if (p) {
     $("period-summary").textContent = periodLabel(p) + "(" + rangeText(p) + ")" +
       (p.id === periodIdOn(office, stats.today) ? " … 今使っているマスタ" : p.from > stats.today ? " … これから使うマスタ" : " … 前のマスタ");
     $("period-date").value = p.from;
-    $("period-date").min = "";
+    $("period-date").min = isBase ? "" : minDate;
     setPeriodName(p.name);
     $("period-help").textContent = isBase
       ? "いちばん古いマスタは、切替日より前の日にも使います(切替日は、名前と一緒に表示するためのものです)。"
@@ -592,10 +596,13 @@ $("master-office").addEventListener("change", () => {
   loadMaster().catch((err) => message(err.message, "error"));
 });
 
+// 次のマスタを作るときだけ、切替日の月から名前を選ぶ(名前を手で選んだあとと、今あるマスタの切替日を直すときは変えない)
 $("period-date").addEventListener("change", () => {
+  if (selectedPeriodId !== "new" || nameTouched) return;
   const name = guessName($("period-date").value || "");
   if (name) setPeriodName(name);
 });
+$("period-name").addEventListener("change", () => { nameTouched = true; });
 
 function periodMessage(text, kind) {
   $("period-message").textContent = friendlyText(text) || "";

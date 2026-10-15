@@ -17,6 +17,7 @@ import {
   loadMasterSet,
   loadVerifiedCalendars,
   nextFirstNewlyOffduty,
+  periodErrorText,
   shouldKeepTimedNextFirst,
   splitDayEvents,
   splitOffdutyEvents,
@@ -55,11 +56,6 @@ serve(async (req) => {
     const planOf = (nextFirstEntry: { code: string; memo: string } | undefined) =>
       buildPlan({ year, month, entries, prevLastCode: codeOf(byDate[prevLast]), nextFirstEntry, master, holidays });
     let plan = planOf(byDate[nextFirst]);
-    // マスタの切替で登録できない日があれば、保存もしない(何も変えずに止める)
-    if (plan.errors.length) {
-      const more = plan.errors.length > 1 ? `(ほかに${plan.errors.length - 1}件)` : "";
-      throw new AppError(400, plan.errors[0].message + more, "master_period");
-    }
     const nextFirstOffduty = plan.events.some((e) => e.date === nextFirst && e.kind === "offduty");
     // 月末が今回はじめて泊になったなら、翌月1日の番号の無いメモ(別の用事のメモ)を非番のメモに使わない(W6)。
     // 画面が、月の中で新しく非番になった日のメモを消すのと同じ。前から泊なら、手で書いた非番のメモなのでそのまま使う
@@ -67,6 +63,11 @@ serve(async (req) => {
     if (newlyOffduty && byDate[nextFirst] && !codeOf(byDate[nextFirst])) {
       plan = planOf({ code: "", memo: "" });
     }
+    // マスタの切替で登録できない日があれば、何も変えずに止める。確かめるのは最後に組み立てた予定
+    // (翌月1日のメモを外して組み立て直すと、エラーになることがあるため)。
+    // 「保存」は通す(新しいマスタを待つあいだも、写真取込などの入力を残せるように。カレンダーは変えない)
+    const periodError = periodErrorText(plan.errors);
+    if (periodError && !saveOnly) throw new AppError(400, periodError, "master_period");
 
     const saved = await ctx.db.rpc("save_month_records", { p_year: year, p_month: month, p_entries: plan.entries });
     if (saved.error) throw saved.error;
@@ -82,8 +83,8 @@ serve(async (req) => {
       newlyOffduty,
     }));
 
-    // 「保存」はここまで(カレンダーは変えない。登録したときに作り直す)
-    if (saveOnly) return { saved: true };
+    // 「保存」はここまで(カレンダーは変えない。登録したときに作り直す)。登録できない理由があれば添える
+    if (saveOnly) return periodError ? { saved: true, periodError } : { saved: true };
 
     const existing = await listAppEvents(calendars, year, month);
     // 前の登録が途中で失敗して、翌月1日の予定を消したままになっていないか(印が今回の翌月1日なら、作り直す)
