@@ -15,6 +15,7 @@ import {
   eventsToRegister,
   listAppEvents,
   loadMasterSet,
+  loadOfficeOnly,
   loadVerifiedCalendars,
   nextFirstNewlyOffduty,
   periodErrorText,
@@ -33,7 +34,8 @@ serve(async (req) => {
   const entries = entriesFrom(body);
   const saveOnly = body.saveOnly === true;
 
-  const calendars = await loadVerifiedCalendars(ctx);
+  // 「保存」はカレンダーを変えないので、区所だけ要る(カレンダーの設定・接続テストの前でも、入力を残せるように。AB4)
+  const calendars = saveOnly ? await loadOfficeOnly(ctx) : await loadVerifiedCalendars(ctx);
   if (!calendars.officeId) throw new AppError(400, "設定画面で区所を選んでください。", "no_office");
 
   return await withUserLock(ctx, async () => {

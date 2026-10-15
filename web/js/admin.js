@@ -1,5 +1,5 @@
 // 管理画面(ダッシュボード)。管理者だけ。管理用パスワードでログインしたセッションで動く。
-import { friendlyText, $, callFunction, copyText, formatDateTime, requireLogin, sharedPasswordProblem, supabase } from "./app.js?v=dev";
+import { friendlyText, $, callFunction, copyText, formatDateTime, requireLogin, selectAllPages, sharedPasswordProblem, supabase } from "./app.js?v=dev";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, TOKEN_EXPIRES } from "./config.js?v=dev";
 import { checkMasterRows, masterRowsFromCsv, masterToCsv, readTextFile } from "./csv.js?v=dev";
 import { initContactAdmin } from "./admin-contact.js?v=dev";
@@ -30,6 +30,7 @@ let masterRows = null;
 let masterRowsOfficeId = null;
 let selectedPeriodId = null; // 選んでいる切替日の id。"new" は「次のマスタ」を作るところ
 let pendingRows = null;
+let pendingTarget = null; // 確認中の CSV を入れる先 { officeId, periodId }(ほかの区所・切替日に移ったら確認を消す。AB1)
 let nameTouched = false; // 「次のマスタ」で名前を手で選んだか(選んだあとは、切替日を変えても名前を変えない)
 
 function message(text, kind) {
@@ -103,6 +104,7 @@ function alertBox(kind, text, actionLabel, tab, onAction) {
 
 // マスタのタブで、区所と切替日を選んで開く
 function openPeriod(officeId, periodId) {
+  clearPreview();
   $("master-office").value = String(officeId);
   selectedPeriodId = periodId;
   loadMaster().catch((err) => message(err.message, "error"));
@@ -325,7 +327,8 @@ function renderOffices() {
         refresh();
       }),
       button("削除", async () => {
-        const warn = `${o.name} を削除しますか？\nこの区所のマスタ(${o.master_count}件)も消え、選んでいる利用者(${o.user_count}人)は区所を選び直すまで登録できなくなります。`;
+        const rows = periodsOf(o).reduce((n, p) => n + (p.count || 0), 0);
+        const warn = `${o.name} を削除しますか？\nこの区所の全部の切替日のマスタ(${rows}件)も消え、選んでいる利用者(${o.user_count}人)は区所を選び直すまで登録できなくなります。`;
         if (!confirm(warn)) return;
         const { error } = await supabase.from("offices").delete().eq("id", o.id);
         if (error) return message(error.message, "error");
@@ -462,6 +465,8 @@ function setPeriodName(value) {
 // 選んでいる切替日の中身(切替日・名前・CSV・マスタ表)を出す
 function renderMasterPane() {
   const office = selectedOffice();
+  // 確認中の CSV は、入れる先(区所・切替日)が今の選択と同じときだけ残す
+  if (pendingRows && (!office || !pendingTarget || pendingTarget.officeId !== office.id || pendingTarget.periodId !== selectedPeriodId)) clearPreview();
   renderPeriodTabs(office);
   $("period-body").hidden = !office;
   if (!office) return;
@@ -480,7 +485,8 @@ function renderMasterPane() {
     $("period-date").min = minDate;
     nameTouched = false;
     setPeriodName("ダイヤ改正");
-    $("period-help").textContent = "切替日(新しいダイヤの初日)と名前を入れて「作る」を押してから、CSV を取り込みます。日付だけ先に作って、CSV はあとから入れてもかまいません。ダイヤ改正・ダイヤ修正の日はどの区所も同じなので、ふつうは「全部の区所に同じ切替日で作る」のままにします(CSV は区所ごと)。";
+    $("period-help").textContent = "切替日(新しいダイヤの初日)と名前を入れて「作る」を押してから、CSV を取り込みます。日付だけ先に作って、CSV はあとから入れてもかまいません。" +
+      (stats.offices.length > 1 ? "ダイヤ改正・ダイヤ修正の日はどの区所も同じなので、ふつうは「全部の区所に同じ切替日で作る」のままにします(CSV は区所ごと)。" : "");
   } else if (p) {
     $("period-summary").textContent = periodLabel(p) + "(" + rangeText(p) + ")" +
       (p.id === periodIdOn(office, stats.today) ? " … 今使っているマスタ" : p.from > stats.today ? " … これから使うマスタ" : " … 前のマスタ");
@@ -521,7 +527,8 @@ function renderMasterPane() {
   rows.forEach((r) => (counts[r.kind] = (counts[r.kind] || 0) + 1));
   $("master-count").textContent = `${rows.length}件` +
     (rows.length ? "(" + Object.entries(counts).map(([k, n]) => `${k} ${n}`).join("、") + ")" : "(まだ CSV がありません)");
-  $("master-diff").textContent = prevRows && rows.length ? diffText(prev, prevRows, rows) : "";
+  // 前のマスタが空(CSV 未登録)なら比べない(全部が「増えた」になるため)
+  $("master-diff").textContent = prevRows && prevRows.length && rows.length ? diffText(prev, prevRows, rows) : "";
   $("csv-download").disabled = !rows.length;
   $("copy-prev").disabled = !prevRows || !prevRows.length;
 }
@@ -589,8 +596,9 @@ async function loadMaster() {
   }
   renderMasterPane();
   if (!office) return;
-  const { data, error } = await supabase.from("shift_master").select("*").eq("office_id", office.id).order("sort_order");
-  if (error) throw error;
+  const data = await selectAllPages((from, to) =>
+    supabase.from("shift_master").select("*").eq("office_id", office.id).order("period_id").order("sort_order").order("code").range(from, to)
+  );
   if (String(office.id) !== $("master-office").value) return; // 読んでいる間に、別の区所に切り替えた
   masterRows = data;
   masterRowsOfficeId = office.id;
@@ -617,11 +625,17 @@ function periodMessage(text, kind) {
   $("period-message").className = "message" + (kind ? " " + kind : "");
 }
 
-// 切替日の前日から後の日に、勤務をもう入れている人がいれば、登録し直しが要ることを添える
-async function affectedNote(periodId) {
-  const { data, error } = await supabase.rpc("master_period_affected", { p_period_id: periodId });
-  if (error || !data) return "";
-  return `切替日の前日から後の勤務を、もう保存・登録している人が ${data}人 います。その人は、その月をもう一度「登録」すると新しいマスタの時間になります(お知らせで知らせると確実です)。`;
+// from の前日から後の日に、勤務をもう入れている人の人数(officeId が null なら全部の区所。数えられなければ 0)
+async function affectedCount(officeId, from) {
+  const { data, error } = await supabase.rpc("master_affected_users", { p_office_id: officeId, p_from: from });
+  return error ? 0 : data || 0;
+}
+
+// 登録し直しが要る人がいれば、そのことを添える(AB12。切替日を動かしたときは、前と後の早いほうの日から数える)
+async function affectedNote(officeId, from) {
+  const n = await affectedCount(officeId, from);
+  if (!n) return "";
+  return `${shortDate(from)}の前日から後の勤務を、もう保存・登録している人が ${n}人 います。その人は、その月をもう一度「登録」すると今のマスタの時間になります(お知らせで知らせると確実です)。`;
 }
 
 // 同じ切替日のマスタがある、ほかの区所
@@ -658,7 +672,8 @@ $("period-save").addEventListener("click", async () => {
     }
   }
   const saved = selectedPeriod();
-  const note = saved && saved.index > 0 && saved.count ? await affectedNote(saved.id) : "";
+  // 直したとき: 前と後の早いほうの日から数える(作ったときは、CSV を入れるまで何も変わらないので数えない)
+  const note = p ? await affectedNote(all ? null : office.id, p.from < date ? p.from : date) : "";
   const where = all ? `${data}区所の` : "";
   periodMessage((p ? where + "切替日を保存しました。" : where + "「" + periodLabel(saved || { from: date, name: "" }) + "」を作りました。" +
     (all ? "CSV は区所ごとです。区所を切り替えて、それぞれ取り込んでください。" : "続けて CSV を取り込んでください。")) +
@@ -670,9 +685,12 @@ $("period-delete").addEventListener("click", async () => {
   if (!p) return;
   const all = allChecked();
   const others = all ? sameDateOffices(selectedOffice(), p.from).map((o) => o.name) : [];
+  // もう登録した人のカレンダーは、登録し直すまで、消すマスタの時間のまま(AB12)
+  const affected = p.count ? await affectedCount(all ? null : selectedOffice().id, p.from) : 0;
   if (!confirm(`「${periodLabel(p)}」(${shortDate(p.from)}〜)のマスタを消しますか？` +
     (others.length ? `\nほかの区所(${others.join("、")})の同じ切替日のマスタも消えます。` : "") +
-    `\nこのマスタの番号(${p.count}件)も消えます。切替日より後の日は、前のマスタで登録されるようになります。`)) return;
+    `\nこのマスタの番号(${p.count}件)も消えます。切替日より後の日は、前のマスタで登録されるようになります。` +
+    (affected ? `\n${shortDate(p.from)}の前日から後の勤務を、もう保存・登録している人が ${affected}人 います。その人は、その月を登録し直すと前のマスタの時間になります。` : ""))) return;
   const { data, error } = all
     ? await supabase.rpc("delete_master_period_all", { p_starts_on: p.from })
     : await supabase.rpc("delete_master_period", { p_period_id: p.id });
@@ -706,7 +724,7 @@ async function replacePeriodRows(office, p, rows) {
     $("csv-message").className = "message error";
     return false;
   }
-  const note = p.index > 0 ? await affectedNote(p.id) : "";
+  const note = p.index > 0 ? await affectedNote(office.id, p.from) : "";
   await refresh();
   $("csv-message").textContent = `「${periodLabel(p)}」のマスタを ${data}件で入れ替えました。下のマスタ表で確認できます。` + (note ? " " + note : "");
   $("csv-message").className = "message ok";
@@ -730,6 +748,7 @@ $("copy-prev").addEventListener("click", async () => {
 
 function clearPreview() {
   pendingRows = null;
+  pendingTarget = null;
   $("csv-file").value = "";
   $("csv-preview").classList.add("hidden");
 }
@@ -746,6 +765,7 @@ $("csv-file").addEventListener("change", async () => {
     const rows = checkMasterRows(masterRowsFromCsv(await readTextFile(file)));
     const bad = rows.filter((r) => r.errors.length).length;
     pendingRows = rows;
+    pendingTarget = { officeId: selectedOffice().id, periodId: p.id };
     renderMasterTable($("csv-rows"), rows, true);
     $("csv-summary").textContent = `${selectedOffice().name}の「${periodLabel(p)}」に ${rows.length}件を取り込みます` + (bad ? `(問題のある行: ${bad}件)` : "");
     $("csv-apply").disabled = bad > 0;
@@ -762,6 +782,10 @@ $("csv-apply").addEventListener("click", async () => {
   const office = selectedOffice();
   const p = selectedPeriod();
   if (!pendingRows || !office || !p) return;
+  if (!pendingTarget || pendingTarget.officeId !== office.id || pendingTarget.periodId !== p.id) {
+    clearPreview();
+    return message("取り込む先が変わったので、確認を取り消しました。CSV を選び直してください。", "error");
+  }
   if (!confirm(`${office.name}の「${periodLabel(p)}」(${rangeText(p)})のマスタを、この ${pendingRows.length}件で入れ替えます。よろしいですか？`)) return;
   $("csv-apply").disabled = true;
   const rows = pendingRows.map(({ errors: _errors, ...r }) => r);

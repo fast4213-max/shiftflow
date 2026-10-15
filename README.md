@@ -301,11 +301,13 @@ deno test --allow-read --allow-env supabase/functions
   `select cron.schedule('purge-old-shift-records', '0 18 * * *', 'select public.purge_old_shift_records()');`
 - ログインの失敗回数(`auth_attempts`)も、30日以上更新されていない行を毎日 日本時間の午前3時10分に消します(`purge_old_auth_attempts()`、ジョブ名 `purge-old-auth-attempts`)。ロック中の行は消えません。`pg_cron` を設定できなかったときの手動登録は `select cron.schedule('purge-old-auth-attempts', '10 18 * * *', 'select public.purge_old_auth_attempts()');`
 - 初めて反映する前に、`count_old_shift_records()` で件数を確かめ、マスタを「CSVで保存」で書き出しておく
+- マスタの古い切替日(ダイヤ改正・ダイヤ修正の前のマスタ)とその行も、同じジョブで消えます。次の切替日が前月の1日以前で、次の切替日にマスタ(CSV)が入っているものだけです。残しておきたいときは、消える前に管理画面のそのタブで「CSVで保存」
 - お問い合わせは、最後のやり取りから90日で消します(毎日 日本時間の午前3時20分、`purge_old_contact()`、ジョブ名 `purge-old-contact`)。手動登録は `select cron.schedule('purge-old-contact', '20 18 * * *', 'select public.purge_old_contact()');`。Gmail・Discord の分は [`docs/contact/SETUP.md`](docs/contact/SETUP.md)
 
 ## 更新してもデータが消えないために(直す人向けのメモ)
 
 - 画面(`web/`)と関数(`supabase/functions/`)を直して push しても、データベースの中身(利用者・設定・勤務の記録・マスタ)は変わりません。自動デプロイは、コードを入れ替えるだけです
 - データベースの形を変えるときは、`supabase/migrations/` に**新しいファイルを足す**だけにします。反映済みのファイル(`20260929000000_init.sql` など)は**書き換えない**(自動デプロイは、まだ反映していないファイルだけを実行するので、書き換えても反映されず、記録と食い違います)
+- 新しいファイルの名前の番号は、**反映済みのいちばん大きい番号より大きく**します。小さいと `supabase db push` が止まり、Deploy Supabase と Pages が赤くなります(GitHub の DB のテストでは気づけません)。2026-10-15 に作ったものが `20261017000001` まであるので、それより大きくします
 - 列や表を消す(`drop`)・全部消す(`truncate`)ような変更は、先にマスタ CSV を書き出し、影響する範囲を確かめてから行う
-- 無料プランには、自動のバックアップがありません。マスタは、管理画面の「CSVで保存」で、時々書き出しておくと安心です(利用者の勤務入力は、カレンダーに登録済みの予定が残るので、最悪の場合も入力し直せます)
+- 無料プランには、自動のバックアップがありません。マスタは、管理画面の「CSVで保存」で、時々書き出しておくと安心です(区所ごと・ダイヤ改正/ダイヤ修正のタブごとに書き出します)(利用者の勤務入力は、カレンダーに登録済みの予定が残るので、最悪の場合も入力し直せます)

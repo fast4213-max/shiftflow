@@ -13,6 +13,7 @@ import {
   listAppEvents,
   nextFirstNewlyOffduty,
   periodErrorText,
+  selectAllPages,
   parseOffdutyTime,
   parseTimeRange,
   type PlannedEvent,
@@ -1048,4 +1049,16 @@ Deno.test("マスタの切替: 登録の確かめは、翌月1日のメモを外
   assertEquals(periodErrorText(plan.errors).includes("翌月の画面で、12/1(非番)のメモに退勤時間"), true);
   assertEquals(periodErrorText([]), "");
   assertEquals(periodErrorText([{ date: "a", message: "x。" }, { date: "b", message: "y" }]), "x。(ほかに1件)");
+});
+
+Deno.test("selectAllPages: 1回分(1,000行)ずつ、足りなくなるまで読む(マスタの行が上限を超えても欠けない。AB14)", async () => {
+  const rows = Array.from({ length: 2345 }, (_, i) => i);
+  const asked: [number, number][] = [];
+  const all = await selectAllPages((from, to) => {
+    asked.push([from, to]);
+    return Promise.resolve({ data: rows.slice(from, to + 1), error: null });
+  });
+  assertEquals(all.length, 2345);
+  assertEquals(asked, [[0, 999], [1000, 1999], [2000, 2999]]);
+  await assertRejects(() => selectAllPages(() => Promise.resolve({ data: null, error: new Error("boom") })));
 });

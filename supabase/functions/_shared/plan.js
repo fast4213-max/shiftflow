@@ -230,7 +230,9 @@ export function codeOf(entry) {
 //   holidays       祝日の配列または Set(前月末〜翌月2日を含める。泊の日と翌日の平休で出勤・退勤の列を選ぶため)
 // 非番の日は番号を無視する。翌月1日の予定も含める(月末が泊なら非番、泊でなければ翌月1日の記録の予定)。
 // 月末を泊から戻したとき、翌月1日の非番を消したあとに翌月1日の予定を作り直すため。
-// errors: マスタの切替で登録できない日 [{ date, message }](空でなければ、保存も登録もしない)
+// errors: マスタの切替で登録できない日 [{ date, message, kind, period }](空でなければ登録しない。保存はできる)
+//   kind: "missing"(その日に番号があるのに、その日のマスタの CSV がまだ無い。period はその切替日) /
+//         "offduty-missing"(切替日の前日の泊で、非番の日のマスタの CSV がまだ無い) / "offduty"(新しいマスタに同じ番号の泊が無い)
 //   - 切替日から後の日に番号があるのに、その切替日のマスタがまだ無い
 //   - 切替日の前日の泊で、非番の日(切替日)のマスタがまだ無い
 //   - 切替日の前日の泊で、新しいマスタに同じ番号の泊が無く、非番の日のメモ(退勤時間)も無い
@@ -253,7 +255,9 @@ export function buildPlan({ year, month, entries, prevLastCode, nextFirstEntry, 
       // (前月末を泊にしたとき、翌月1日の記録に番号とメモが残っていることがある)
       const memo = e.code ? "" : e.memo;
       const off = offdutyEntryOf(master, prevKey, key, prevCode, d > days);
-      if (off.error && (off.missing || !memo)) errors.push({ date: prevKey, message: off.error });
+      if (off.error && (off.missing || !memo)) {
+        errors.push({ date: prevKey, message: off.error, kind: off.missing ? "offduty-missing" : "offduty", period: off.missing ? master.periodOn(key) : null });
+      }
       events.push({
         date: key,
         calendar: "work",
@@ -270,9 +274,11 @@ export function buildPlan({ year, month, entries, prevLastCode, nextFirstEntry, 
     if (d <= days) cleanEntries[key] = e;
     if (!e.code) continue;
 
-    // 翌月1日の記録(翌月の入力)は、翌月の登録で確かめる
-    if (d <= days && master instanceof MasterSet && master.missingOn(key)) {
-      errors.push({ date: key, message: missingMessage(master.periodOn(key), key) });
+    if (master instanceof MasterSet && master.missingOn(key)) {
+      // 翌月1日の記録(翌月の入力)は、翌月の登録で確かめる。翌月1日のマスタがまだ無いときは、翌月1日の予定を作り直さない
+      // (この月の登録で、時間の無い予定に作り直してしまうため。翌月の登録に任せる。AB3)
+      if (d > days) continue;
+      errors.push({ date: key, message: missingMessage(master.periodOn(key), key), kind: "missing", period: master.periodOn(key) });
     }
     const entry = masterOn(master, key)[e.code];
     if (entry && entry.type === "休日") {
@@ -318,7 +324,7 @@ export function offdutyEntryOf(master, prevKey, key, prevCode, nextMonth = false
     entry: null,
     missing: false,
     error: shortDate(prevKey) + "の泊(" + prevCode + ")の非番の退勤時間が、" + label + "のマスタにありません(同じ番号の泊がありません)。" +
-      (nextMonth ? "翌月の画面で、" : "") + shortDate(key) + "(非番)のメモに退勤時間(例 9:00)を入れてください。",
+      (nextMonth ? "この月を「保存」してから、翌月の画面で、" : "") + shortDate(key) + "(非番)のメモに退勤時間(例 9:00)を入れてください。",
   };
 }
 

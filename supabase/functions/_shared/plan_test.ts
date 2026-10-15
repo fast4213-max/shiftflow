@@ -377,3 +377,14 @@ Deno.test("切替: 月末の泊の非番が翌月1日(切替日)なら、メモ�
   const mid = novPlan(new MasterSet(PERIODS, [...OLD_ROWS, ...NEW_ROWS]), { "2026-11-13": { code: "2", memo: "" } });
   assertEquals(mid.errors[0].message.includes("翌月の画面で"), false);
 });
+
+Deno.test("切替: 翌月1日の切替日の CSV がまだ無いときは、翌月1日の予定を作り直さない(非番は作る。AB3)", () => {
+  const set = new MasterSet([{ id: 1, starts_on: "2026-10-03", name: "" }, { id: 2, starts_on: "2026-12-01", name: "" }], OLD_ROWS);
+  const p = novPlan(set, { "2026-11-29": { code: "5", memo: "" } }, { nextFirstEntry: { code: "5", memo: "" } });
+  assertEquals(p.errors, []);
+  assertEquals(p.events.some((e) => e.date === "2026-12-01"), false);
+  // 月末が泊なら、翌月1日の非番は今までどおり(エラーにもなる)
+  const off = novPlan(set, { "2026-11-30": { code: "1", memo: "" } }, { nextFirstEntry: { code: "5", memo: "" } });
+  assertEquals(off.events.find((e) => e.date === "2026-12-01")?.kind, "offduty");
+  assertEquals(off.errors.map((e) => [e.date, e.kind]), [["2026-11-30", "offduty-missing"]]);
+});

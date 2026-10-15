@@ -186,6 +186,9 @@ begin
   -- 古い切替日の自動削除: 次の切替日が前月の1日より前なら消える
   --   2000-01-01 は次(2001-01-01)が前月の1日より前なので消える。2001-01-01 は次(base)が今月なので、前月の記録のために残す
   insert into public.master_periods (office_id, starts_on, name) values (office, date '2000-01-01', '古い'), (office, date '2001-01-01', '前');
+  -- 次の切替日に行があるときだけ前を消す(AB10)
+  insert into public.shift_master (office_id, period_id, code, kind)
+    select office, id, '1', '泊' from public.master_periods where office_id = office and starts_on = date '2001-01-01';
   update public.master_periods set starts_on = date_trunc('month', today)::date where id = base;
   perform public.purge_old_master_periods();
   assert not exists (select 1 from public.master_periods where office_id = office and starts_on = date '2000-01-01'), '古い切替日が消えない';
@@ -255,6 +258,86 @@ begin
   delete from public.offices where id in (a, b);
   delete from public.profiles where user_id = admin_id;
   delete from auth.users where id = admin_id;
+  perform set_config('request.jwt.claim.sub', '', true);
+end
+$$;
+
+-- 20回目のデバッグの直し(AB10〜AB13・AB16)
+do $$
+declare
+  admin_id uuid := 'cccccccc-0000-4000-8000-000000000003';
+  uid uuid := 'cccccccc-0000-4000-8000-000000000004';
+  a bigint;
+  c bigint;
+  base bigint;
+  started bigint;
+  today date := (now() at time zone 'Asia/Tokyo')::date;
+  first_of_month date := date_trunc('month', (now() at time zone 'Asia/Tokyo')::date)::date;
+  failed boolean;
+begin
+  insert into auth.users (id) values (admin_id), (uid);
+  insert into public.profiles (user_id, role) values (admin_id, 'admin');
+  insert into public.profiles (user_id, employee_no, family_name, given_name) values (uid, '7654321', '試', '験');
+  perform set_config('request.jwt.claim.sub', admin_id::text, true);
+  insert into public.offices (name, sort_order) values ('直しA区', 997) returning id into a;
+  select id into base from public.master_periods where office_id = a;
+  update public.master_periods set starts_on = date '2000-01-01' where id = base;
+  insert into public.shift_master (office_id, period_id, code, kind) values (a, base, '1', '泊');
+
+  -- AB10: 次の切替日が前月の1日より前でも、次の切替日に行が無ければ、前のマスタは消さない
+  insert into public.master_periods (office_id, starts_on, name) values (a, date '2001-01-01', '空') returning id into started;
+  perform public.purge_old_master_periods();
+  assert exists (select 1 from public.master_periods where id = base), '次が空なのに、中身のある前のマスタが消えた';
+  insert into public.shift_master (office_id, period_id, code, kind) values (a, started, '1', '泊');
+  perform public.purge_old_master_periods();
+  assert not exists (select 1 from public.master_periods where id = base), '次に行があるのに、前のマスタが消えない';
+
+  -- AB11: 始まった切替日(いちばん古いもの以外)も、名前だけなら直せる。日付を今月より前に動かすのは断る
+  insert into public.master_periods (office_id, starts_on, name) values (a, first_of_month - 20, '先月') returning id into started;
+  perform public.save_master_period(a, started, first_of_month - 20, 'ダイヤ改正');
+  assert (select name from public.master_periods where id = started) = 'ダイヤ改正', '名前だけ直せない';
+  failed := false;
+  begin
+    perform public.save_master_period(a, started, first_of_month - 21, 'ダイヤ改正');
+  exception when others then failed := true;
+  end;
+  assert failed, '始まった切替日を今月より前の日に動かせる';
+
+  -- AB16: まとめて直す・消すで、対象が無ければエラー
+  failed := false;
+  begin
+    perform public.save_master_period_all(today + 400, today + 401, '');
+  exception when others then failed := sqlerrm like 'その切替日のマスタが見つかりません%';
+  end;
+  assert failed, 'まとめて直す対象が無いのに成功する';
+  failed := false;
+  begin
+    perform public.delete_master_period_all(today + 400);
+  exception when others then failed := sqlerrm like 'その切替日のマスタが見つかりません%';
+  end;
+  assert failed, 'まとめて消す対象が無いのに成功する';
+
+  -- AB13: 区所を足すと、ほかの区所にあるこれからの切替日も作られる
+  insert into public.master_periods (office_id, starts_on, name) values (a, today + 30, 'ダイヤ改正');
+  insert into public.offices (name, sort_order) values ('直しC区', 998) returning id into c;
+  assert exists (select 1 from public.master_periods where office_id = c and starts_on = today + 30 and name = 'ダイヤ改正'), '新しい区所に、これからの切替日が無い';
+  assert exists (select 1 from public.master_periods where office_id = c and starts_on = today), '新しい区所に、今日からのマスタが無い';
+  assert (select count(*) from public.master_periods where office_id = c) = 2, '新しい区所の切替日の数が違う';
+
+  -- AB12: 登録し直しが要る人数(その日の前日から。区所を選ばなければ全部の区所)
+  insert into public.user_settings (user_id, office_id) values (uid, a);
+  insert into public.shift_records (user_id, date, code, memo) values (uid, today + 29, '1', '');
+  assert public.master_affected_users(a, today + 30) = 1, '前日の勤務を数えない';
+  assert public.master_affected_users(null, today + 30) >= 1, '全部の区所で数えない';
+  assert public.master_affected_users(c, today + 30) = 0, 'ほかの区所の人を数える';
+  assert public.master_affected_users(a, today + 31) = 0, '2日前の勤務を数える';
+  assert not has_function_privilege('anon', 'public.master_affected_users(bigint,date)', 'execute'), 'anon が master_affected_users を実行できる';
+
+  delete from public.shift_records r where r.user_id = uid;
+  delete from public.user_settings s where s.user_id = uid;
+  delete from public.offices where id in (a, c);
+  delete from public.profiles p where p.user_id in (admin_id, uid);
+  delete from auth.users u where u.id in (admin_id, uid);
   perform set_config('request.jwt.claim.sub', '', true);
 end
 $$;

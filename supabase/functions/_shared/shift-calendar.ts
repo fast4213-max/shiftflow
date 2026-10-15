@@ -56,6 +56,13 @@ export async function loadVerifiedCalendars(ctx: Context): Promise<Calendars> {
   };
 }
 
+// 「保存」(カレンダーを変えない)のときの設定: 区所だけ要る(カレンダーの設定・接続テストはまだでもよい。AB4)
+export async function loadOfficeOnly(ctx: Context): Promise<Calendars> {
+  const { data, error } = await ctx.db.from("user_settings").select("office_id").eq("user_id", ctx.userId).maybeSingle();
+  if (error) throw error;
+  return { work: "", holiday: "", officeId: data?.office_id ?? null };
+}
+
 // 二重実行防止のロックを取って fn を実行する
 export async function withUserLock<T>(ctx: Context, fn: () => Promise<T>): Promise<T> {
   const { data, error } = await ctx.admin.rpc("acquire_user_lock", { p_user_id: ctx.userId, p_seconds: 150 });
@@ -287,15 +294,33 @@ export function nextFirstNewlyOffduty(
   return nextFirstOffduty && masterOn(master, last)[lastCode]?.type !== "泊";
 }
 
-// 区所のマスタを、切替日(ダイヤ改正・ダイヤ修正)ごとに読む。日ごとに、その日のマスタを引ける(MasterSet)
+// 区所のマスタを、切替日(ダイヤ改正・ダイヤ修正)ごとに読む。日ごとに、その日のマスタを引ける(MasterSet)。
+// 行は全部の切替日の分なので、1回で読める上限(Supabase の既定は1,000行)を超えても欠けないよう、分けて読む(AB14)
 export async function loadMasterSet(ctx: Context, officeId: number): Promise<MasterSet> {
-  const [periodsRes, rowsRes] = await Promise.all([
+  const [periodsRes, rows] = await Promise.all([
     ctx.db.from("master_periods").select("id, starts_on, name").eq("office_id", officeId),
-    ctx.db.from("shift_master").select("*").eq("office_id", officeId).order("sort_order"),
+    selectAllPages((from, to) =>
+      ctx.db.from("shift_master").select("*").eq("office_id", officeId)
+        .order("period_id").order("sort_order").order("code").range(from, to)
+    ),
   ]);
   if (periodsRes.error) throw periodsRes.error;
-  if (rowsRes.error) throw rowsRes.error;
-  return new MasterSet(periodsRes.data || [], rowsRes.data || []);
+  return new MasterSet(periodsRes.data || [], rows);
+}
+
+export const PAGE_ROWS = 1000;
+
+// 分けて読む(from〜to 行目ずつ)。返ってきた行が1回分より少なくなったら終わり
+export async function selectAllPages<T>(
+  page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+): Promise<T[]> {
+  const all: T[] = [];
+  for (let from = 0; ; from += PAGE_ROWS) {
+    const { data, error } = await page(from, from + PAGE_ROWS - 1);
+    if (error) throw error;
+    all.push(...(data || []));
+    if (!data || data.length < PAGE_ROWS) return all;
+  }
 }
 
 // マスタの切替で登録できない理由(buildPlan の errors)を1つの文にする。無ければ ""

@@ -103,11 +103,18 @@ function backend(opts = {}) {
     }
     if (path === "/rest/v1/shift_master" && opts.masterFail) return json({ message: "boom" }, 500);
     // マスタは切替日(ダイヤ改正・ダイヤ修正)ごと。period_id の無い偽物の行は、いちばん古い切替日(id 1)の行にする
-    if (path === "/rest/v1/shift_master") return json((opts.master || []).map((r) => ({ period_id: 1, ...r })));
+    if (path === "/rest/v1/shift_master") {
+      // 分けて読む(.range = offset・limit)にも答える(AB14)
+      const rows = (opts.master || []).map((r) => ({ period_id: 1, ...r }));
+      const offset = Number(url.searchParams.get("offset") || 0);
+      const limit = url.searchParams.get("limit");
+      return json(limit === null ? rows : rows.slice(offset, offset + Number(limit)));
+    }
+    if (path === "/rest/v1/rpc/delete_master_period") return json(null);
     if (path === "/rest/v1/master_periods") return json(opts.periods || [{ id: 1, starts_on: "2026-10-03", name: "ダイヤ修正" }]);
     if (path === "/rest/v1/rpc/save_master_period") return json(opts.savedPeriodId || 3);
     if (path === "/rest/v1/rpc/save_master_period_all") return json(st.offices.length);
-    if (path === "/rest/v1/rpc/master_period_affected") return json(opts.affected || 0);
+    if (path === "/rest/v1/rpc/master_affected_users") return json(opts.affected || 0);
     if (path === "/rest/v1/rpc/save_month_records") return json(Object.keys((body && body.p_entries) || {}).length);
     // 勤務入力の「保存」は register-month に saveOnly で送る(17回目の N1)。登録は件数を返す
     if (path === "/functions/v1/register-month") {
@@ -501,7 +508,8 @@ await check("写真取込: リンク(#import=)で開くと、確認のあとそ�
 await check("勤務入力: 画面に戻ったとき、登録していない変更が無ければ読み直す。変更があれば読み直さずに知らせる(L1)", async () => {
   const { page, ctx, be, errors } = await open("input.html", { userId: "u1", opts: { profile: USER, master: PHOTO_MASTER } });
   await page.waitForSelector("#register:not([disabled])");
-  const loads = () => be.st.calls.filter((c) => c.path === "/rest/v1/shift_records").length;
+  // 月の読み込みだけを数える(保存・登録のあとの翌月1日だけの読み直し[AB2]は数えない)
+  const loads = () => be.st.calls.filter((c) => c.path === "/rest/v1/shift_records" && c.search.includes("gte")).length;
   const setVisible = (v) => page.evaluate((v) => {
     Object.defineProperty(document, "visibilityState", { value: v, configurable: true });
     document.dispatchEvent(new Event("visibilitychange"));
@@ -531,7 +539,8 @@ await check("勤務入力: 画面に戻ったとき、登録していない変�
 await check("勤務入力: 戻ったときの読み直しは、一覧を開いているあいだはしない(M1)。内容が同じなら前のメッセージを残す(M2)", async () => {
   const { page, ctx, be, errors } = await open("input.html", { userId: "u1", opts: { profile: USER, master: PHOTO_MASTER } });
   await page.waitForSelector("#register:not([disabled])");
-  const loads = () => be.st.calls.filter((c) => c.path === "/rest/v1/shift_records").length;
+  // 月の読み込みだけを数える(保存・登録のあとの翌月1日だけの読み直し[AB2]は数えない)
+  const loads = () => be.st.calls.filter((c) => c.path === "/rest/v1/shift_records" && c.search.includes("gte")).length;
   const away = async () => {
     await page.evaluate(() => { Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true }); document.dispatchEvent(new Event("visibilitychange")); });
     await page.waitForTimeout(2100);
@@ -634,7 +643,7 @@ await check("マスタの切替: 登録できない日があっても「保存�
   await pickCode(page, 19, "1");
   await page.click("#save");
   await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("保存しました"));
-  assert.ok((await page.textContent("#status")).includes("今は登録できません。10/22: まだ登録されていません。"));
+  assert.ok((await page.textContent("#status")).includes("カレンダーにはまだ入っていません。今は登録できません: 10/22: まだ登録されていません。"));
   assert.ok(be.st.calls.some((c) => c.path === "/functions/v1/register-month" && c.body.saveOnly === true));
   assert.deepEqual(errors, []);
   await ctx.close();
@@ -744,6 +753,68 @@ await check("マスタの切替(管理画面): 次のマスタは、全部の区
   await page.click("#period-save");
   await page.waitForFunction(() => document.getElementById("period-message").textContent.includes("を作りました"));
   assert.equal(be.st.calls.filter((c) => c.path === "/rest/v1/rpc/save_master_period").length, 1);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("マスタの切替(管理画面): CSV の確認中にマスタを消すと、確認の表を消す(移った先のマスタを入れ替えない。AB1)", async () => {
+  const adminPeriods = [{ id: 1, starts_on: "2026-10-03", name: "ダイヤ修正", count: 2 }, { id: 2, starts_on: "2027-03-14", name: "ダイヤ改正", count: 0 }];
+  const { page, ctx, be, errors } = await open("admin.html", {
+    userId: "a1", opts: { profile: ADMIN, adminPeriods, master: OLD_MASTER, affected: 2 }, viewport: { width: 1200, height: 900 },
+  });
+  await page.click('.dtab[data-tab="master"]');
+  await page.waitForFunction(() => document.getElementById("master-count").textContent.startsWith("2件"));
+  await page.click("#period-tabs .chip >> nth=1");
+  await page.setInputFiles("#csv-file", { name: "m.csv", mimeType: "text/csv", buffer: Buffer.from("番号,種別,平日出勤,平日退勤,休日出勤,休日退勤\n7,日勤,8:00,17:00,,\n") });
+  await page.waitForSelector("#csv-preview:not(.hidden)");
+  page.removeAllListeners("dialog");
+  const asked = [];
+  page.on("dialog", (d) => { asked.push(d.message()); d.accept(); });
+  await page.click("#period-delete");
+  await page.waitForFunction(() => document.getElementById("period-message").textContent.includes("消しました"));
+  assert.ok(await page.isHidden("#csv-preview"));
+  assert.ok(!be.st.calls.some((c) => c.path === "/rest/v1/rpc/replace_shift_master"));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("マスタの切替: 保存してある番号が一覧に無ければ、読み込んだときに一覧の番号に合わせる(「7」→「特7」。AB5)", async () => {
+  const mm = String(thisMonth.m).padStart(2, "0");
+  const master = [...OLD_MASTER, ...NEW_MASTER, { period_id: 2, code: "特7", kind: "日勤", weekday_start: "6:00", weekday_end: "14:00", holiday_start: "", holiday_end: "", stay: "", sort_order: 3 }];
+  const records = [{ date: `${thisMonth.y}-${mm}-23`, code: "7", memo: "" }];
+  const { page, ctx, errors } = await open("input.html", { userId: "u1", opts: { profile: USER, master, periods: SWITCH_PERIODS, records } });
+  await page.waitForSelector("#register:not([disabled])");
+  assert.equal(await page.locator("#list tr").nth(22).locator(".pick").textContent(), "特7");
+  assert.ok((await page.textContent("#status")).includes("一覧の番号に合わせました: 23日「7」→「特7」"));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("マスタの切替: CSV がまだ無い日のエラーは1行にまとめ、黄色(無くなった番号)にしない(AB6・AB7)", async () => {
+  const mm = String(thisMonth.m).padStart(2, "0");
+  const records = [21, 22, 23, 24].map((d) => ({ date: `${thisMonth.y}-${mm}-${d}`, code: "2", memo: "" }));
+  const { page, ctx, errors } = await open("input.html", { userId: "u1", opts: { profile: USER, master: OLD_MASTER, periods: SWITCH_PERIODS, records } });
+  await page.waitForSelector("#register:not([disabled])");
+  const lines = await page.$$eval("#period-note p.error", (p) => p.map((x) => x.textContent));
+  assert.equal(lines.length, 1);
+  assert.ok(lines[0].startsWith(`${thisMonth.m}/21〜${thisMonth.m}/24 の4日: `));
+  assert.ok(!(await page.textContent("#period-note")).includes("新しいマスタに無い番号"));
+  assert.ok(!(await page.locator("#list tr").nth(21).getAttribute("class")).includes("needtime"));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("マスタの切替: 月末を今回はじめて泊にしたときは、翌月1日の用事のメモを非番のメモとみなさない(サーバーと同じ。AB2)", async () => {
+  const next = new Date(thisMonth.y, thisMonth.m, 1);
+  const nextFirst = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`;
+  const last = new Date(thisMonth.y, thisMonth.m, 0).getDate();
+  const periods = [{ id: 1, starts_on: "2000-01-01", name: "" }, { id: 2, starts_on: nextFirst, name: "ダイヤ改正" }];
+  const records = [{ date: nextFirst, code: "", memo: "歯医者" }];
+  const { page, ctx, errors } = await open("input.html", { userId: "u1", opts: { profile: USER, master: [...OLD_MASTER, ...NEW_MASTER], periods, records } });
+  await page.waitForSelector("#register:not([disabled])");
+  await pickCode(page, last, "2"); // 「2」は前のマスタだけにある泊
+  assert.ok((await page.locator("#list tr").nth(last - 1).getAttribute("class")).includes("period-error"));
+  assert.ok((await page.textContent("#period-note")).includes("この月を「保存」してから、翌月の画面で"));
   assert.deepEqual(errors, []);
   await ctx.close();
 });

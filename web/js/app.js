@@ -437,6 +437,19 @@ export async function copyText(text, button) {
   }
 }
 
+// 分けて読む(from〜to 行目ずつ)。1回で読める上限(Supabase の既定は1,000行)を超える表でも欠けないように(AB14)。
+// page は supabase の問い合わせに .range(from, to) を付けたものを返す
+export const PAGE_ROWS = 1000;
+export async function selectAllPages(page) {
+  const all = [];
+  for (let from = 0; ; from += PAGE_ROWS) {
+    const { data, error } = await page(from, from + PAGE_ROWS - 1);
+    if (error) throw error;
+    all.push(...(data || []));
+    if (!data || data.length < PAGE_ROWS) return all;
+  }
+}
+
 export function formatDateTime(value) {
   if (!value) return "—";
   const d = new Date(value);

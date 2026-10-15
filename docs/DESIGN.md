@@ -124,7 +124,8 @@ GitHub の Secrets に入れるもの(最初に本人が1回だけ): `SUPABASE_A
 |---|---|---|
 | `profiles` | user_id, employee_no(7桁・一意), family_name, given_name, role(user/admin), plan(free), created_at | 本人は自分の行を読める。管理者は全員分を読める。作成・削除は Edge Function |
 | `offices` | id, name, sort_order | 全員が読む。書くのは管理者 |
-| `shift_master` | office_id, code, kind, weekday_start, weekday_end, holiday_start, holiday_end, weekday_holiday_start / weekday_holiday_end(平休出勤・退勤), holiday_weekday_start / holiday_weekday_end(休平出勤・退勤), stay(泊), stay_next_holiday(翌休泊), sort_order | 全員が読む。書くのは管理者(区所ごとに丸ごと入れ替え) |
+| `master_periods` | id, office_id, starts_on(切替日), name(ダイヤ改正・ダイヤ修正など)。区所と切替日で1つ | 全員が読む。書くのは管理者の関数だけ(`save_master_period(_all)`・`delete_master_period(_all)`)。区所を足すと、今日からの切替日と、ほかの区所にあるこれからの切替日ができる |
+| `shift_master` | office_id, period_id(どの切替日のマスタか), code, kind, weekday_start, weekday_end, holiday_start, holiday_end, weekday_holiday_start / weekday_holiday_end(平休出勤・退勤), holiday_weekday_start / holiday_weekday_end(休平出勤・退勤), stay(泊), stay_next_holiday(翌休泊), sort_order。主キーは (period_id, code) | 全員が読む。書くのは管理者(切替日ごとに丸ごと入れ替え。`replace_shift_master(区所, 切替日, 行)`) |
 | `user_settings` | user_id, office_id, work_calendar_id, holiday_calendar_id, offduty_calendar_id, split_day_events, split_offduty_events, title_day_time, title_offduty_time, timed_events, verified_at, busy_until, last_registered_at, next_first_pending | 本人だけ。本人が書けるのは、区所・カレンダーID 3つ・登録の設定 5つ(`split_day_events`・`split_offduty_events`・`title_day_time`・`title_offduty_time`・`timed_events`)。`verified_at`・`busy_until`・`last_registered_at`・`next_first_pending`(登録の途中の印)は Edge Function だけが書く |
 | `shift_records` | user_id, date, code, memo, updated_at | 本人だけ |
 | `holidays` / `holiday_years` | 祝日のキャッシュ | 全員が読む。書くのは Edge Function |
@@ -256,7 +257,7 @@ GitHub の Secrets に入れるもの(最初に本人が1回だけ): `SUPABASE_A
   - 1日が非番のときは前月末、翌月1日が泊のときは翌月2日の平休を見るので、登録では祝日を前月末〜翌月2日で読む
 - **翌休泊**(`shift_master.stay_next_holiday`。任意。泊の番号だけで使う。2026-10-13。migration `20261013000000_shift_master_stay_next_holiday.sql`): 泊の翌日(非番の日)が休日(土日祝・年末年始。平休と同じ判定)なら、泊地(メモの2行目・勤務入力のメモの下)を翌休泊にする(`stayOf`)。空なら「泊」の泊地。出退勤時刻一覧表の「泊地変更(翌土休日は○○泊り)」の行路のため。月末の泊は翌月1日の平休で選ぶ。CSV の12列目(無い CSV も読める)
   - CSV の4列は無くてもよく、無いマスタは今までと同じ動き
-- **マスタの切替(ダイヤ改正・ダイヤ修正)**(2026-10-16。migration `20261016000000_master_periods.sql`): 年2回(3月のダイヤ改正・10月のダイヤ修正。日は毎回違う)マスタが変わるので、区所ごとにマスタを切替日つきで持つ(`master_periods`。`shift_master.period_id`)。
+- **マスタの切替(ダイヤ改正・ダイヤ修正)**(2026-10-15。migration `20261016000000_master_periods.sql`。番号は作った日より先の日付になっているので、次の migration は `20261017000001` より大きくする): 年2回(3月のダイヤ改正・10月のダイヤ修正。日は毎回違う)マスタが変わるので、区所ごとにマスタを切替日つきで持つ(`master_periods`。`shift_master.period_id`)。
   - ある日に使うマスタ = その日以前に始まったうちの最新。区所のいちばん古いマスタは、切替日より前の日にも使う(始まりの日は表示用)。今まであったマスタは「2026年10月3日 ダイヤ修正」にした(行はそのまま。勤務の記録・カレンダーの予定は変えない)
   - 切替日の前日の泊: 泊の日(出勤時間・泊地)は前のマスタ、非番の日(退勤時間)は新しいマスタの同じ番号の泊(`offdutyEntryOf`)。新しいマスタに同じ番号の泊が無ければエラー(非番の日のメモに退勤時間を書けば通る)
   - 切替日だけ決まって CSV がまだ無いとき: 切替日の前日の泊と、切替日から後の日の番号はエラー(メモがあっても)。番号の無い日・前日の日勤は通る
@@ -264,7 +265,10 @@ GitHub の Secrets に入れるもの(最初に本人が1回だけ): `SUPABASE_A
   - 勤務入力の画面も同じ `buildPlan`(翌月1日の記録も読む)で調べて、上の黄色の枠に理由を出し、その日の行を赤くする。この月に切替があれば「14日から「2027年3月 ダイヤ改正」のマスタになります」と出す。新しいマスタがまだ無い日の番号の一覧には、その理由を出す。月末の泊で非番が翌月1日なら「翌月の画面で、…のメモに」と書く
   - 前のマスタにはあって、新しいマスタで無くなった番号を入れてある日(CSV を入れる前に保存した日など)は、手入力になって時間が入らないので、上に知らせて行を黄色にする
   - 番号の一覧・自動のメモ・写真取込の番号合わせ(「1」→「特1」も)・2件で登録・名前に時間・時間つきの予定は、どれもその日のマスタで引く(`masterOn`)
-  - 切替日は、全部の区所にまとめて作る・直す・消すことができる(2026-10-16。`save_master_period_all`・`delete_master_period_all`。migration `20261017000000_master_periods_all.sql`)。ダイヤ改正・ダイヤ修正の日はどの区所も同じため。「全部の区所に同じ切替日で作る」が最初から付いている(区所が1つ・いちばん古いマスタのときは出さない)。直す・消すは、同じ切替日のマスタがあるほかの区所が対象。1つの区所で失敗したら、どの区所も変えない(区所の名前を付けて知らせる)。CSV は区所ごと
-  - 管理画面: 切替日は今月の1日から後の日だけ(いちばん古いものは、ほかより前の日だけ)。同じ日は2つ作れない。まだ始まっていない切替日だけ消せる。CSV を入れ替えたり切替日を変えたりしたら、切替日の前日から後の勤務をもう保存・登録している人数を出す(`master_period_affected`。その人は登録し直すと新しい時間になる)。概要に、CSV 未登録の切替日(注意)と2週間以内の切替(お知らせ)を出す
-  - 古い切替日は、次の切替日が前月の1日より前なら消す(勤務の記録が残るのは前月の1日から。`purge_old_master_periods`。毎日の `purge_old_shift_records` と、切替日の保存のときに動く)
+  - 切替日は、全部の区所にまとめて作る・直す・消すことができる(2026-10-15。`save_master_period_all`・`delete_master_period_all`。migration `20261017000000_master_periods_all.sql`)。ダイヤ改正・ダイヤ修正の日はどの区所も同じため。「全部の区所に同じ切替日で作る」が最初から付いている(区所が1つ・いちばん古いマスタのときは出さない)。直す・消すは、同じ切替日のマスタがあるほかの区所が対象。1つの区所で失敗したら、どの区所も変えない(区所の名前を付けて知らせる)。CSV は区所ごと
+  - 管理画面: 切替日は今月の1日から後の日だけ(いちばん古いものは、ほかより前の日だけ)。同じ日は2つ作れない(日付を変えずに名前だけ直すのは、始まった切替日でもできる)。まだ始まっていない切替日だけ消せる。CSV を入れ替えたり切替日を変えたり消したりするときは、その日の前日から後の勤務をもう保存・登録している人数を出す(`master_affected_users`。切替日を動かしたときは前と後の早いほうから、まとめて直したときは全部の区所。その人は登録し直すと今のマスタの時間になる)。CSV の確認中に区所・切替日が変わったら、確認を取り消す。概要に、CSV 未登録の切替日(注意)と2週間以内の切替(お知らせ)を出す
+  - 古い切替日は、次の切替日が前月の1日以前で、次の切替日にマスタの行があるときに消す(勤務の記録が残るのは前月の1日から。次が空なら消さない[CSV の入れ忘れで、中身のあるマスタが消えないように]。`purge_old_master_periods`。毎日の `purge_old_shift_records` と、切替日の保存のときに動く)
+  - 翌月1日が CSV 未登録の切替日のときは、前の月の登録で翌月1日の予定を作り直さない(翌月の登録に任せる)。「保存」は区所だけ要る(カレンダーの設定・接続テストの前でも入力を残せる)
+  - 勤務入力: 月を読み込んだとき、その日のマスタに無い番号を一覧の番号に合わせ直して知らせる(CSV が入る前に入れた「1」→「特1」など)。CSV がまだ無い日のエラーは、切替日ごとに1行にまとめる。月末を今回はじめて泊にしたときは、翌月1日の用事のメモを非番のメモとみなさない(サーバーの W6 と同じ判断)
+  - マスタの行は全部の切替日の分を読むので、1回の上限(Supabase の既定 1,000行)を超えても欠けないよう、1,000行ずつ分けて読む(`selectAllPages`)
 - **マスタの番号は半角にそろえて取り込む**(2026-10-05): CSV の番号の全角の英数字・記号と全角の空白は、取り込む前の確認の段階で半角にする(日本語の文字はそのまま)。全角と半角で同じになる番号は「番号が重複」。すでに入っているマスタは、取り込み直すまで変わらない

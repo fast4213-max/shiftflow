@@ -1,5 +1,5 @@
 // 勤務入力画面
-import { friendlyText, $, callFunction, requireLogin, supabase } from "./app.js?v=dev";
+import { friendlyText, $, callFunction, requireLogin, selectAllPages, supabase } from "./app.js?v=dev";
 import {
   addDays, buildPlan, dateKey, dayTypeOf, daysInMonth, describe, dutyMemo, holidayYearsFor, MasterSet, masterOn, offdutyEntryOf, offdutyMemo, pad,
   periodLabel, shortDate,
@@ -25,6 +25,7 @@ const state = {
   entries: {},       // { "yyyy-MM-dd": { code, memo } }  memo は手修正したときだけ
   prevLastCode: "",
   nextFirstEntry: null, // 翌月1日の記録(月末の泊の非番のメモ。サーバーと同じに、登録できない日を調べるため)
+  savedLastCode: "",    // 保存・登録してある月末の番号(サーバーが「月末を今回はじめて泊にした」かを見るのと同じ判断をするため。AB2)
   officeId: null,
   holidays: [],
   offduty: new Map(), // 表示中の非番の日(番号を変えたとき、非番になった・非番でなくなった日を調べるため)
@@ -87,18 +88,21 @@ async function loadMonth(id) {
   const prevLast = addDays(first, -1);
   const nextFirst = addDays(last, 1);
   // マスタは切替日(ダイヤ改正・ダイヤ修正)ごとに読む。日ごとに、その日のマスタを使う
-  const [periodsRes, masterRes, recordsRes, holidays] = await Promise.all([
+  // マスタの行は全部の切替日の分なので、上限(1,000行)を超えても欠けないよう分けて読む(AB14)
+  const [periodsRes, masterRows, recordsRes, holidays] = await Promise.all([
     supabase.from("master_periods").select("id, starts_on, name").eq("office_id", state.officeId),
-    supabase.from("shift_master").select("*").eq("office_id", state.officeId).order("sort_order"),
+    selectAllPages((from, to) =>
+      supabase.from("shift_master").select("*").eq("office_id", state.officeId)
+        .order("period_id").order("sort_order").order("code").range(from, to)
+    ),
     supabase.from("shift_records").select("date, code, memo").gte("date", prevLast).lte("date", nextFirst),
     loadHolidays(prevLast, nextFirst),
   ]);
   if (id !== state.loadId) return; // 読み込み中に別の月へ移動した
   if (periodsRes.error) throw periodsRes.error;
-  if (masterRes.error) throw masterRes.error;
   if (recordsRes.error) throw recordsRes.error;
 
-  state.master = new MasterSet(periodsRes.data || [], masterRes.data || []);
+  state.master = new MasterSet(periodsRes.data || [], masterRows);
   state.entries = {};
   state.prevLastCode = "";
   state.nextFirstEntry = null;
@@ -107,6 +111,7 @@ async function loadMonth(id) {
     else if (r.date === nextFirst) state.nextFirstEntry = { code: r.code, memo: r.memo };
     else state.entries[r.date] = { code: r.code, memo: r.memo };
   });
+  state.savedLastCode = ((state.entries[last] || {}).code || "").trim();
   state.holidays = holidays;
   // 非番の日に番号が残っていたら(前の月の月末を泊にしたときの1日など)、番号とメモを消す。
   // 登録でもサーバーが消す。残しておくと、非番のメモに前の番号のメモが出てしまうため
@@ -115,13 +120,34 @@ async function loadMonth(id) {
     if (e && (e.code || "").trim()) state.entries[key] = { code: "", memo: "" };
   });
   state.dirty = false;
+  // その日のマスタに無い番号を、一覧の番号に合わせ直す(新しいマスタの CSV が入る前に入れた「1」→「特1」・全角など。AB5)
+  const matched = matchSavedCodes();
+  if (matched.length) state.dirty = true;
   render();
   scrollToToday();
   $("register").disabled = false;
   $("save").disabled = false;
   $("reset").disabled = false;
   const hasMaster = state.master.periods.some((p) => p.rows.length);
-  setStatus(hasMaster ? "" : "この区所の勤務の番号の一覧(マスタ)が空です。管理者に登録を頼んでください。", !hasMaster);
+  if (!hasMaster) setStatus("この区所の勤務の番号の一覧(マスタ)が空です。管理者に登録を頼んでください。", true);
+  else if (matched.length) setStatus("一覧の番号に合わせました: " + matched.join("、") + "。まだ保存・登録していません。確かめて「登録」か「保存」を押してください。");
+  else setStatus("");
+}
+
+// 番号がその日のマスタに無いとき、一覧の番号に合わせられれば合わせる。合わせた日の一覧(「3日「1」→「特1」」)を返す
+function matchSavedCodes() {
+  const matched = [];
+  const offduty = offdutyDays();
+  Object.entries(state.entries).forEach(([key, e]) => {
+    const code = (e.code || "").trim();
+    if (!code || offduty.has(key) || masterAt(key)[code]) return;
+    const found = masterCodeOf(code, key);
+    if (found && found !== code) {
+      e.code = found;
+      matched.push(Number(key.slice(8)) + "日「" + code + "」→「" + found + "」");
+    }
+  });
+  return matched;
 }
 
 // その日に使うマスタ(番号 → 行)と、その日の番号の一覧(並び順)
@@ -311,9 +337,10 @@ function render() {
   }
 }
 
-// 前のマスタにはあって、その日のマスタで無くなった番号か(切替日から後の日)
+// 前のマスタにはあって、その日のマスタで無くなった番号か(切替日から後の日)。
+// その日のマスタの CSV がまだ無いときは数えない(そのときは登録できない日として赤くなる。AB6)
 function droppedCode(key, code) {
-  if (!code) return false;
+  if (!code || state.master.missingOn(key)) return false;
   const i = state.master.periods.indexOf(state.master.periodOn(key));
   return i > 0 && !state.master.periods[i].map[code] && !!state.master.periods[i - 1].map[code];
 }
@@ -337,28 +364,67 @@ function renderPeriodNote() {
     const when = p.from === nextFirst ? "翌月1日" : Number(p.from.slice(8)) + "日";
     add(when + "から「" + periodLabel(p) + "」のマスタになります" + (p.rows.length
       ? "(前の日の泊の、非番の退勤時間も新しいマスタから入ります)。"
-      : "。まだ管理者がマスタを入れていないので、" + shortDate(p.from) + "から後の日と、前の日の泊は登録できません。"), !p.rows.length);
+      : "。まだ管理者がマスタを入れていないので、" + shortDate(p.from) + "から後の日と、前の日の泊は登録できません(保存はできます)。"), false);
   });
   // 新しいマスタで無くなった番号を入れてある日(手入力になって時間が入らない。行は黄色)
   const dropped = [];
   for (let d = 1; d <= daysInMonth(year, month); d++) {
     const key = dateKey(year, month, d);
     const code = ((state.entries[key] || {}).code || "").trim();
-    if (!state.offduty.has(key) && droppedCode(key, code)) dropped.push(d + "日の「" + code + "」");
+    // メモ(時間)を入れた日は数えない(案内どおりに入れたら消えるように。AB6)
+    if (!state.offduty.has(key) && !(state.entries[key] || {}).memo && droppedCode(key, code)) dropped.push(d + "日の「" + code + "」");
   }
   if (dropped.length) {
     add("新しいマスタに無い番号があります: " + dropped.join("、") + "。手入力として登録されるので、メモに時間を入れるか、番号を選び直してください。", false);
   }
-  const { errors } = buildPlan({
-    year, month, entries: state.entries, prevLastCode: state.prevLastCode, nextFirstEntry: state.nextFirstEntry, master: state.master, holidays: state.holidays,
-  });
+  const errors = periodErrors();
+  // 前の月の月末の泊のエラーは、メモを入れる1日の行に付ける(AB8)
   const byDate = new Map();
   errors.forEach((e) => {
-    if (!byDate.has(e.date)) byDate.set(e.date, e.message);
+    const key = e.date < first ? first : e.date;
+    if (!byDate.has(key)) byDate.set(key, e.message);
   });
-  [...new Set(errors.map((e) => e.message))].forEach((m) => add(m, true));
+  // CSV がまだ無い日のエラーは、切替日ごとに1行にまとめる(1日1行だと長くなるため。AB7)
+  const missing = new Map();
+  errors.filter((e) => e.kind === "missing").forEach((e) => {
+    if (!missing.has(e.period.from)) missing.set(e.period.from, { period: e.period, days: [] });
+    missing.get(e.period.from).days.push(e.date);
+  });
+  missing.forEach(({ period, days }) => {
+    const range = days.length > 1 ? shortDate(days[0]) + "〜" + shortDate(days[days.length - 1]) + " の" + days.length + "日" : shortDate(days[0]);
+    add(range + ": 「" + periodLabel(period) + "」(" + shortDate(period.from) + "〜)のマスタがまだ登録されていません。管理者がマスタを入れるまで、番号のある日は登録できません(保存はできます)。", true);
+  });
+  [...new Set(errors.filter((e) => e.kind !== "missing").map((e) => e.message))].forEach((m) => add(m, true));
   note.hidden = !note.childElementCount;
   return byDate;
+}
+
+// 登録できない日(サーバーの register-month と同じ判断)。
+// 月末を今回はじめて泊にしたときは、翌月1日の番号の無いメモ(別の用事のメモ)を非番のメモに使わない(W6。AB2)
+function periodErrors() {
+  const { year, month } = state;
+  const last = dateKey(year, month, daysInMonth(year, month));
+  const nextFirst = addDays(last, 1);
+  const planOf = (nextFirstEntry) => buildPlan({
+    year, month, entries: state.entries, prevLastCode: state.prevLastCode, nextFirstEntry, master: state.master, holidays: state.holidays,
+  });
+  const plan = planOf(state.nextFirstEntry);
+  const nextFirstOffduty = plan.events.some((e) => e.date === nextFirst && e.kind === "offduty");
+  const savedLast = masterAt(last)[state.savedLastCode];
+  const newly = nextFirstOffduty && !(savedLast && savedLast.type === "泊");
+  if (newly && state.nextFirstEntry && !(state.nextFirstEntry.code || "").trim()) return planOf({ code: "", memo: "" }).errors;
+  return plan.errors;
+}
+
+// 保存・登録のあと: サーバーが片付けた翌月1日の記録を読み直し、保存した月末の番号を覚える(AB2)
+async function afterSaved() {
+  const { year, month } = state;
+  const last = dateKey(year, month, daysInMonth(year, month));
+  state.savedLastCode = state.offduty.has(last) ? "" : ((state.entries[last] || {}).code || "").trim();
+  const { data, error } = await supabase.from("shift_records").select("code, memo").eq("date", addDays(last, 1)).maybeSingle();
+  if (error || year !== state.year || month !== state.month) return;
+  state.nextFirstEntry = data ? { code: data.code, memo: data.memo } : null;
+  refreshPeriodErrors();
 }
 
 function edited() {
@@ -511,6 +577,7 @@ $("register").addEventListener("click", async () => {
     setStatus(result.count + "件の予定を登録しました。" +
       (result.skipped ? "(休日用のカレンダーを設定していないため、休日の予定" + result.skipped + "件は登録していません)" : "") +
       (editedMeanwhile ? "登録中に変えたところは、まだ登録していません。もう一度「登録」を押してください。" : ""));
+    if (!editedMeanwhile) afterSaved();
   } catch (err) {
     // 登録に失敗したら、カレンダーに反映できたとは言えないので、未登録の扱いにする(月の移動などで確認が出るように)。
     // 登録は「保存 → 今ある予定を削除 → 作り直し」の順なので、途中で失敗すると予定が欠けたままになる。
@@ -567,9 +634,10 @@ $("save").addEventListener("click", async () => {
       clearImported();
     }
     // マスタの切替で登録できない日があっても、保存はできる(登録はマスタが入ってから)
-    setStatus("保存しました。カレンダーにはまだ入っていません(" +
-      (result && result.periodError ? "今は登録できません。" + result.periodError : "入れるときは「登録」を押してください") + ")。" +
+    setStatus("保存しました。カレンダーにはまだ入っていません。" +
+      (result && result.periodError ? "今は登録できません: " + result.periodError : "入れるときは「登録」を押してください。") +
       (editedMeanwhile ? "保存中に変えたところは、まだ保存していません。" : ""));
+    if (!editedMeanwhile) afterSaved();
   } catch (err) {
     setStatus("保存できませんでした。" + (err.message || String(err)), true);
   } finally {
