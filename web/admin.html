@@ -52,7 +52,16 @@
         </div>
         <div class="scroll-x">
           <table class="list">
-            <thead><tr><th>社員番号</th><th>氏名</th><th>区所</th><th>接続</th><th>最終ログイン</th><th>最終登録</th><th>記録</th><th></th></tr></thead>
+            <thead id="users-head"><tr>
+              <th aria-sort="none"><button type="button" class="sort-btn" data-sort="employee_no">社員番号</button></th>
+              <th>氏名</th>
+              <th aria-sort="none"><button type="button" class="sort-btn" data-sort="office">区所</button></th>
+              <th aria-sort="none"><button type="button" class="sort-btn" data-sort="verified">接続</button></th>
+              <th aria-sort="none"><button type="button" class="sort-btn" data-sort="last_sign_in_at">最終ログイン</button></th>
+              <th aria-sort="none"><button type="button" class="sort-btn" data-sort="last_registered_at">最終登録</button></th>
+              <th aria-sort="none"><button type="button" class="sort-btn" data-sort="record_days">記録</button></th>
+              <th></th>
+            </tr></thead>
             <tbody id="users"></tbody>
           </table>
         </div>
