@@ -120,3 +120,7 @@ table.master tr.changed td { background: #fff6d6; }
 .period-form label.period-all input { min-width: 0; width: auto; margin: 0 4px 0 0; }
 .period-form label[hidden] { display: none; }
 .period-tabs .chip.add.active { color: #fff; border-style: solid; }
+
+/* 利用者一覧の見出し(押すと並べ替え) */
+.sort-btn { font: inherit; font-weight: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.sort-btn::after { content: " " attr(data-mark); color: var(--accent); }

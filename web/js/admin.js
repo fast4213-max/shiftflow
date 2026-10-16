@@ -223,11 +223,55 @@ async function deleteUser(u) {
   }
 }
 
+// 利用者の並べ替え(画面だけ。DB は触らない)。key が null のときは読み込んだ順(登録の新しい順)。
+// 日付・数・接続は多い順・新しい順から始め、空(未ログイン・未登録・区所なし)はどちら向きでも一番下
+const userSort = { key: null, dir: 1 };
+const DESC_FIRST = ["verified", "last_sign_in_at", "last_registered_at", "record_days"];
+
+function sortedUsers(list) {
+  const { key, dir } = userSort;
+  if (!key) return list;
+  const value = (u) => (key === "verified" ? (u.verified ? 1 : 0) : u[key]);
+  const empty = (v) => v === null || v === undefined || v === "";
+  return list
+    .map((u, i) => ({ u, i, v: value(u) }))
+    .sort((a, b) => {
+      if (empty(a.v) !== empty(b.v)) return empty(a.v) ? 1 : -1;
+      if (empty(a.v)) return a.i - b.i;
+      const c = typeof a.v === "number" ? a.v - b.v : String(a.v).localeCompare(String(b.v), "ja", { numeric: true });
+      return c ? c * dir : a.i - b.i;
+    })
+    .map((x) => x.u);
+}
+
+function updateSortHeads() {
+  document.querySelectorAll("#users-head th").forEach((th) => {
+    const btn = th.querySelector(".sort-btn");
+    if (!btn) return;
+    const on = btn.dataset.sort === userSort.key;
+    th.setAttribute("aria-sort", on ? (userSort.dir === 1 ? "ascending" : "descending") : "none");
+    btn.dataset.mark = on ? (userSort.dir === 1 ? "▲" : "▼") : "";
+  });
+}
+
+$("users-head").addEventListener("click", (e) => {
+  const btn = e.target.closest(".sort-btn");
+  if (!btn) return;
+  const key = btn.dataset.sort;
+  if (userSort.key === key) userSort.dir = -userSort.dir;
+  else {
+    userSort.key = key;
+    userSort.dir = DESC_FIRST.includes(key) ? -1 : 1;
+  }
+  if (stats) renderUsers();
+});
+
 function renderUsers() {
   const query = $("user-search").value.trim().toLowerCase().replace(/\s+/g, "");
-  const list = stats.users_list.filter((u) =>
+  const list = sortedUsers(stats.users_list.filter((u) =>
     !query || (u.employee_no + fullName(u)).toLowerCase().replace(/\s+/g, "").includes(query)
-  );
+  ));
+  updateSortHeads();
   $("users-count").textContent = `${list.length}人`;
   const tbody = $("users");
   tbody.innerHTML = "";
