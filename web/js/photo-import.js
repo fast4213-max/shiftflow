@@ -42,7 +42,7 @@ export function decodeImport(text) {
     const d = Number(k);
     if (!Number.isInteger(d) || d < 1 || d > n || String(d) !== k) throw bad();
     if (!Array.isArray(v) || v.length !== 2 || typeof v[0] !== "string" || typeof v[1] !== "string") throw bad();
-    const code = clean(v[0]).slice(0, 30);
+    const code = expandCode(clean(v[0]).slice(0, 30));
     const memo = clean(v[1]).slice(0, 200);
     if (code || memo) days.set(d, { code, memo });
   }
@@ -90,11 +90,17 @@ function decodePlain(raw) {
     if (!m) continue;
     const d = Number(m[1]);
     if (d < 1 || d > n) continue;
-    const code = clean(m[2]).replace(/^[—ー\-―－‐─~〜～]+$/, "〜").slice(0, 30);
+    const code = expandCode(clean(m[2]).replace(/^[—ー\-―－‐─~〜～]+$/, "〜").slice(0, 30));
     if (code) days.set(d, { code, memo: "" });
   }
   if (!days.size) throw new Error("日ごとの番号が見つかりません。「1:15」のように、1日1行で貼り付けてください。");
   return { year, month, days, who: name };
+}
+
+// 勤務表には「特」「年」「公」と1字で書かれるので、マスタの番号(特休・年休・公休)にそろえる
+const SHORT_CODES = { 特: "特休", 年: "年休", 公: "公休" };
+function expandCode(code) {
+  return SHORT_CODES[code] || code;
 }
 
 // 改行・制御文字を空白にして、前後の空白を取る
