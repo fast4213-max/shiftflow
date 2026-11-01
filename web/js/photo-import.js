@@ -76,6 +76,7 @@ function decodePlain(raw) {
   if (year < 2000 || year > 2100 || month < 1 || month > 12) throw bad();
   const n = daysInMonth(year, month);
   const days = new Map();
+  const unsure = [];
   let body = raw.slice(head.index + head[0].length);
   const fence = body.search(/^[^\S\n]*```/m); // 年月の行のあとの ``` は、答えの枠の閉じ
   if (fence >= 0) body = body.slice(0, fence);
@@ -90,11 +91,18 @@ function decodePlain(raw) {
     if (!m) continue;
     const d = Number(m[1]);
     if (d < 1 || d > n) continue;
-    const code = expandCode(clean(m[2]).replace(/^[—ー\-―－‐─~〜～]+$/, "〜").slice(0, 30));
-    if (code) days.set(d, { code, memo: "" });
+    // 自信のないマスは、番号の後ろに ? が付いてくる(外して、日だけ覚える)
+    let text = clean(m[2]);
+    const isUnsure = /[?？]\s*$/.test(text);
+    if (isUnsure) text = text.replace(/[?？\s]+$/, "");
+    const code = expandCode(text.replace(/^[—ー\-―－‐─~〜～]+$/, "〜").slice(0, 30));
+    if (code) {
+      days.set(d, { code, memo: "" });
+      if (isUnsure) unsure.push(d);
+    }
   }
   if (!days.size) throw new Error("日ごとの番号が見つかりません。「1:15」のように、1日1行で貼り付けてください。");
-  return { year, month, days, who: name };
+  return { year, month, days, who: name, unsure };
 }
 
 // 勤務表には「特」「年」「公」と1字で書かれるので、マスタの番号(特休・年休・公休)にそろえる

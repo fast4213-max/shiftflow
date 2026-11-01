@@ -712,6 +712,8 @@ async function applyImport(text) {
     return;
   }
   const { year, month, days, who } = data;
+  const unsureDays = data.unsure || [];
+  const unsureNote = unsureDays.length ? "読みにくかった日: " + unsureDays.map((d) => d + "日").join("、") + "(写真と見比べてください)。" : "";
   // 番号もメモも無い取込は断る(反映すると、その月が空で置き換わるため。M4)
   if (!days.size) {
     setStatus("取り込む日がありません(番号が1つも入っていません)。写真取込でもう一度読み取ってください。", true);
@@ -761,7 +763,7 @@ async function applyImport(text) {
   const unknown = [...new Set(Object.entries(state.entries).map(([key, e]) => [key, e.code.trim()])
     .filter(([key, c]) => c && !masterAt(key)[c] && !/^[〜~\-ー—]$/.test(c)).map(([, c]) => c))];
   const offUnknown = unknown.filter((c) => /休/.test(c) && !/[出勤]/.test(c));
-  setStatus("写真取込: " + (who ? "「" + who + "」の行の" : "") + days.size + "日分を入れました。確かめて「登録」(カレンダーに入れる)か「保存」(入力だけ残す)を押してください。" +
+  setStatus("写真取込: " + (who ? "「" + who + "」の行の" : "") + days.size + "日分を入れました。確かめて「登録」(カレンダーに入れる)か「保存」(入力だけ残す)を押してください。" + unsureNote +
     (unknown.length ? "一覧にない番号: " + unknown.join("、") + "(手入力として入りました)。" : "") +
     (needTime ? "時間の無い日が" + needTime + "日あります(黄色)。分かればメモに時間を入れてください。" : "") +
     (offUnknown.length ? "休みの番号(" + offUnknown.join("、") + ")が一覧に無いので、登録すると勤務用カレンダーに入ります。管理者に一覧への追加を頼んでください。" : ""));
