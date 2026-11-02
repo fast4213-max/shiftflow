@@ -53,7 +53,7 @@ SECTIONS = {
         ("p", "終了点呼で、次の勤務を当直と確認している。当直が乗務員の手帳やスマホの画面を確認する仕組みにはなっていない。"),
         ("sub", "〔問題点〕"),
         ("h", "手書き・手入力による入力ミス"),
-        ("p", "手書き・手入力のため、入力ミス(書き間違い・書き漏れ)が起き、出勤遅延が発生している。"),
+        ("p", "手書き・手入力のため、入力ミス(書き間違い・書き漏れ)が起き、出勤遅延が発生している。手帳に書き込むときは、平日と休日の時刻を見間違えて、出勤時刻の入力ミスが起きる恐れもある。"),
         ("h", "書き方が人によって異なる"),
         ("p", "手帳への書き方が人によって異なるため、入力ミスを見落とす恐れがある。"),
         ("h", "確認が本人だけ"),
@@ -65,7 +65,7 @@ SECTIONS = {
         ("h", "行路番号から時刻を自動で登録"),
         ("p", "行路番号を入力するだけで、ダイヤ改正・ダイヤ修正ごとに設定した出勤・退勤時刻が、カレンダーへ自動で登録されます。"),
         ("h", "使い慣れたカレンダーで確認"),
-        ("p", "登録先は普段使っているGoogleカレンダーのため、新たな機器の導入や操作方法の習得は不要で、私物のスマホ等でいつでも確認できます。"),
+        ("p", "登録先はGoogleカレンダーのため、同期機能を使えば普段使っている好きなカレンダーアプリにも表示でき、いつもと同じ見方で確認できます。新たな機器の導入や操作方法の習得は不要で、私物のスマホ等でいつでも確認できます。"),
     ]),
     "kaizen": ("改善・実施", [
         ("h", "勤務入力アプリ「shiftflow」の作成"),
@@ -74,7 +74,9 @@ SECTIONS = {
         ("step", "②", "行路番号を入力する(勤務指定表の画像から取り込むこともできます)"),
         ("step", "③", "勤務用・休日用のGoogleカレンダーへ、予定が自動で登録される(終日、または出勤・退勤時刻つき)"),
         ("h", "点呼確認への活用"),
-        ("p", "終了点呼での次勤務確認に、shiftflowで登録したカレンダーを使用します。現行からの負担増はなく、手帳を使用する人は従来どおり手帳で確認できます。"),
+        ("p", "終了点呼での次勤務確認に、shiftflowで登録したカレンダーを使用します。現行からの負担増はありません。"),
+        ("h", "手帳を使用する人にも効果"),
+        ("p", "アプリが平日・休日を見分けて正しい時刻を登録するため、カレンダーを見て手帳に書き写せば、平日・休日の見間違いによる入力ミスがなくなります。書き写すときのミスは残るため、書き写した後はカレンダーと見比べて確認します。"),
         ("h", "個人情報への配慮"),
         ("p", "勤務記録は本人しか読み書きできない設定とし、必要最小限の情報だけを取り扱っています。勤務指定表からの行路番号の取り込みは、本人の勤務情報だけを取り込む設定とし、他の乗務員の情報漏洩を防止しています。"),
     ]),
@@ -189,7 +191,7 @@ def header(c, x, y, w):
     rows = [8 * mm, 8 * mm, 8 * mm]
     total = sum(rows)
     c.rect(x, y - total, w, total)
-    lab_w = 38 * mm
+    lab_w = pdfmetrics.stringWidth("参加者氏名・社員コード", FONT, 10) + 6 * mm
     col2 = x + lab_w + (w - lab_w) * 0.5
     yy = y
     for r in rows[:-1]:
@@ -226,7 +228,7 @@ def header(c, x, y, w):
 
 
 def qr_block(c, x, y, w, h):
-    """効果の箱の下に置く、新規登録の案内。"""
+    """効果の箱の下に置く、新規登録の案内。y が上端、y - h が下端(ここから下には何も描かない)。"""
     q = qrcode.QRCode(border=1, error_correction=qrcode.constants.ERROR_CORRECT_M)
     q.add_data(APP_URL)
     q.make(fit=True)
@@ -234,21 +236,23 @@ def qr_block(c, x, y, w, h):
     side = h
     c.drawImage(ImageReader(img), x, y - side, side, side)
     tx = x + side + 4 * mm
+    tw = w - side - 4 * mm
     c.setFillColor(INK)
-    c.setFont(FONT, 12)
-    c.drawString(tx, y - 6 * mm, "新規登録用 共通パスワード")
+    c.setFont(FONT, 11.5)
+    c.drawString(tx, y - 5 * mm, "新規登録用 共通パスワード")
     if PASSWORD:
-        c.setFont(FONT, 20)
-        c.drawString(tx, y - 15 * mm, PASSWORD)
+        c.setFont(FONT, 19)
+        c.drawString(tx, y - 13 * mm, PASSWORD)
     else:
         c.setStrokeColor(INK)
         c.setLineWidth(0.6)
-        c.rect(tx, y - 17 * mm, w - side - 6 * mm, 9 * mm)
-    c.setFont(FONT, 7.8)
-    st = ParagraphStyle("n", fontName=FONT, fontSize=7.8, leading=10.5, textColor=INK, wordWrap="CJK")
+        c.rect(tx, y - 15 * mm, tw - 2 * mm, 8 * mm)
+    # 注記は QR の下端にそろえて置く(枠にかからないように、下から積む)
+    st = ParagraphStyle("n", fontName=FONT, fontSize=7.6, leading=10, textColor=INK, wordWrap="CJK")
     note = Paragraph("※PINはログインのたびに使う、各自が決める4桁の番号です。共通パスワードは新規登録のときだけ使います。", st)
-    _, nh = note.wrap(w - side - 4 * mm, 100)
-    note.drawOn(c, tx, y - 19 * mm - nh)
+    _, nh = note.wrap(tw, 100)
+    assert nh <= side - 16.5 * mm, "注記が長すぎて共通パスワードの欄に重なる"
+    note.drawOn(c, tx, y - side)
 
 
 def main():
@@ -265,47 +269,60 @@ def main():
 
     gap_x, gap_y = 8 * mm, 8 * mm
     bw = (w - gap_x) / 2
-    qr_h = 27 * mm
-    bh = (y - m - gap_y) / 2
+    qr_h = 30 * mm
     pad = 2.8 * mm
     tsize = 13
-
-    boxes = {
-        "genjo": (x0, y),
-        "sokui": (x0 + bw + gap_x, y),
-        "koka": (x0, y - bh - gap_y),
-        "kaizen": (x0 + bw + gap_x, y - bh - gap_y),
-    }
-    # 4つの箱で同じ文字の大きさにする(いちばん窮屈な箱に合わせる)
     inner_w = bw - 2 * pad
     title_h = tsize * 1.75
-    sizes = []
-    for key, (bx, by) in boxes.items():
-        avail = bh - 2 * pad - title_h - 2 * mm
-        if key == "koka":
-            avail -= qr_h + 3 * mm
-        sizes.append(fit_size(SECTIONS[key][1], inner_w, avail))
-    size = min(sizes)
+    total_h = y - m - gap_y
 
-    for key, (bx, by) in boxes.items():
+    def sizes_for(top_h):
+        bot_h = total_h - top_h
+        res = {}
+        for key, bh in (("genjo", top_h), ("sokui", top_h), ("koka", bot_h), ("kaizen", bot_h)):
+            avail = bh - 2 * pad - title_h - 2 * mm
+            if key == "koka":
+                avail -= qr_h + 3 * mm
+            res[key] = fit_size(SECTIONS[key][1], inner_w, avail)
+        return res
+
+    # 上下の段の高さを、4つの箱で同じ文字の大きさがいちばん大きくなるように分ける
+    best = None
+    for k in range(40, 61):
+        top_h = total_h * k / 100
+        sz = min(sizes_for(top_h).values())
+        if best is None or sz > best[0] + 1e-9:
+            best = (sz, top_h)
+    size, top_h = best
+    bot_h = total_h - top_h
+
+    boxes = {
+        "genjo": (x0, y, top_h),
+        "sokui": (x0 + bw + gap_x, y, top_h),
+        "koka": (x0, y - top_h - gap_y, bot_h),
+        "kaizen": (x0 + bw + gap_x, y - top_h - gap_y, bot_h),
+    }
+    for key, (bx, by, bh) in boxes.items():
         title, items = SECTIONS[key]
         c.setStrokeColor(INK)
         c.setLineWidth(1.4)
         c.roundRect(bx, by - bh, bw, bh, 5 * mm, stroke=1, fill=0)
         th = title_bar(c, bx + pad, by - pad, bw - 2 * pad, title, tsize)
-        draw_flow(c, build(items, size), bx + pad, by - pad - th - 1 * mm, inner_w)
+        end = draw_flow(c, build(items, size), bx + pad, by - pad - th - 1 * mm, inner_w)
+        bottom = by - bh + pad + (qr_h + 3 * mm if key == "koka" else 0)
+        assert end >= bottom - 0.5, f"{key} の本文が枠からはみ出す"
         if key == "koka":
             qr_block(c, bx + pad + 1 * mm, by - bh + pad + qr_h, inner_w - 2 * mm, qr_h)
 
     # 矢印: 現状 → 創意 ↓ 改善 → 効果(左向き)
     mid_x = x0 + bw + gap_x / 2
-    arrow(c, mid_x, y - bh / 2, "right", 4 * mm)
-    arrow(c, x0 + bw + gap_x + bw / 2, y - bh - gap_y / 2, "down", 4 * mm)
-    arrow(c, mid_x, y - bh - gap_y - bh / 2, "left", 4 * mm)
+    arrow(c, mid_x, y - top_h / 2, "right", 4 * mm)
+    arrow(c, x0 + bw + gap_x + bw / 2, y - top_h - gap_y / 2, "down", 4 * mm)
+    arrow(c, mid_x, y - top_h - gap_y - bot_h / 2, "left", 4 * mm)
 
     c.showPage()
     c.save()
-    print(f"{OUT}  本文 {size:.1f}pt")
+    print(f"{OUT}  本文 {size:.1f}pt  上段 {top_h / mm:.0f}mm / 下段 {bot_h / mm:.0f}mm")
 
 
 if __name__ == "__main__":
