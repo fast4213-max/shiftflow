@@ -4,7 +4,7 @@ name: Test
 on:
   push:
     branches: [main]
-    paths: ["supabase/functions/**", "supabase/migrations/**", "docs/contact/test/db_*", "web/js/plan.js", "web/js/csv.js", ".github/workflows/test.yml"]
+    paths: ["supabase/functions/**", "supabase/migrations/**", "docs/contact/test/db_*", "web/js/plan.js", "web/js/csv.js", "web/calendar/cal-core.js", "docs/mycalendar/test/**", ".github/workflows/test.yml"]
   workflow_dispatch:
 
 permissions:
@@ -23,6 +23,16 @@ jobs:
       - run: deno check */index.ts
         working-directory: supabase/functions
       - run: deno test --allow-read --allow-env supabase/functions
+
+  # shiftflowカレンダーの計算(日付・繰り返し・週の並べ方)。画面に関係しない部分
+  calendar-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node --test docs/mycalendar/test/cal-core.test.mjs
 
   # migration を、空の PostgreSQL に全部当てて、権限・RLS・動きを確かめる(docs/contact/test/db_assert.sql)。
   # 本物の Supabase の DB に反映する前に、migration の誤りや権限の外し忘れを見つける(pg_cron は無いので、そこは飛ばされる)

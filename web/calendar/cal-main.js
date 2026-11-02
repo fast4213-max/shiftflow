@@ -1,0 +1,598 @@
+// shiftflowカレンダー(アプリ内のカレンダー)。設計は docs/mycalendar/DESIGN.md。
+// 勤務の予定は、勤務の記録から Edge Function(calendar-shifts)が、勤務入力の設定どおりに組み立てて返す(Google には何も書かない・読まない)。
+// 自分で作る予定・ラベルは、Supabase の cal_* の表(本人の行だけ・RLS)。
+import { callFunction, currentSession, friendlyText, go, loadProfile, loadSettings, selectAllPages, supabase } from "../js/app.js?v=dev";
+import {
+  addDays, addMonths, compareForDay, dateKey, expandEvent, gridRange, layoutWeek, monthIndex, monthLimits, textOn, todayJst, weekday, whenText, WEEKDAYS,
+  yearsText,
+} from "./cal-core.js?v=dev";
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const HIDDEN_KEY = "shiftflow-cal-hidden";
+const THEME_KEY = "shiftflow-cal-theme";
+const FALLBACK = { duty: "#3b6fd4", off: "#e0553f", custom: "#6b7280" };
+const REPEAT = { none: "なし", daily: "毎日", weekly: "毎週", monthly: "毎月", yearly: "毎年" };
+
+const S = {
+  labels: [],          // cal_labels(並び順)
+  own: [],             // cal_events(自分で作る予定。画面用に整えたもの)
+  shifts: new Map(),   // "年-月" → { events, loadedAt }(勤務の予定。月の画面の範囲ぶん)
+  holidays: new Map(), // 日付 → 祝日の名前
+  hidden: new Set(),   // 隠すラベルの id
+  y: 0, m: 0,
+  today: todayJst(),
+  needOffice: false,
+  byUid: new Map(),    // 今の画面の予定(uid → 予定)
+  panel: null,         // 開いているパネル
+};
+
+// ---------- 小さな道具 ----------
+
+function storageGet(key) { try { return window.localStorage.getItem(key); } catch (_) { return null; } }
+function storageSet(key, value) { try { window.localStorage.setItem(key, value); } catch (_) { /* 保存できない端末では、毎回初期値に戻るだけ */ } }
+
+function showBanner(html) { const b = $("banner"); b.hidden = !html; b.innerHTML = html || ""; }
+function fail(err) { showBanner(esc(friendlyText(err && err.message ? err.message : String(err)))); }
+
+const labelOf = (id) => S.labels.find((l) => l.id === id);
+const labelKind = (kind) => S.labels.find((l) => l.kind === kind);
+const colorOf = (id) => (labelOf(id) || {}).color || FALLBACK.custom;
+const rankOf = (id) => { const i = S.labels.findIndex((l) => l.id === id); return i < 0 ? 99 : i; };
+
+function applyTheme() {
+  const t = storageGet(THEME_KEY);
+  if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+  else document.documentElement.removeAttribute("data-theme");
+}
+
+// ---------- データの読み込み ----------
+
+function rowToOwn(r) {
+  return {
+    src: "own", id: r.id, title: r.title, start: r.start_date, end: r.end_date, allDay: r.all_day,
+    startTime: r.start_time || "", endTime: r.end_time || "", labelId: r.label_id, memo: r.memo || "",
+    repeat: r.repeat_rule, until: r.repeat_until || "", exdates: r.exdates || [], yearsLabel: r.years_label || "", version: r.version,
+  };
+}
+
+async function loadLabels() {
+  const read = async () => {
+    const { data, error } = await supabase.from("cal_labels").select("*").order("sort").order("created_at");
+    if (error) throw error;
+    return data || [];
+  };
+  let rows = await read();
+  if (!rows.length) {
+    const { error } = await supabase.rpc("cal_ensure_default_labels");
+    if (error) throw error;
+    rows = await read();
+  }
+  S.labels = rows;
+}
+
+async function loadOwn() {
+  const rows = await selectAllPages((from, to) => supabase.from("cal_events").select("*").order("start_date").range(from, to));
+  S.own = rows.map(rowToOwn);
+}
+
+// 勤務の予定(月の画面の範囲)。同じ月は読み直さない(勤務入力から戻ったときは、cache を空にして読み直す)
+async function loadShifts(y, m) {
+  const key = `${y}-${m}`;
+  const g = gridRange(y, m);
+  const res = await callFunction("calendar-shifts", { from: g.from, to: g.to }, { timeoutMs: 40000 });
+  for (const h of res.holidays || []) S.holidays.set(h.date, h.name);
+  S.needOffice = !!res.needOffice;
+  const duty = labelKind("duty");
+  const off = labelKind("off");
+  const events = (res.shifts || []).map((e, i) => {
+    const label = e.calendar === "holiday" ? off : duty;
+    return {
+      src: "shift", id: `s:${e.date}:${i}`, title: e.title, start: e.date, end: e.endDate, allDay: e.allDay,
+      startTime: e.startTime, endTime: e.endTime, labelId: label ? label.id : "", memo: e.description || "", repeat: "none",
+    };
+  });
+  S.shifts.set(key, { events });
+}
+
+async function reloadAll({ keepShifts = false } = {}) {
+  if (!keepShifts) S.shifts.clear();
+  await Promise.all([loadLabels(), loadOwn()]);
+  await ensureShifts();
+  render();
+}
+
+async function ensureShifts() {
+  const key = `${S.y}-${S.m}`;
+  if (!S.shifts.has(key)) await loadShifts(S.y, S.m);
+}
+
+// ---------- 画面に出す予定 ----------
+
+function eventsBetween(a, b) {
+  const out = [];
+  for (const e of S.own) for (const o of expandEvent(e, a, b)) out.push({ ...o, baseStart: e.start });
+  const seen = new Set();
+  for (const { events } of S.shifts.values()) {
+    for (const e of events) {
+      const k = `${e.start}|${e.end}|${e.title}|${e.startTime}|${e.labelId}`;
+      if (seen.has(k) || e.end < a || e.start > b) continue;
+      seen.add(k);
+      out.push(e);
+    }
+  }
+  return out
+    .filter((e) => !S.hidden.has(e.labelId))
+    .map((e) => ({ ...e, labelRank: rankOf(e.labelId) }));
+}
+
+const titleOf = (e) => e.title + (yearsText(e) ? ` ${yearsText(e)}` : "");
+
+// ---------- 描画: 月の画面 ----------
+
+function renderChips() {
+  const el = $("chips");
+  el.innerHTML = S.labels.map((l) =>
+    `<button class="chip${S.hidden.has(l.id) ? " off" : ""}" data-chip="${esc(l.id)}" style="--c:${esc(l.color)}" aria-pressed="${S.hidden.has(l.id) ? "false" : "true"}"><i></i>${esc(l.name)}</button>`).join("");
+}
+
+function render() {
+  const g = gridRange(S.y, S.m);
+  $("ty").textContent = `${S.y}年`;
+  $("tm").textContent = `${S.m}月`;
+  const lim = monthLimits(S.today);
+  $("prev").disabled = monthIndex(S.y, S.m) <= monthIndex(lim.min.y, lim.min.m);
+  $("next").disabled = monthIndex(S.y, S.m) >= monthIndex(lim.max.y, lim.max.m);
+  renderChips();
+  showBanner(S.needOffice ? '勤務の予定を出すには、<a href="../settings.html">設定</a>で区所を選んでください。' : "");
+
+  const events = eventsBetween(g.from, g.to);
+  S.byUid = new Map(events.map((e) => [e.id, e]));
+  const weeks = [];
+  for (let ws = g.from; ws <= g.to; ws = addDays(ws, 7)) weeks.push(ws);
+  const rowH = Math.max(60, ($("cal").clientHeight || 480) / weeks.length);
+  const laneH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--lane")) || 15;
+  const maxLanes = Math.max(1, Math.floor((rowH - 24) / laneH));
+  $("weeks").innerHTML = weeks.map((ws) => weekHtml(ws, events, maxLanes)).join("");
+}
+
+function weekHtml(ws, events, maxLanes) {
+  const { bars, over } = layoutWeek(ws, events, maxLanes);
+  let cells = "";
+  for (let c = 0; c < 7; c++) {
+    const d = addDays(ws, c);
+    const inMonth = Number(d.slice(5, 7)) === S.m && Number(d.slice(0, 4)) === S.y;
+    const hol = S.holidays.get(d);
+    const cls = ["cell", c === 0 ? "sun" : c === 6 ? "sat" : "", hol ? "hol" : "", inMonth ? "" : "out", d === S.today ? "tdy" : "", Number(d.slice(5, 7)) % 2 === 0 ? "alt" : ""].filter(Boolean).join(" ");
+    const wd = WEEKDAYS[c];
+    cells += `<div class="${cls}" data-date="${d}" role="button" tabindex="0" aria-label="${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日(${wd})${hol ? " " + esc(hol) : ""}"><span class="dn">${Number(d.slice(8, 10))}</span>${over[c] ? `<span class="more">+${over[c]}</span>` : ""}</div>`;
+  }
+  const barHtml = bars.map((b) => {
+    const e = b.event;
+    const col = colorOf(e.labelId);
+    const cls = ["bar", b.cutLeft ? "cl" : "", b.cutRight ? "cr" : "", e.allDay ? "" : "timed"].filter(Boolean).join(" ");
+    const text = titleOf(e) + (e.allDay || !e.startTime ? "" : ` ${e.startTime.replace(/^0/, "")}`);
+    return `<button class="${cls}" data-uid="${esc(e.id)}" style="grid-column:${b.c1 + 1}/${b.c2 + 2};grid-row:${b.lane + 1};--c:${esc(col)};--t:${textOn(col)}">${esc(text)}</button>`;
+  }).join("");
+  return `<div class="week" data-ws="${ws}"><div class="cells">${cells}</div><div class="bars">${barHtml}</div></div>`;
+}
+
+// ---------- パネル(日の詳細・予定・追加と編集・設定) ----------
+
+function openPanel(html, { onClose } = {}) {
+  const p = $("panel");
+  p.innerHTML = html;
+  p.hidden = false;
+  $("scrim").hidden = false;
+  S.panel = { onClose };
+  p.scrollTop = 0;
+}
+function closePanel() {
+  $("panel").hidden = true;
+  $("scrim").hidden = true;
+  $("panel").innerHTML = "";
+  const cb = S.panel && S.panel.onClose;
+  S.panel = null;
+  if (cb) cb();
+}
+const head = (title, extra = "") => `<div class="ph"><h2>${esc(title)}</h2>${extra}<button class="x" data-act="close" aria-label="閉じる">✕</button></div>`;
+
+function dayLabel(d) { return `${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日(${WEEKDAYS[weekday(d)]})`; }
+
+function eventRow(e) {
+  const when = e.allDay ? "終日" : `${(e.startTime || "").replace(/^0/, "")}${e.endTime ? "〜" + e.endTime.replace(/^0/, "") : ""}`;
+  const label = labelOf(e.labelId);
+  const body = e.memo ? `<div class="m">${esc(e.memo)}</div>` : `<div class="m">${esc(when)}${label ? "　" + esc(label.name) : ""}</div>`;
+  const time = e.memo && !e.allDay ? `<div class="m">${esc(when)}</div>` : "";
+  return `<button class="erow" data-uid="${esc(e.id)}" style="--c:${esc(colorOf(e.labelId))}"><span class="dot"></span><span><div class="t">${esc(titleOf(e))}</div>${time}${body}</span></button>`;
+}
+
+function openDay(date) {
+  const list = eventsBetween(date, date).sort(compareForDay);
+  const hol = S.holidays.get(date);
+  openPanel(`${head(dayLabel(date))}<div class="pb">${hol ? `<p class="hname">${esc(hol)}</p>` : ""}${list.length ? list.map(eventRow).join("") : '<p class="sub">予定はありません。</p>'}<div class="btns"><button class="btn pri" data-act="new" data-date="${date}">＋ 予定を追加</button></div></div>`);
+}
+
+function repeatText(e) {
+  if (!e.repeat || e.repeat === "none") return "";
+  return REPEAT[e.repeat] + (e.until ? `(${e.until.replace(/-/g, "/")}まで)` : "");
+}
+
+function openEvent(uid) {
+  const e = S.byUid.get(uid);
+  if (!e) return closePanel();
+  const label = labelOf(e.labelId);
+  const rep = repeatText(e);
+  let actions;
+  if (e.src === "shift") {
+    actions = '<p class="sub">勤務の予定は、勤務入力で直します。</p><div class="btns"><a class="btn" href="../input.html">勤務入力を開く</a></div>';
+  } else if (e.repeat && e.repeat !== "none") {
+    actions = `<div class="btns"><button class="btn" data-act="edit" data-uid="${esc(uid)}" data-mode="occ">この回だけ編集</button><button class="btn" data-act="edit" data-uid="${esc(uid)}" data-mode="all">すべての回を編集</button></div>
+      <div class="btns"><button class="btn dng" data-act="del" data-uid="${esc(uid)}" data-mode="occ">この回だけ削除</button><button class="btn dng" data-act="del" data-uid="${esc(uid)}" data-mode="all">すべての回を削除</button></div>`;
+  } else {
+    actions = `<div class="btns"><button class="btn" data-act="edit" data-uid="${esc(uid)}" data-mode="all">編集</button><button class="btn dng" data-act="del" data-uid="${esc(uid)}" data-mode="all">削除</button></div>`;
+  }
+  openPanel(`${head(e.title || "（タイトルなし）")}<div class="pb">
+    <p class="sub">${esc(whenText(e))}</p>
+    ${label ? `<p><span class="chip" style="--c:${esc(colorOf(e.labelId))}"><i></i>${esc(label.name)}</span></p>` : ""}
+    ${rep ? `<p class="sub">繰り返し: ${esc(rep)}</p>` : ""}${yearsText(e) ? `<p class="sub">${esc(yearsText(e))}</p>` : ""}
+    ${e.memo ? `<p style="white-space:pre-wrap;word-break:break-word">${esc(e.memo)}</p>` : ""}
+    <p class="msg err" id="detail-msg"></p>${actions}</div>`);
+}
+
+// ---------- 予定の追加・編集 ----------
+
+let draft = null; // 追加・編集中の予定
+
+function ownLabels() { return S.labels.filter((l) => l.kind === "custom"); }
+
+function openForm(source, defaultDate, mode = "all") {
+  const base = source ? S.own.find((x) => x.id === (source.baseId || source.id)) : null;
+  const useOcc = source && mode === "occ" && source.occ;
+  const labels = ownLabels();
+  draft = source && base
+    ? {
+        id: base.id, version: base.version, mode: useOcc ? "occ" : "all", occ: source.occ || "", exdates: base.exdates,
+        title: base.title, labelId: base.labelId, start: useOcc ? source.start : base.start, end: useOcc ? source.end : base.end,
+        allDay: base.allDay, startTime: base.startTime || "09:00", endTime: base.endTime || "10:00", memo: base.memo,
+        repeat: useOcc ? "none" : base.repeat, until: useOcc ? "" : base.until, yearsLabel: base.yearsLabel,
+      }
+    : {
+        id: null, mode: "new", title: "", labelId: labels[0] ? labels[0].id : "", start: defaultDate, end: defaultDate, allDay: true,
+        startTime: "09:00", endTime: "10:00", memo: "", repeat: "none", until: "", yearsLabel: "",
+      };
+  renderForm();
+}
+
+function renderForm(message = "") {
+  if ($("panel").hidden) {
+    $("panel").hidden = false;
+    $("scrim").hidden = false;
+    S.panel = S.panel || {};
+  }
+  const d = draft;
+  const labels = ownLabels();
+  const title = d.id ? (d.mode === "occ" ? "この回だけ編集" : "予定を編集") : "予定を追加";
+  const time = d.allDay ? "" : `<div class="row2"><div class="fld"><label class="lb" for="f-st">開始時刻</label><input class="in" type="time" step="60" id="f-st" data-f="startTime" value="${esc(d.startTime)}"></div><div class="fld"><label class="lb" for="f-et">終了時刻</label><input class="in" type="time" step="60" id="f-et" data-f="endTime" value="${esc(d.endTime)}"></div></div>`;
+  const rep = d.mode === "occ" ? "" : `<div class="fld"><label class="lb" for="f-rep">繰り返し</label><select class="in" id="f-rep" data-f="repeat">${Object.entries(REPEAT).map(([k, v]) => `<option value="${k}"${d.repeat === k ? " selected" : ""}>${v}</option>`).join("")}</select></div>
+    ${d.repeat !== "none" ? `<div class="fld"><label class="lb" for="f-until">繰り返しの終わり(空なら続く)</label><input class="in" type="date" id="f-until" data-f="until" value="${esc(d.until)}"></div>` : ""}
+    ${d.repeat === "yearly" ? `<div class="fld"><label class="lb" for="f-years">年数の表示</label><select class="in" id="f-years" data-f="yearsLabel"><option value=""${d.yearsLabel === "" ? " selected" : ""}>なし</option><option value="age"${d.yearsLabel === "age" ? " selected" : ""}>○歳(誕生日など)</option><option value="anniv"${d.yearsLabel === "anniv" ? " selected" : ""}>○周年</option></select></div>` : ""}`;
+  $("panel").innerHTML = `${head(title)}<div class="pb">
+    <div class="fld"><label class="lb" for="f-title">タイトル</label><input class="in" id="f-title" data-f="title" maxlength="100" value="${esc(d.title)}" autocomplete="off"></div>
+    <div class="fld"><label class="lb" for="f-label">ラベル</label><select class="in" id="f-label" data-f="labelId">${labels.map((l) => `<option value="${esc(l.id)}"${d.labelId === l.id ? " selected" : ""}>${esc(l.name)}</option>`).join("")}</select></div>
+    <div class="row2"><div class="fld"><label class="lb" for="f-start">開始日</label><input class="in" type="date" id="f-start" data-f="start" value="${esc(d.start)}"></div><div class="fld"><label class="lb" for="f-end">終了日</label><input class="in" type="date" id="f-end" data-f="end" value="${esc(d.end)}"></div></div>
+    <div class="fld"><label class="tg"><input type="checkbox" id="f-allday" data-f="allDay"${d.allDay ? " checked" : ""}> 終日</label></div>
+    ${time}${rep}
+    <div class="fld"><label class="lb" for="f-memo">メモ</label><textarea class="in" id="f-memo" data-f="memo" maxlength="1000">${esc(d.memo)}</textarea></div>
+    <p class="msg err" id="form-msg">${esc(message)}</p>
+    <div class="btns"><button class="btn pri" data-act="save" id="f-save">保存</button><button class="btn" data-act="close">やめる</button></div></div>`;
+}
+
+function readDraftField(el) {
+  const f = el.dataset.f;
+  if (!f || !draft) return;
+  const v = el.type === "checkbox" ? el.checked : el.value;
+  draft[f] = v;
+  if (f === "start" && draft.end < draft.start) draft.end = draft.start;
+  if (f === "allDay" || f === "repeat") renderForm();
+  else if (f === "start") { const end = $("f-end"); if (end) end.value = draft.end; }
+}
+
+function draftError(d) {
+  if (!d.labelId) return "ラベルを選んでください(設定でラベルを作れます)。";
+  if (!d.start || !d.end) return "日付を入れてください。";
+  if (d.end < d.start) return "終了日は開始日より前にできません。";
+  if (!d.allDay) {
+    if (!d.startTime) return "開始時刻を入れてください。";
+    if (d.start === d.end && d.endTime && d.endTime < d.startTime) return "終了時刻が開始時刻より前です。日をまたぐときは、終了日を次の日にしてください。";
+  }
+  if (d.repeat !== "none" && d.until && d.until < d.start) return "繰り返しの終わりが開始日より前です。";
+  return "";
+}
+
+const rowFromDraft = (d, over = {}) => ({
+  title: (d.title || "").trim() || "（タイトルなし）", start_date: d.start, end_date: d.end < d.start ? d.start : d.end, all_day: !!d.allDay,
+  start_time: d.allDay ? "" : d.startTime, end_time: d.allDay ? "" : d.endTime || "", label_id: d.labelId, memo: d.memo || "",
+  repeat_rule: d.repeat, repeat_until: d.repeat !== "none" && d.until ? d.until : null, years_label: d.repeat === "yearly" ? d.yearsLabel || "" : "", ...over,
+});
+
+async function saveDraft() {
+  const d = draft;
+  const err = draftError(d);
+  if (err) return renderForm(err);
+  $("f-save").disabled = true;
+  try {
+    if (d.mode === "new") {
+      const { error } = await supabase.from("cal_events").insert(rowFromDraft(d));
+      if (error) throw error;
+    } else if (d.mode === "all") {
+      const { data, error } = await supabase.from("cal_events").update(rowFromDraft(d)).eq("id", d.id).eq("version", d.version).select();
+      if (error) throw error;
+      if (!data || !data.length) { await reloadAll(); return renderForm("別の端末で変更されたか、消されています。読み直しました。もう一度直してください。"); }
+    } else {
+      // この回だけ: 元の予定からこの日を外し、変えた内容を1回だけの予定として作る
+      const ex = [...new Set([...(d.exdates || []), d.occ])];
+      const upd = await supabase.from("cal_events").update({ exdates: ex }).eq("id", d.id).eq("version", d.version).select();
+      if (upd.error) throw upd.error;
+      if (!upd.data || !upd.data.length) { await reloadAll(); return renderForm("別の端末で変更されたか、消されています。読み直しました。もう一度直してください。"); }
+      const ins = await supabase.from("cal_events").insert(rowFromDraft({ ...d, repeat: "none", until: "" }));
+      if (ins.error) {
+        await supabase.from("cal_events").update({ exdates: d.exdates || [] }).eq("id", d.id); // 元に戻す
+        throw ins.error;
+      }
+    }
+    draft = null;
+    await reloadAll({ keepShifts: true });
+    closePanel();
+  } catch (e) {
+    renderForm(friendlyText(e.message || String(e)));
+  }
+}
+
+async function deleteEvent(uid, mode) {
+  const e = S.byUid.get(uid);
+  if (!e || e.src !== "own") return;
+  const base = S.own.find((x) => x.id === (e.baseId || e.id));
+  if (!base) return;
+  const repeating = base.repeat !== "none";
+  const text = mode === "occ" ? "この回だけ" : repeating ? "すべての回" : "この予定";
+  if (!window.confirm(`${text}を削除します。よろしいですか？`)) return;
+  try {
+    if (mode === "occ" && repeating) {
+      const ex = [...new Set([...(base.exdates || []), e.occ])];
+      const { data, error } = await supabase.from("cal_events").update({ exdates: ex }).eq("id", base.id).eq("version", base.version).select();
+      if (error) throw error;
+      if (!data || !data.length) { await reloadAll(); $("detail-msg").textContent = "別の端末で変更されています。読み直しました。"; return; }
+    } else {
+      const { error } = await supabase.from("cal_events").delete().eq("id", base.id);
+      if (error) throw error;
+    }
+    await reloadAll({ keepShifts: true });
+    closePanel();
+  } catch (err) {
+    $("detail-msg").textContent = friendlyText(err.message || String(err));
+  }
+}
+
+// ---------- 設定 ----------
+
+function openSettings() {
+  const theme = storageGet(THEME_KEY) || "auto";
+  const labelRows = S.labels.map((l, i) => `<div class="lrow" data-lid="${esc(l.id)}">
+      <input type="color" value="${esc(l.color)}" data-lf="color" aria-label="色">
+      <input class="in" value="${esc(l.name)}" maxlength="20" data-lf="name" aria-label="名前">
+      <button class="btn sm" data-act="l-up" data-lid="${esc(l.id)}"${i === 0 ? " disabled" : ""} aria-label="上へ">↑</button>
+      <button class="btn sm" data-act="l-down" data-lid="${esc(l.id)}"${i === S.labels.length - 1 ? " disabled" : ""} aria-label="下へ">↓</button>
+      ${l.kind === "custom" ? `<button class="btn sm dng" data-act="l-del" data-lid="${esc(l.id)}" aria-label="削除">✕</button>` : '<span style="width:34px"></span>'}
+    </div>`).join("");
+  const customCount = S.labels.filter((l) => l.kind === "custom").length;
+  openPanel(`${head("設定")}<div class="pb">
+    <div class="card" id="about"><h3>shiftflowカレンダーについて</h3>
+      <ul>
+        <li><b>できること</b>: 勤務入力で保存した勤務と、自分で作る予定を、月の画面で見られます。</li>
+        <li><b>勤務の予定</b>は、勤務入力で直します(ここからは直せません)。名前や時間の付き方は、勤務入力の設定どおりです。</li>
+        <li><b>上のラベルのボタン</b>を押すと、そのラベルの予定が消えます。もう一度押すと戻ります。色と並び順は、下の「ラベル」で決めます。</li>
+        <li><b>時刻</b>は分単位で入れられます。日をまたぐ予定は、終了日を次の日にします。</li>
+        <li><b>見返せる期間</b>は、過去1年までです。予定の写真は、予定が終わって1か月で消えます(1つの予定に3枚まで)。</li>
+        <li><b>1つのアカウントで1人分</b>のカレンダーです。家族に見せたいときは、このアプリのURLを教えて、その人が自分のアカウントでログインして使うか、勤務をGoogleカレンダーに登録して共有します。</li>
+        <li>ホーム画面に追加すると、アプリのように開けます。最初に1回、社員番号とPINでログインします。</li>
+        <li>画面の色合いは、この設定の一番下で変えられます。</li>
+      </ul></div>
+    <div class="card"><h3>ラベル</h3><p class="sub">名前と色、並び順を決めます。自分で作れるのは10個までです。勤務・休日のラベルは、勤務の予定の色です。</p>
+      ${labelRows}
+      <div class="lrow"><input type="color" id="nl-color" value="#8e44ad" aria-label="新しいラベルの色"><input class="in" id="nl-name" maxlength="20" placeholder="新しいラベルの名前" aria-label="新しいラベルの名前"><button class="btn sm pri" data-act="l-add"${customCount >= 10 ? " disabled" : ""}>追加</button></div>
+      <p class="msg err" id="label-msg"></p></div>
+    <div class="card"><h3>画面の色合い</h3><div class="seg" role="radiogroup">
+      ${[["auto", "自動"], ["light", "ライト"], ["dark", "ダーク"]].map(([v, t]) => `<label><input type="radio" name="theme" value="${v}"${theme === v ? " checked" : ""}><span>${t}</span></label>`).join("")}
+    </div><p class="sub">「自動」は、端末のダークモードの設定に合わせます。この端末だけの設定です。</p></div>
+  </div>`);
+}
+
+async function labelUpdate(id, patch) {
+  const { error } = await supabase.from("cal_labels").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+async function moveLabel(id, delta) {
+  const i = S.labels.findIndex((l) => l.id === id);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= S.labels.length) return;
+  const order = S.labels.map((l) => l.id);
+  [order[i], order[j]] = [order[j], order[i]];
+  for (let k = 0; k < order.length; k++) {
+    const l = S.labels.find((x) => x.id === order[k]);
+    if (l.sort !== k + 1) await labelUpdate(l.id, { sort: k + 1 });
+  }
+  await loadLabels();
+}
+
+function labelMsg(text) { const el = $("label-msg"); if (el) el.textContent = text || ""; }
+
+async function settingsAction(act, el) {
+  try {
+    if (act === "l-up" || act === "l-down") {
+      await moveLabel(el.dataset.lid, act === "l-up" ? -1 : 1);
+    } else if (act === "l-del") {
+      const l = labelOf(el.dataset.lid);
+      if (!l || !window.confirm(`ラベル「${l.name}」を削除します。よろしいですか？`)) return;
+      const { error } = await supabase.from("cal_labels").delete().eq("id", l.id);
+      if (error) {
+        labelMsg(/foreign key|violates/i.test(error.message || "") ? "このラベルを使っている予定があるので、削除できません。先に予定のラベルを変えてください。" : friendlyText(error.message));
+        return;
+      }
+      S.hidden.delete(l.id);
+      await loadLabels();
+    } else if (act === "l-add") {
+      const name = $("nl-name").value.trim();
+      if (!name) return labelMsg("名前を入れてください。");
+      const { error } = await supabase.from("cal_labels").insert({ name, color: $("nl-color").value, sort: S.labels.length + 1 });
+      if (error) return labelMsg(friendlyText(error.message));
+      await loadLabels();
+    }
+    openSettings();
+    render();
+  } catch (err) {
+    labelMsg(friendlyText(err.message || String(err)));
+  }
+}
+
+async function labelFieldChanged(el) {
+  const row = el.closest("[data-lid]");
+  if (!row) return;
+  const id = row.dataset.lid;
+  const l = labelOf(id);
+  if (!l) return;
+  try {
+    if (el.dataset.lf === "color") {
+      await labelUpdate(id, { color: el.value });
+      l.color = el.value;
+    } else if (el.dataset.lf === "name") {
+      const name = el.value.trim();
+      if (!name) { el.value = l.name; return labelMsg("名前は空にできません。"); }
+      if (name !== l.name) { await labelUpdate(id, { name }); l.name = name; }
+    }
+    labelMsg("");
+    render();
+  } catch (err) {
+    labelMsg(friendlyText(err.message || String(err)));
+  }
+}
+
+// ---------- 月の移動 ----------
+
+async function gotoMonth(y, m) {
+  const lim = monthLimits(S.today);
+  const idx = monthIndex(y, m);
+  if (idx < monthIndex(lim.min.y, lim.min.m) || idx > monthIndex(lim.max.y, lim.max.m)) return;
+  S.y = y; S.m = m;
+  render(); // 先に枠を出し、勤務の予定は読めたら足す
+  try { await ensureShifts(); } catch (e) { fail(e); }
+  if (S.y === y && S.m === m) render();
+}
+
+// ---------- 起動 ----------
+
+function bind() {
+  $("prev").addEventListener("click", () => { const n = addMonths(S.y, S.m, -1); gotoMonth(n.y, n.m); });
+  $("next").addEventListener("click", () => { const n = addMonths(S.y, S.m, 1); gotoMonth(n.y, n.m); });
+  const toToday = () => { closePanel(); const t = S.today; gotoMonth(Number(t.slice(0, 4)), Number(t.slice(5, 7))); };
+  $("today").addEventListener("click", toToday);
+  $("tab-today").addEventListener("click", toToday);
+  $("tab-new").addEventListener("click", () => {
+    const inMonth = S.today.slice(0, 7) === dateKey(S.y, S.m, 1).slice(0, 7);
+    openForm(null, inMonth ? S.today : dateKey(S.y, S.m, 1));
+  });
+  $("tab-settings").addEventListener("click", openSettings);
+  $("scrim").addEventListener("click", closePanel);
+
+  $("chips").addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-chip]");
+    if (!b) return;
+    const id = b.dataset.chip;
+    if (S.hidden.has(id)) S.hidden.delete(id); else S.hidden.add(id);
+    storageSet(HIDDEN_KEY, JSON.stringify([...S.hidden]));
+    render();
+  });
+
+  $("weeks").addEventListener("click", (ev) => {
+    const bar = ev.target.closest("[data-uid]");
+    if (bar) return openEvent(bar.dataset.uid);
+    const cell = ev.target.closest("[data-date]");
+    if (cell) openDay(cell.dataset.date);
+  });
+  $("weeks").addEventListener("keydown", (ev) => {
+    if ((ev.key === "Enter" || ev.key === " ") && ev.target.dataset && ev.target.dataset.date) { ev.preventDefault(); openDay(ev.target.dataset.date); }
+  });
+
+  // 横にスワイプして月を移る
+  let sx = 0, sy = 0;
+  $("cal").addEventListener("touchstart", (ev) => { sx = ev.touches[0].clientX; sy = ev.touches[0].clientY; }, { passive: true });
+  $("cal").addEventListener("touchend", (ev) => {
+    const t = ev.changedTouches[0];
+    const dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.6) { const n = addMonths(S.y, S.m, dx < 0 ? 1 : -1); gotoMonth(n.y, n.m); }
+  }, { passive: true });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && S.panel) closePanel();
+  });
+
+  $("panel").addEventListener("click", (ev) => {
+    const el = ev.target.closest("[data-act],[data-uid]");
+    if (!el) return;
+    const act = el.dataset.act;
+    if (!act && el.dataset.uid) return openEvent(el.dataset.uid);
+    if (act === "close") return closePanel();
+    if (act === "new") return openForm(null, el.dataset.date);
+    if (act === "edit") return openForm(S.byUid.get(el.dataset.uid), null, el.dataset.mode);
+    if (act === "del") return deleteEvent(el.dataset.uid, el.dataset.mode);
+    if (act === "save") return saveDraft();
+    if (act.startsWith("l-")) return settingsAction(act, el);
+  });
+  $("panel").addEventListener("input", (ev) => { if (draft && ev.target.dataset.f && ev.target.type !== "checkbox" && ev.target.tagName !== "SELECT") readDraftField(ev.target); });
+  $("panel").addEventListener("change", (ev) => {
+    const el = ev.target;
+    if (draft && el.dataset.f) return readDraftField(el);
+    if (el.dataset.lf) return labelFieldChanged(el);
+    if (el.name === "theme") { storageSet(THEME_KEY, el.value); applyTheme(); }
+  });
+
+  // 勤務入力などから戻ったときは、勤務の予定を読み直す(保存した内容を出すため)。入力中のパネルは触らない
+  let hiddenAt = 0;
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState === "hidden") { hiddenAt = Date.now(); return; }
+    const away = hiddenAt && Date.now() - hiddenAt >= 2000;
+    hiddenAt = 0;
+    S.today = todayJst();
+    if (!away || S.panel) return;
+    try { await reloadAll(); } catch (e) { fail(e); }
+  });
+  window.addEventListener("resize", () => render());
+}
+
+async function main() {
+  applyTheme();
+  const session = await currentSession();
+  if (!session) return go("index.html");
+  const profile = await loadProfile(session);
+  if (!profile) return go("index.html");
+  if (profile.role === "admin") return go("admin.html");
+  await loadSettings(session).catch(() => null);
+  try {
+    const saved = JSON.parse(storageGet(HIDDEN_KEY) || "[]");
+    if (Array.isArray(saved)) S.hidden = new Set(saved.filter((x) => typeof x === "string"));
+  } catch (_) { /* 読めなければ全部表示 */ }
+  S.y = Number(S.today.slice(0, 4));
+  S.m = Number(S.today.slice(5, 7));
+  bind();
+  await Promise.all([loadLabels(), loadOwn()]);
+  $("boot").hidden = true;
+  render();
+  try { await ensureShifts(); render(); } catch (e) { fail(e); }
+}
+
+main().catch((e) => {
+  const b = $("boot");
+  b.hidden = false;
+  b.className = "boot error";
+  b.textContent = friendlyText(e && e.message ? e.message : String(e));
+});

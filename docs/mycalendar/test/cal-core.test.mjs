@@ -1,0 +1,90 @@
+// node --test docs/mycalendar/test/cal-core.test.mjs
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  addDays, addMonths, compareForDay, diffDays, expandEvent, gridRange, layoutWeek, monthLimits, textOn, todayJst, weekday, whenText, yearsText,
+} from "../../../web/calendar/cal-core.js";
+
+test("日付の計算は月・年をまたぐ", () => {
+  assert.equal(addDays("2026-12-31", 1), "2027-01-01");
+  assert.equal(addDays("2026-03-01", -1), "2026-02-28");
+  assert.equal(diffDays("2026-10-31", "2026-11-02"), 2);
+  assert.equal(weekday("2026-11-02"), 1); // 月曜
+  assert.deepEqual(addMonths(2026, 11, 2), { y: 2027, m: 1 });
+  assert.deepEqual(addMonths(2026, 1, -1), { y: 2025, m: 12 });
+});
+
+test("日本の今日は、UTCの夜でも日本の日付", () => {
+  assert.equal(todayJst(Date.UTC(2026, 10, 1, 16, 0, 0)), "2026-11-02"); // UTC 16:00 = 日本 翌日 1:00
+});
+
+test("月の画面は、日曜はじまりで前後の月の日を含む", () => {
+  const g = gridRange(2026, 11); // 2026-11-01 は日曜、11/30 は月曜
+  assert.equal(g.from, "2026-11-01");
+  assert.equal(g.to, "2026-12-05");
+  const h = gridRange(2026, 10); // 10/1 は木曜
+  assert.equal(h.from, "2026-09-27");
+  assert.equal(h.to, "2026-10-31");
+});
+
+test("見られる月の範囲は、12か月前〜来年12月", () => {
+  assert.deepEqual(monthLimits("2026-11-02"), { min: { y: 2025, m: 11 }, max: { y: 2027, m: 12 } });
+});
+
+test("繰り返し: 毎週・毎日・毎月(月末に寄せる)・毎年(うるう日)・終了日・この回だけ消した日", () => {
+  const weekly = { id: "a", start: "2026-11-02", end: "2026-11-02", repeat: "weekly", until: "2026-11-20", exdates: ["2026-11-09"] };
+  assert.deepEqual(expandEvent(weekly, "2026-11-01", "2026-12-31").map((o) => o.occ), ["2026-11-02", "2026-11-16"]);
+  const daily = { id: "d", start: "2026-11-01", end: "2026-11-02", repeat: "daily" };
+  assert.deepEqual(expandEvent(daily, "2026-11-10", "2026-11-11").map((o) => [o.start, o.end]), [["2026-11-09", "2026-11-10"], ["2026-11-10", "2026-11-11"], ["2026-11-11", "2026-11-12"]]);
+  const monthly = { id: "m", start: "2026-01-31", end: "2026-01-31", repeat: "monthly" };
+  assert.deepEqual(expandEvent(monthly, "2026-02-01", "2026-04-30").map((o) => o.occ), ["2026-02-28", "2026-03-31", "2026-04-30"]);
+  const yearly = { id: "y", start: "2024-02-29", end: "2024-02-29", repeat: "yearly" };
+  assert.deepEqual(expandEvent(yearly, "2026-01-01", "2028-12-31").map((o) => o.occ), ["2026-02-28", "2027-02-28", "2028-02-29"]);
+  const once = { id: "o", start: "2026-11-10", end: "2026-11-11", repeat: "none" };
+  assert.equal(expandEvent(once, "2026-11-11", "2026-11-20").length, 1);
+  assert.equal(expandEvent(once, "2026-11-12", "2026-11-20").length, 0);
+});
+
+test("毎年の予定の年数(○歳・○周年)。開始の年は出さない", () => {
+  const e = { id: "b", start: "2020-11-05", end: "2020-11-05", repeat: "yearly", yearsLabel: "age" };
+  const occ = expandEvent(e, "2026-11-01", "2026-11-30")[0];
+  assert.equal(yearsText({ ...occ, baseStart: e.start }), "6歳");
+  const first = expandEvent(e, "2020-11-01", "2020-11-30")[0];
+  assert.equal(yearsText({ ...first, baseStart: e.start }), "");
+  assert.equal(yearsText({ ...occ, baseStart: e.start, yearsLabel: "anniv" }), "6周年");
+});
+
+test("週の並べ方: 長い予定が先・重なれば段を分ける・段が足りなければ「+n」・週をまたぐ印", () => {
+  const week = "2026-11-01";
+  const ev = (id, s, e, extra = {}) => ({ id, start: s, end: e, title: id, allDay: true, ...extra });
+  const out = layoutWeek(week, [ev("a", "2026-11-02", "2026-11-04"), ev("b", "2026-11-03", "2026-11-03"), ev("c", "2026-11-03", "2026-11-03"), ev("x", "2026-10-30", "2026-11-02")], 2);
+  const laneOf = (id) => out.bars.find((b) => b.event.id === id)?.lane;
+  assert.equal(laneOf("x"), 0); // 週の頭からのものが先
+  assert.equal(out.bars.find((b) => b.event.id === "x").cutLeft, true);
+  assert.equal(laneOf("a"), 1); // x と重なる(日曜〜月曜)ので次の段
+  assert.equal(laneOf("b"), 0); // 火曜は x が終わっているので、上の段に入る
+  assert.equal(laneOf("c"), undefined); // 3つ目の重なりは、2段までなので出ない
+  assert.deepEqual(out.over, [0, 0, 1, 0, 0, 0, 0]); // 火曜に「+1」
+  assert.equal(out.bars.length, 3);
+});
+
+test("1日の並び: 終日が先、次にラベルの順、時刻", () => {
+  const list = [
+    { title: "b", allDay: false, startTime: "10:00", labelRank: 0 },
+    { title: "a", allDay: true, labelRank: 1 },
+    { title: "c", allDay: false, startTime: "09:00", labelRank: 0 },
+  ].sort(compareForDay);
+  assert.deepEqual(list.map((e) => e.title), ["a", "c", "b"]);
+});
+
+test("色の上の文字: 明るい色には黒、暗い色には白", () => {
+  assert.equal(textOn("#ffee88"), "#222");
+  assert.equal(textOn("#3b6fd4"), "#fff");
+  assert.equal(textOn("bad"), "#fff");
+});
+
+test("予定の日時の文字: 分単位の時刻・日をまたぐ", () => {
+  assert.equal(whenText({ start: "2026-11-10", end: "2026-11-10", allDay: true }), "11/10(火)　終日");
+  assert.equal(whenText({ start: "2026-11-10", end: "2026-11-10", allDay: false, startTime: "09:07", endTime: "10:43" }), "11/10(火)　9:07〜10:43");
+  assert.equal(whenText({ start: "2026-11-10", end: "2026-11-11", allDay: false, startTime: "22:30", endTime: "08:15" }), "11/10(火) 22:30 〜 11/11(水) 8:15");
+});

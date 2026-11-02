@@ -73,9 +73,10 @@ export function sharedPasswordProblem(value) {
   return /[^\x20-\x7e]/.test(value) ? "共通パスワードは半角の英数字・記号で入力してください(全角やかなが入っています)。" : "";
 }
 
-// このページと同じフォルダの別ページの URL(GitHub Pages のサブパスでも動くように)
+// 画面のいちばん上のフォルダ(web/)にあるページの URL(GitHub Pages のサブパスでも動くように)。
+// このファイル(js/app.js)の1つ上を基準にするので、カレンダー(calendar/)のようなフォルダの中の画面からも、同じ名前で呼べる
 export function pageUrl(name) {
-  return new URL(name, location.href).href;
+  return new URL(name, new URL("../", import.meta.url)).href;
 }
 
 export function go(name) {
@@ -89,7 +90,7 @@ export function renderTopbar(current, { loggedIn = false, isAdmin = false } = {}
   const links = [];
   if (!loggedIn) links.push(["index.html", "ログイン"], ["contact.html", "お問い合わせ"]);
   else if (isAdmin) links.push(["admin.html", "管理"]);
-  else links.push(["input.html", "勤務入力"], ["settings.html", "設定"], ["notices.html", "お知らせ"], ["contact.html", "お問い合わせ"]);
+  else links.push(["input.html", "勤務入力"], ["calendar/index.html", "カレンダー"], ["settings.html", "設定"], ["notices.html", "お知らせ"], ["contact.html", "お問い合わせ"]);
   links.push(["help.html", "使い方"]);
 
   const brand = document.createElement("a");

@@ -1,0 +1,117 @@
+// アプリ内カレンダー用: 勤務の記録(shift_records)から、画面に出す勤務の予定を作る。
+// Google に登録するときと同じ組み立て(plan.js の buildPlan と、shift-calendar.ts の 2件・名前に時間・時間つき)を使うので、
+// カレンダーの表記は、利用者の設定どおり・Google に入る予定と同じになる(Google には何も書かない)。
+
+import { addDays, buildPlan, codeOf, dateKey, daysInMonth } from "./plan.js";
+import { addTimeToTitles, type PlannedEvent, splitDayEvents, splitOffdutyEvents, toTimedEvents } from "./shift-calendar.ts";
+
+export type ShiftViewSettings = {
+  splitDayEvents?: boolean;
+  splitOffdutyEvents?: boolean;
+  titleDayTime?: boolean;
+  titleOffdutyTime?: boolean;
+  timedEvents?: boolean;
+};
+
+export type ViewEvent = {
+  date: string;
+  endDate: string;
+  allDay: boolean;
+  startTime: string; // "HH:MM"(終日は "")
+  endTime: string;
+  calendar: "work" | "holiday" | "offduty";
+  kind: string; // "day" | "offduty"
+  title: string;
+  description: string;
+};
+
+export type RecordMap = Record<string, { code?: string; memo?: string } | undefined>;
+
+const hhmm = (min: number): string => `${String(Math.floor(min / 60) % 24).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+
+// 計画された予定 1件 → 画面の予定(時間の予定が付いているときは、そのぶんも)
+export function toViewEvents(e: PlannedEvent): ViewEvent[] {
+  const out: ViewEvent[] = [];
+  const calendar = e.calendar as ViewEvent["calendar"];
+  if (e.timed) {
+    out.push({
+      date: e.date,
+      endDate: addDays(e.date, Math.floor(e.timed.endMin / 1440)),
+      allDay: false,
+      startTime: hhmm(e.timed.startMin),
+      endTime: hhmm(e.timed.endMin),
+      calendar,
+      kind: e.kind,
+      title: e.title,
+      description: e.description,
+    });
+  } else {
+    out.push({ date: e.date, endDate: e.date, allDay: true, startTime: "", endTime: "", calendar, kind: e.kind, title: e.title, description: e.description });
+  }
+  if (e.second) {
+    const s = e.second;
+    out.push({
+      date: e.date,
+      endDate: addDays(e.date, Math.floor(s.endMin / 1440)),
+      allDay: false,
+      startTime: hhmm(s.startMin),
+      endTime: hhmm(s.endMin),
+      calendar: (s.calendar || "work") as ViewEvent["calendar"],
+      kind: "time",
+      title: s.title,
+      description: s.description,
+    });
+  }
+  return out;
+}
+
+// months: 連続した月(古い順)。records: 前月の末日〜最後の月の翌月1日の記録。
+// 各月を register-month と同じ順で組み立て、その月の日の予定だけを集める(翌月1日の予定は、翌月の組み立てで出る)
+export function buildShiftView(
+  { months, records, master, holidays, settings }: {
+    months: { year: number; month: number }[];
+    records: RecordMap;
+    master: unknown;
+    holidays: string[];
+    settings: ShiftViewSettings;
+  },
+): ViewEvent[] {
+  const out: ViewEvent[] = [];
+  let prevStayTimed = false;
+  for (const { year, month } of months) {
+    const first = dateKey(year, month, 1);
+    const last = dateKey(year, month, daysInMonth(year, month));
+    const prevLast = addDays(first, -1);
+    const nextFirst = addDays(last, 1);
+    const entries: Record<string, { code: string; memo: string }> = {};
+    for (let d = first; d <= last; d = addDays(d, 1)) {
+      const r = records[d];
+      if (r && (r.code || r.memo)) entries[d] = { code: r.code || "", memo: r.memo || "" };
+    }
+    const nextFirstRecord = records[nextFirst];
+    const plan = buildPlan({
+      year,
+      month,
+      entries,
+      prevLastCode: codeOf(records[prevLast]),
+      nextFirstEntry: nextFirstRecord ? { code: nextFirstRecord.code || "", memo: nextFirstRecord.memo || "" } : undefined,
+      master,
+      holidays,
+    });
+
+    let events: PlannedEvent[];
+    if (settings.timedEvents) {
+      events = toTimedEvents(plan.events, master as Record<string, any>, { first, nextFirst, prevStayTimed });
+    } else {
+      const daySplit = settings.splitDayEvents ? splitDayEvents(plan.events, master as Record<string, any>) : plan.events;
+      const split = settings.splitOffdutyEvents ? splitOffdutyEvents(daySplit, master as Record<string, any>) : daySplit;
+      events = addTimeToTitles(split, master as Record<string, any>, { day: !!settings.titleDayTime, offduty: !!settings.titleOffdutyTime });
+    }
+
+    const mine = events.filter((e) => e.date >= first && e.date <= last);
+    // 月末の泊が、時間つきで翌月1日の朝まで続く1件になっているか(翌月の1日の非番を、また作らないため)
+    prevStayTimed = mine.some((e) => e.date === last && !!e.timed && e.timed.endMin >= 1440);
+    for (const e of mine) out.push(...toViewEvents(e));
+  }
+  return out;
+}
