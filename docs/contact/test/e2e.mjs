@@ -34,7 +34,7 @@ const NOTICES = [
 
 // 偽の Supabase
 function backend(opts = {}) {
-  const st = { cal: { cal_labels: [], cal_events: [] }, calSeq: 0, calls: [], inquiries: [], notices: [...NOTICES], nextNotice: 10,
+  const st = { cal: { cal_labels: [], cal_events: [] }, calSeq: 0, uploads: [], removed: [], calls: [], inquiries: [], notices: [...NOTICES], nextNotice: 10,
     guides: (opts.guides || []).map((g, i) => ({ id: i + 1, kind: "video", visible: true, sort_order: i + 1, ...g })), nextGuide: 100,
     offices: [{ id: 1, name: "A区所", sort_order: 1 }, { id: 2, name: "B区所", sort_order: 2 }, { id: 3, name: "C区所", sort_order: 3 }] };
   const handler = async (route) => {
@@ -81,6 +81,27 @@ function backend(opts = {}) {
       }
       return json(null, 204);
     }
+    // Storage の偽物(calendar バケット): 入れる・期限つき URL・読む(1ドットの画像)・消す
+    if (path.startsWith("/storage/v1/object/")) {
+      const rest = path.slice("/storage/v1/object/".length);
+      if (rest.startsWith("sign/calendar") && req.method() === "POST") {
+        const paths = body && body.paths ? body.paths : [rest.slice("sign/calendar/".length)];
+        const list = paths.map((p) => ({ error: null, path: p, signedURL: `/object/sign/calendar/${p}?token=t` }));
+        return json(body && body.paths ? list : list[0]);
+      }
+      if (rest.startsWith("sign/calendar/") && req.method() === "GET") {
+        return route.fulfill({ status: 200, contentType: "image/png", headers: { "access-control-allow-origin": "*" }, body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64") });
+      }
+      if (rest.startsWith("calendar") && req.method() === "DELETE") {
+        st.removed.push(...((body && body.prefixes) || []));
+        return json([]);
+      }
+      if (rest.startsWith("calendar/") && (req.method() === "POST" || req.method() === "PUT")) {
+        const buf = req.postDataBuffer() || Buffer.alloc(0);
+        st.uploads.push({ path: rest.slice("calendar/".length), size: buf.length, head: buf.subarray(0, 400).toString("latin1") });
+        return json({ Key: "calendar/" + rest.slice("calendar/".length), Id: "x" });
+      }
+    }
     if (path.startsWith("/rest/v1/cal_")) {
       const table = path.slice("/rest/v1/".length);
       const rows = st.cal[table] || (st.cal[table] = []);
@@ -94,6 +115,10 @@ function backend(opts = {}) {
         const made = list.map((b) => {
           const row = { id: "R" + ++st.calSeq, user_id: "u1", created_at: "2026-11-02T00:00:00Z", ...b };
           if (table === "cal_labels") Object.assign(row, { kind: "custom", ...b });
+          if (table === "cal_todos") Object.assign(row, { done: false, ...b });
+          if (table === "cal_stamps") Object.assign(row, { rotation: 0, notes: [], ...b });
+          if (table === "cal_gallery") Object.assign(row, { title: "", ...b });
+          if (table === "cal_importants") Object.assign(row, { body: "", ...b });
           if (table === "cal_events") Object.assign(row, { exdates: [], repeat_rule: "none", memo: "", start_time: "", end_time: "", repeat_until: null, years_label: "", ...b, version: 1 });
           rows.push(row);
           return row;
@@ -109,9 +134,12 @@ function backend(opts = {}) {
         if (table === "cal_labels" && filters.some(([k, v]) => k === "id" && st.cal.cal_events.some((e) => e.label_id === v))) {
           return json({ code: "23503", message: 'update or delete on table "cal_labels" violates foreign key constraint' }, 409);
         }
+        const gone = rows.filter(match);
         const keep = rows.filter((r) => !match(r));
         rows.length = 0;
         rows.push(...keep);
+        // 外部キーの「消したら一緒に消える」(スタンプの種類 → 置いたスタンプ)
+        if (table === "cal_stamp_defs") st.cal.cal_stamps = (st.cal.cal_stamps || []).filter((x) => !gone.some((g) => g.id === x.stamp_def_id));
         return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*" } });
       }
     }
@@ -2182,6 +2210,232 @@ await check("カレンダー: 勤務入力などの上のナビに「カレン�
   const { page, ctx } = await open("settings.html", { userId: "u1", opts: { profile: USER } });
   await page.waitForSelector("nav.topbar");
   assert.ok((await page.locator("nav.topbar a").allTextContents()).includes("カレンダー"));
+  await ctx.close();
+});
+
+
+await check("カレンダー(TODO): 追加(Enter)・チェックで「済み」へ・文字を直す・済みを消す・まとめて消す。HTMLは文字のまま", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-todo");
+  await page.fill("#td-new", "牛乳を買う");
+  await page.press("#td-new", "Enter");
+  await page.fill("#td-new", "<b>パン</b>");
+  await page.click('[data-act="todo-add"]');
+  await page.waitForFunction(() => document.querySelectorAll(".trow[data-tid]").length === 2);
+  assert.deepEqual(be.st.cal.cal_todos.map((t) => [t.text, t.sort]), [["牛乳を買う", 1], ["<b>パン</b>", 2]]);
+  assert.equal(await page.locator("#panel b").count(), 0);
+  // 直す
+  await page.fill('[data-tin]:nth-of-type(1)', "牛乳を2本買う").catch(() => {});
+  await page.locator(".trow[data-tid] .tin").first().fill("牛乳を2本買う");
+  await page.locator(".trow[data-tid] .tin").first().blur();
+  await page.waitForFunction(() => true);
+  await page.waitForTimeout(200);
+  assert.equal(be.st.cal.cal_todos[0].text, "牛乳を2本買う");
+  // 済み
+  await page.locator('.trow[data-tid] .tck').first().check();
+  await page.waitForSelector(".trow.done");
+  assert.equal(be.st.cal.cal_todos[0].done, true);
+  assert.ok((await page.textContent(".tdh")).includes("済み 1件"));
+  await page.click('[data-act="todo-del"]');
+  await page.waitForFunction(() => !document.querySelector(".trow.done"));
+  assert.equal(be.st.cal.cal_todos.length, 1);
+  // まとめて消す
+  await page.locator('.trow[data-tid] .tck').first().check();
+  await page.click('[data-act="todo-clear"]');
+  await page.waitForFunction(() => !document.querySelector(".trow[data-tid]"));
+  assert.equal(be.st.cal.cal_todos.length, 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("カレンダー(重要メモ): 追加・直す・消す。題名は必須。HTMLは文字のまま", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#btn-imp");
+  await page.click('[data-act="imp-new"]');
+  await page.fill("#im-b", "電話 000");
+  await page.click('[data-act="imp-save"]');
+  assert.ok((await page.textContent("#x-msg")).includes("題名"));
+  await page.fill("#im-t", "<i>病院</i>");
+  await page.click('[data-act="imp-save"]');
+  await page.waitForSelector(".icard");
+  assert.equal(await page.locator("#panel i").count(), 0);
+  assert.ok((await page.textContent(".icard")).includes("<i>病院</i>"));
+  await page.click(".icard");
+  await page.fill("#im-b", "電話 111\n2行目");
+  await page.click('[data-act="imp-save"]');
+  await page.waitForSelector(".icard");
+  assert.equal(be.st.cal.cal_importants[0].body, "電話 111\n2行目");
+  await page.click(".icard");
+  await page.click('[data-act="imp-del"]');
+  await page.waitForFunction(() => !document.querySelector(".icard"));
+  assert.equal(be.st.cal.cal_importants.length, 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("カレンダー(画像の置き場): 小さくして(JPEG・約400KB以下)入れる。名前・消す。10枚で追加できない", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#btn-gal");
+  await page.setInputFiles("#gal-file", [DIR + "photo.jpg", DIR + "big.png"]);
+  await page.waitForFunction(() => document.querySelectorAll(".gitem").length === 2, null, { timeout: 20000 });
+  assert.equal(be.st.uploads.length, 2);
+  for (const u of be.st.uploads) {
+    assert.ok(u.head.includes("image/jpeg"), "JPEG にして送る: " + u.head.slice(0, 120));
+    assert.ok(u.size < 460 * 1024, `約400KB以下: ${u.size}`);
+    assert.ok(u.path.startsWith("u1/g-") || /^[^/]+\/g-/.test(u.path), u.path);
+  }
+  assert.equal(be.st.cal.cal_gallery.length, 2);
+  assert.ok((await page.textContent(".ph h2")).includes("2/10"));
+  // 画像が出る(期限つきの URL)
+  await page.waitForFunction(() => [...document.querySelectorAll(".gitem img")].every((i) => i.getAttribute("src") && i.complete && i.naturalWidth > 0));
+  // 名前
+  await page.locator("[data-gtitle]").first().fill("給食の献立");
+  await page.locator("[data-gtitle]").first().blur();
+  await page.waitForTimeout(200);
+  assert.ok(be.st.cal.cal_gallery.some((g) => g.title === "給食の献立"));
+  // 大きく見る
+  await page.locator(".gitem img").first().click();
+  assert.equal(await page.isVisible("#viewer"), true);
+  await page.click("#viewer");
+  // 消す(Storage のファイルも消す)
+  await page.locator('[data-act="gal-del"]').first().click();
+  await page.waitForFunction(() => document.querySelectorAll(".gitem").length === 1);
+  assert.equal(be.st.removed.length, 1);
+  assert.equal(be.st.cal.cal_gallery.length, 1);
+  // 10枚のとき
+  for (let i = 0; i < 9; i++) be.st.cal.cal_gallery.push({ id: "G" + i, user_id: "u1", path: `u1/g-${i}.jpg`, title: "", size_bytes: 1, created_at: "2026-11-01T00:00:00Z" });
+  await page.reload();
+  await page.waitForSelector("#btn-gal");
+  await page.waitForTimeout(300);
+  await page.click("#btn-gal");
+  await page.waitForSelector(".gitem");
+  assert.equal(await page.isDisabled("#gal-file"), true);
+  assert.ok((await page.textContent(".ph h2")).includes("10/10"));
+  assert.deepEqual(errors, []);
+  await page.screenshot({ path: OUT + "calendar-gallery.png" });
+  await ctx.close();
+});
+
+await check("カレンダー(スタンプ): 絵文字・文字のスタンプを作る → 選んで日付をタップで置く → 選んで大きさ・回転・メモ → 消す。HTMLは文字のまま", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-stamp");
+  await page.waitForSelector("#tray:not([hidden])");
+  // 作る(絵文字)
+  await page.click('#tray [data-act="df-new"]');
+  await page.fill("#d-emoji", "🎂");
+  await page.click('[data-act="df-save"]');
+  await page.waitForSelector('.lrow[data-did]');
+  // 作る(文字・HTML)
+  await page.click('#panel [data-act="df-new"]');
+  await page.check('input[name="dkind"][value="text"]', { force: true });
+  await page.fill("#d-text", "<b>休</b>");
+  await page.selectOption("#d-shape", "bubble");
+  await page.click('[data-act="df-save"]');
+  await page.waitForFunction(() => document.querySelectorAll(".lrow[data-did]").length === 2);
+  assert.equal(be.st.cal.cal_stamp_defs.length, 2);
+  assert.equal(be.st.cal.cal_stamp_defs[0].sort, 1);
+  assert.equal(await page.locator("#panel b").count(), 0);
+  await page.click('[data-act="close"]');
+  await page.waitForSelector("#tray .tk");
+  assert.equal(await page.locator("#tray .tk").count(), 2);
+  // 選んで置く(今日のマス)
+  await page.click('#tray .tk >> nth=0');
+  await page.click(`.cell[data-date="${today}"]`, { position: { x: 4, y: 4 } });
+  await page.waitForSelector(".stamp");
+  assert.equal(be.st.cal.cal_stamps.length, 1);
+  assert.deepEqual([be.st.cal.cal_stamps[0].date, be.st.cal.cal_stamps[0].x, be.st.cal.cal_stamps[0].size], [today, 0.5, be.st.cal.cal_stamp_defs[0].default_size]);
+  assert.equal((await page.locator(".stamp").first().textContent()).trim(), "🎂");
+  // 何も選ばずにマスをタップ → スタンプの画面が閉じる(日の詳細は開かない)
+  await page.click(`.cell[data-date="${today}"]`, { position: { x: 4, y: 4 } });
+  assert.equal(await page.isVisible("#tray"), false);
+  assert.equal(await page.isVisible("#panel"), false);
+  // タップで選ぶ → 大きさ・回転(保存)・メモ
+  await page.locator(".stamp").first().click();
+  await page.waitForSelector("#st-size");
+  await page.locator("#st-size").evaluate((el) => { el.value = "0.8"; el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); });
+  await page.locator("#st-rot").evaluate((el) => { el.value = "30"; el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); });
+  await page.waitForTimeout(200);
+  assert.deepEqual([be.st.cal.cal_stamps[0].size, be.st.cal.cal_stamps[0].rotation], [0.8, 30]);
+  await page.click('[data-act="sn-new"]');
+  await page.fill("#sn-t", "ケーキ予約");
+  await page.fill("#sn-d", "<u>16時</u>");
+  await page.click('[data-act="sn-save"]');
+  await page.waitForSelector(".chipnote");
+  assert.deepEqual(be.st.cal.cal_stamps[0].notes, [{ t: "ケーキ予約", d: "<u>16時</u>" }]);
+  assert.equal(await page.locator("#panel u").count(), 0);
+  // メモは日の詳細には出ない
+  await page.click('[data-act="close"]');
+  await page.click(`.cell[data-date="${today}"]`, { position: { x: 4, y: 4 } });
+  assert.ok(!(await page.textContent("#panel")).includes("ケーキ予約"));
+  await page.click('[data-act="close"]');
+  // 消す
+  await page.locator(".stamp").first().click();
+  await page.click('[data-act="st-del"]');
+  await page.waitForFunction(() => !document.querySelector(".stamp"));
+  assert.equal(be.st.cal.cal_stamps.length, 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("カレンダー(スタンプ): ドラッグで別の日へ動かせる。画像のスタンプは256pxのPNGで入れる。種類を消すと置いたものも消える", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-stamp");
+  // 画像のスタンプ
+  await page.click('#tray [data-act="df-new"]');
+  await page.check('input[name="dkind"][value="image"]', { force: true });
+  await page.setInputFiles("#d-file", DIR + "photo.jpg");
+  await page.waitForFunction(() => document.querySelector("#d-prev img"));
+  await page.click('[data-act="df-save"]');
+  await page.waitForSelector('.lrow[data-did]');
+  assert.equal(be.st.uploads.length, 1);
+  assert.ok(be.st.uploads[0].head.includes("image/png"), be.st.uploads[0].head.slice(0, 100));
+  assert.ok(/s-.*\.png$/.test(be.st.uploads[0].path));
+  assert.equal(be.st.cal.cal_stamp_defs[0].kind, "image");
+  await page.click('[data-act="close"]');
+  // 置く
+  await page.click("#tray .tk");
+  await page.click(`.cell[data-date="${today}"]`, { position: { x: 4, y: 4 } });
+  await page.waitForSelector(".stamp");
+  await page.click('#tray [data-act="st-off"]');
+  // 次の日へドラッグ
+  const next = await page.evaluate((t) => { const d = new Date(t + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); }, today);
+  const stampBox = await page.locator(".stamp").first().boundingBox();
+  const target = await page.locator(`.cell[data-date="${next}"]`).boundingBox();
+  await page.mouse.move(stampBox.x + stampBox.width / 2, stampBox.y + stampBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForFunction(([d]) => true, [next]);
+  await page.waitForTimeout(300);
+  assert.equal(be.st.cal.cal_stamps[0].date, next);
+  assert.ok(be.st.cal.cal_stamps[0].x > 0.3 && be.st.cal.cal_stamps[0].x < 0.7, "マスの中の位置: " + be.st.cal.cal_stamps[0].x);
+  assert.equal(await page.locator("#panel").isVisible(), false, "ドラッグではスタンプの編集を開かない");
+  // 種類を消す → 置いたスタンプも消える
+  await page.click("#tab-stamp");
+  await page.click('#tray [data-act="df-list"]');
+  await page.click('[data-act="df-del"]');
+  await page.waitForFunction(() => !document.querySelector(".lrow[data-did]"));
+  assert.equal(be.st.cal.cal_stamp_defs.length, 0);
+  assert.equal(be.st.cal.cal_stamps.length, 0);
+  assert.equal(be.st.removed.length, 1, "画像のスタンプの画像も消す");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("カレンダー: 上のボタン・下のタブが幅320pxでもはみ出さない(重要メモ・画像・スタンプ・TODO)", async () => {
+  const { page, ctx } = await calOpen({ viewport: { width: 320, height: 640 } });
+  await page.waitForSelector(".bar");
+  const [sw, iw] = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
+  assert.ok(sw <= iw, `${sw} > ${iw}`);
+  for (const id of ["#btn-imp", "#btn-gal", "#tab-stamp", "#tab-todo", "#today", "#next"]) {
+    const b = await page.locator(id).boundingBox();
+    assert.ok(b && b.x >= 0 && b.x + b.width <= 320, `${id} がはみ出す: ${JSON.stringify(b)}`);
+  }
   await ctx.close();
 });
 

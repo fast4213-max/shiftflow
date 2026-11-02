@@ -14,21 +14,26 @@
     <header class="top">
       <div class="ym" aria-live="polite"><span class="y" id="ty"></span><span class="m" id="tm"></span></div>
       <span class="sp"></span>
-      <a class="link" href="../input.html" id="to-input">勤務入力</a>
+      <button class="ib" id="btn-imp" aria-label="重要メモ">★</button>
+      <button class="ib" id="btn-gal" aria-label="画像">🖼</button>
       <button class="ib" id="prev" aria-label="前の月">◀</button>
       <button class="ib" id="next" aria-label="次の月">▶</button>
       <button class="ib" id="today" aria-label="今日へ">今日</button>
     </header>
-    <div class="chips" id="chips" role="group" aria-label="ラベルの表示"></div>
+    <div class="bar2"><div class="chips" id="chips" role="group" aria-label="ラベルの表示"></div><a class="link" href="../input.html" id="to-input">勤務入力 ›</a></div>
     <p class="banner" id="banner" hidden></p>
     <div class="wd" aria-hidden="true"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
     <main class="cal" id="cal"><div id="weeks"></div></main>
+    <div class="tray" id="tray" hidden></div>
     <nav class="tabs" aria-label="メニュー">
       <button class="tab on" id="tab-today">カレンダー</button>
+      <button class="tab" id="tab-stamp">スタンプ</button>
       <button class="tab plus" id="tab-new" aria-label="予定を追加">＋</button>
+      <button class="tab" id="tab-todo">TODO</button>
       <button class="tab" id="tab-settings">設定</button>
     </nav>
   </div>
+  <div class="viewer" id="viewer" hidden><img id="viewer-img" alt=""><p id="viewer-cap"></p></div>
   <div class="scrim" id="scrim" hidden></div>
   <aside class="panel" id="panel" hidden aria-live="polite"></aside>
   <p class="boot" id="boot" role="status">読み込み中…</p>

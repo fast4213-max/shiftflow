@@ -2,6 +2,7 @@
 // 勤務の予定は、勤務の記録から Edge Function(calendar-shifts)が、勤務入力の設定どおりに組み立てて返す(Google には何も書かない・読まない)。
 // 自分で作る予定・ラベルは、Supabase の cal_* の表(本人の行だけ・RLS)。
 import { callFunction, currentSession, friendlyText, go, loadProfile, loadSettings, selectAllPages, supabase } from "../js/app.js?v=dev";
+import { createExtras } from "./cal-extra.js?v=dev";
 import {
   addDays, addMonths, compareForDay, dateKey, expandEvent, gridRange, layoutWeek, monthIndex, monthLimits, textOn, todayJst, weekday, whenText, WEEKDAYS,
   yearsText,
@@ -25,7 +26,9 @@ const S = {
   needOffice: false,
   byUid: new Map(),    // 今の画面の予定(uid → 予定)
   panel: null,         // 開いているパネル
+  todos: [], importants: [], gallery: [], stampDefs: [], stamps: [], // 後の段階の表(cal-extra.js)
 };
+let extras = null;
 
 // ---------- 小さな道具 ----------
 
@@ -97,7 +100,7 @@ async function loadShifts(y, m) {
 
 async function reloadAll({ keepShifts = false } = {}) {
   if (!keepShifts) S.shifts.clear();
-  await Promise.all([loadLabels(), loadOwn()]);
+  await Promise.all([loadLabels(), loadOwn(), extras.load()]);
   await ensureShifts();
   render();
 }
@@ -154,6 +157,7 @@ function render() {
   const laneH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--lane")) || 15;
   const maxLanes = Math.max(1, Math.floor((rowH - 24) / laneH));
   $("weeks").innerHTML = weeks.map((ws) => weekHtml(ws, events, maxLanes)).join("");
+  extras.hydrate($("weeks"));
 }
 
 function weekHtml(ws, events, maxLanes) {
@@ -174,7 +178,8 @@ function weekHtml(ws, events, maxLanes) {
     const text = titleOf(e) + (e.allDay || !e.startTime ? "" : ` ${e.startTime.replace(/^0/, "")}`);
     return `<button class="${cls}" data-uid="${esc(e.id)}" style="grid-column:${b.c1 + 1}/${b.c2 + 2};grid-row:${b.lane + 1};--c:${esc(col)};--t:${textOn(col)}">${esc(text)}</button>`;
   }).join("");
-  return `<div class="week" data-ws="${ws}"><div class="cells">${cells}</div><div class="bars">${barHtml}</div></div>`;
+  const dates = [0, 1, 2, 3, 4, 5, 6].map((c) => addDays(ws, c));
+  return `<div class="week" data-ws="${ws}"><div class="cells">${cells}</div><div class="bars">${barHtml}</div>${extras.stampsLayer(dates)}</div>`;
 }
 
 // ---------- パネル(日の詳細・予定・追加と編集・設定) ----------
@@ -187,6 +192,8 @@ function openPanel(html, { onClose } = {}) {
   S.panel = { onClose };
   p.scrollTop = 0;
 }
+// 開いたまま中身だけ入れ替える(スクロールの位置は変えない)
+function setPanel(html) { $("panel").innerHTML = html; }
 function closePanel() {
   $("panel").hidden = true;
   $("scrim").hidden = true;
@@ -503,6 +510,13 @@ function bind() {
     openForm(null, inMonth ? S.today : dateKey(S.y, S.m, 1));
   });
   $("tab-settings").addEventListener("click", openSettings);
+  $("tab-todo").addEventListener("click", () => extras.openTodo());
+  $("tab-stamp").addEventListener("click", () => extras.toggleStampMode());
+  $("btn-imp").addEventListener("click", () => extras.openImportant());
+  $("btn-gal").addEventListener("click", () => extras.openGallery());
+  $("tray").addEventListener("click", (ev) => extras.trayClick(ev));
+  $("viewer").addEventListener("click", () => { $("viewer").hidden = true; });
+  extras.bindDrag();
   $("scrim").addEventListener("click", closePanel);
 
   $("chips").addEventListener("click", (ev) => {
@@ -516,9 +530,11 @@ function bind() {
 
   $("weeks").addEventListener("click", (ev) => {
     const bar = ev.target.closest("[data-uid]");
-    if (bar) return openEvent(bar.dataset.uid);
+    if (bar && !extras.stampMode()) return openEvent(bar.dataset.uid);
     const cell = ev.target.closest("[data-date]");
-    if (cell) openDay(cell.dataset.date);
+    if (!cell) return;
+    if (extras.cellTap(cell.dataset.date)) return; // スタンプの画面
+    openDay(cell.dataset.date);
   });
   $("weeks").addEventListener("keydown", (ev) => {
     if ((ev.key === "Enter" || ev.key === " ") && ev.target.dataset && ev.target.dataset.date) { ev.preventDefault(); openDay(ev.target.dataset.date); }
@@ -547,13 +563,19 @@ function bind() {
     if (act === "del") return deleteEvent(el.dataset.uid, el.dataset.mode);
     if (act === "save") return saveDraft();
     if (act.startsWith("l-")) return settingsAction(act, el);
+    extras.panelClick(el, act);
   });
-  $("panel").addEventListener("input", (ev) => { if (draft && ev.target.dataset.f && ev.target.type !== "checkbox" && ev.target.tagName !== "SELECT") readDraftField(ev.target); });
+  $("panel").addEventListener("keydown", (ev) => { extras.panelKey(ev); });
+  $("panel").addEventListener("input", (ev) => {
+    if (draft && ev.target.dataset.f && ev.target.type !== "checkbox" && ev.target.tagName !== "SELECT") return readDraftField(ev.target);
+    extras.panelInput(ev.target);
+  });
   $("panel").addEventListener("change", (ev) => {
     const el = ev.target;
     if (draft && el.dataset.f) return readDraftField(el);
     if (el.dataset.lf) return labelFieldChanged(el);
-    if (el.name === "theme") { storageSet(THEME_KEY, el.value); applyTheme(); }
+    if (el.name === "theme") { storageSet(THEME_KEY, el.value); applyTheme(); return; }
+    extras.panelChange(el);
   });
 
   // 勤務入力などから戻ったときは、勤務の予定を読み直す(保存した内容を出すため)。入力中のパネルは触らない
@@ -583,8 +605,9 @@ async function main() {
   } catch (_) { /* 読めなければ全部表示 */ }
   S.y = Number(S.today.slice(0, 4));
   S.m = Number(S.today.slice(5, 7));
+  extras = createExtras({ S, $, esc, supabase, openPanel, setPanel, closePanel, head, render, fail, friendlyText, selectAllPages, userId: session.user.id });
   bind();
-  await Promise.all([loadLabels(), loadOwn()]);
+  await Promise.all([loadLabels(), loadOwn(), extras.load()]);
   $("boot").hidden = true;
   render();
   try { await ensureShifts(); render(); } catch (e) { fail(e); }
