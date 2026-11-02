@@ -354,12 +354,118 @@ await check("設定: 行が無いまま開いて保存したとき、もう行�
   const { page, ctx, be, errors } = await open("settings.html", { userId: "u1", opts: { profile: USER, noSettingsRow: true } });
   await page.waitForSelector("#office option[value='1']", { state: "attached" });
   await page.selectOption("#office", "1");
+  await page.check("#google-sync"); // 新しい人は外した状態から。Googleにも登録するなら、チェックを入れてIDを入れる
   await page.fill("#work-id", "w@group.calendar.google.com");
   await page.click("#save");
   await page.waitForSelector("#result.ok");
   const methods = be.st.calls.filter((c) => c.path === "/rest/v1/user_settings").map((c) => c.method);
   assert.ok(methods.includes("POST") && methods.includes("PATCH"), methods.join());
   assert.ok(!(await page.textContent("#result")).includes("duplicate"));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("設定: 「Googleカレンダーにも登録する」を外すと、IDも接続テストも無しで保存でき、勤務入力へ進める", async () => {
+  const { page, ctx, be, errors } = await open("settings.html", {
+    userId: "u1",
+    opts: { profile: USER, settings: { google_sync: false, work_calendar_id: "", verified_at: null } },
+  });
+  await page.waitForSelector("#office option[value='1']", { state: "attached" });
+  assert.equal(await page.isChecked("#google-sync"), false);
+  // Google用の設定はたたむ。ボタンは「保存」
+  assert.equal(await page.isVisible("#google-fields"), false);
+  assert.equal(await page.isVisible("#google-top"), false);
+  assert.equal((await page.textContent("#save")).trim(), "保存");
+  await page.click("#save");
+  await page.waitForSelector("#result.ok");
+  assert.ok((await page.textContent("#result")).includes("Googleカレンダーには登録しません"));
+  const saved = be.st.calls.find((c) => c.path === "/rest/v1/user_settings" && c.method === "PATCH").body;
+  assert.equal(saved.google_sync, false);
+  assert.ok(!be.st.calls.some((c) => c.path === "/functions/v1/verify-calendar"), "接続テストはしない");
+  assert.equal(await page.isVisible("#go-input"), true);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("設定: 今の利用者(google_sync の値が無い行)は、チェックが入ったまま。保存は今までどおり接続テストをする", async () => {
+  const { page, ctx, be, errors } = await open("settings.html", { userId: "u1", opts: { profile: USER } });
+  await page.waitForSelector("#office option[value='1']", { state: "attached" });
+  assert.equal(await page.isChecked("#google-sync"), true);
+  assert.equal(await page.isVisible("#google-fields"), true);
+  assert.equal((await page.textContent("#save")).trim(), "保存して接続テスト");
+  await page.click("#save");
+  await page.waitForSelector("#result.ok");
+  const saved = be.st.calls.find((c) => c.path === "/rest/v1/user_settings" && c.method === "PATCH").body;
+  assert.equal(saved.google_sync, true);
+  assert.ok(be.st.calls.some((c) => c.path === "/functions/v1/verify-calendar"));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("設定: Googleのチェックを入れたまま、IDが空だと保存できない。外せば、IDが入ったままでも接続テスト無しで保存できる(IDは残る)", async () => {
+  const { page, ctx, be, errors } = await open("settings.html", {
+    userId: "u1",
+    opts: { profile: USER, settings: { work_calendar_id: "", verified_at: null } },
+  });
+  await page.waitForSelector("#office option[value='1']", { state: "attached" });
+  await page.click("#save");
+  await page.waitForSelector("#result.error");
+  assert.ok((await page.textContent("#result")).includes("カレンダーID"));
+  await page.fill("#work-id", "w@group.calendar.google.com");
+  await page.uncheck("#google-sync");
+  await page.click("#save");
+  await page.waitForSelector("#result.ok");
+  const saved = be.st.calls.find((c) => c.path === "/rest/v1/user_settings" && c.method === "PATCH").body;
+  assert.equal(saved.google_sync, false);
+  assert.equal(saved.work_calendar_id, "w@group.calendar.google.com");
+  assert.ok(!be.st.calls.some((c) => c.path === "/functions/v1/verify-calendar"));
+  // 入れ直すと、IDはそのまま使える
+  await page.check("#google-sync");
+  assert.equal(await page.inputValue("#work-id"), "w@group.calendar.google.com");
+  assert.equal(await page.isVisible("#google-fields"), true);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("設定: 新しく使い始める人(行が無い)は外した状態から。区所だけで保存でき、チェックを入れるとGoogleの設定が出る", async () => {
+  const { page, ctx, be, errors } = await open("settings.html", { userId: "u1", opts: { profile: USER, noSettingsRow: true } });
+  await page.waitForSelector("#office option[value='1']", { state: "attached" });
+  assert.equal(await page.isChecked("#google-sync"), false);
+  assert.equal(await page.isVisible("#google-fields"), false);
+  assert.equal((await page.textContent("#save")).trim(), "保存");
+  await page.selectOption("#office", "1");
+  await page.click("#save");
+  await page.waitForSelector("#result.ok");
+  assert.ok(!be.st.calls.some((c) => c.path === "/functions/v1/verify-calendar"));
+  await page.check("#google-sync");
+  assert.equal(await page.isVisible("#google-fields"), true);
+  assert.equal((await page.textContent("#save")).trim(), "保存して接続テスト");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("勤務入力: Googleに登録しない人は「登録」を隠し、「保存」だけ。接続テストの案内も出さない。保存はサーバーに saveOnly で送る", async () => {
+  const { page, ctx, be, errors } = await open("input.html", {
+    userId: "u1",
+    opts: { profile: USER, settings: { google_sync: false, verified_at: null } },
+  });
+  await page.waitForSelector("#save:not([disabled])");
+  assert.equal(await page.isVisible("#register"), false);
+  assert.equal(await page.isVisible("#setup-note"), false);
+  await page.click("#save");
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("保存しました"));
+  assert.ok(!(await page.textContent("#status")).includes("カレンダーにはまだ入っていません"));
+  const saves = be.st.calls.filter((c) => c.path === "/functions/v1/register-month");
+  assert.equal(saves.length, 1);
+  assert.equal(saves[0].body.saveOnly, true);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("勤務入力: Googleに登録する今までの人は、「登録」も「保存」も今までどおり", async () => {
+  const { page, ctx, errors } = await open("input.html", { userId: "u1", opts: { profile: USER } });
+  await page.waitForSelector("#save:not([disabled])");
+  assert.equal(await page.isVisible("#register"), true);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

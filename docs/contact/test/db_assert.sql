@@ -44,6 +44,12 @@ begin
   assert has_column_privilege('authenticated', 'public.user_settings', 'title_day_time', 'update'), '利用者が title_day_time を書けない';
   assert has_column_privilege('authenticated', 'public.user_settings', 'title_offduty_time', 'update'), '利用者が title_offduty_time を書けない';
   assert has_column_privilege('authenticated', 'public.user_settings', 'timed_events', 'update'), '利用者が timed_events を書けない';
+  assert has_column_privilege('authenticated', 'public.user_settings', 'google_sync', 'update'), '利用者が google_sync を書けない';
+  assert has_column_privilege('authenticated', 'public.user_settings', 'google_sync', 'insert'), '利用者が google_sync を入れられない';
+  -- 値が付かない行(画面を更新していない人・古い登録)は「Googleにも登録する」(true)になる
+  assert (select column_default from information_schema.columns
+           where table_schema = 'public' and table_name = 'user_settings' and column_name = 'google_sync') = 'true',
+    'google_sync の初期値が true でない';
 end
 $$;
 

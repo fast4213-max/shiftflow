@@ -7,7 +7,9 @@ import { addDays, codeOf, dateKey, daysInMonth } from "../_shared/plan.js";
 import {
   deleteAppEvents,
   deleteRecords,
+  loadGoogleSync,
   loadMasterSet,
+  loadOfficeOnly,
   loadVerifiedCalendars,
   staleNextMonthRecords,
   withUserLock,
@@ -16,9 +18,11 @@ import {
 serve(async (req) => {
   const ctx = await requireMember(req);
   const { year, month } = yearMonthOf(await readBody(req));
-  const calendars = await loadVerifiedCalendars(ctx);
+  // 「Googleカレンダーにも登録する」を外している人は、Google には触らず、入力内容だけ消す(接続テストも要らない)
+  const googleOff = !(await loadGoogleSync(ctx));
+  const calendars = googleOff ? await loadOfficeOnly(ctx) : await loadVerifiedCalendars(ctx);
   const count = await withUserLock(ctx, async () => {
-    const n = await deleteAppEvents(calendars, year, month);
+    const n = googleOff ? 0 : await deleteAppEvents(calendars, year, month);
 
     // 月末が泊だったなら、翌月1日は非番でなくなるので、翌月1日の非番のために書き換えたメモも消す
     const last = dateKey(year, month, daysInMonth(year, month));

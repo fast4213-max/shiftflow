@@ -462,8 +462,10 @@ export async function loadSettings(session) {
   return data;
 }
 
+// 勤務入力に進める状態。Googleカレンダーにも登録する人は、接続テスト済みが要る。
+// 「Googleカレンダーにも登録する」を外している人(google_sync が false)は、区所だけでよい
 export function isReady(settings) {
-  return !!(settings && settings.verified_at && settings.office_id);
+  return !!(settings && settings.office_id && (settings.google_sync === false || settings.verified_at));
 }
 
 // ログイン後に最初に行くページ

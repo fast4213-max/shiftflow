@@ -63,6 +63,18 @@ export async function loadOfficeOnly(ctx: Context): Promise<Calendars> {
   return { work: "", holiday: "", officeId: data?.office_id ?? null };
 }
 
+// 「Googleカレンダーにも登録する」のチェック。false のときだけ「保存だけ」(Google には何も書かない)。
+// 値がない(列が無い・null)・true は、今までどおり登録する
+export function googleSyncOn(value: unknown): boolean {
+  return value !== false;
+}
+
+export async function loadGoogleSync(ctx: Context): Promise<boolean> {
+  const { data, error } = await ctx.db.from("user_settings").select("google_sync").eq("user_id", ctx.userId).maybeSingle();
+  if (error) throw error;
+  return googleSyncOn(data?.google_sync);
+}
+
 // 二重実行防止のロックを取って fn を実行する
 export async function withUserLock<T>(ctx: Context, fn: () => Promise<T>): Promise<T> {
   const { data, error } = await ctx.admin.rpc("acquire_user_lock", { p_user_id: ctx.userId, p_seconds: 150 });

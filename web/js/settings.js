@@ -18,7 +18,7 @@ function updateGoInput() {
 
 // 利用者が書けるのは区所とカレンダーIDの列だけ(検証済みフラグは Edge Function が書く)
 async function saveSettings(values) {
-  const columns = "work_calendar_id, holiday_calendar_id, offduty_calendar_id, verified_at, office_id, split_day_events, split_offduty_events, title_day_time, title_offduty_time, timed_events";
+  const columns = "work_calendar_id, holiday_calendar_id, offduty_calendar_id, verified_at, office_id, split_day_events, split_offduty_events, title_day_time, title_offduty_time, timed_events, google_sync";
   const update = () => supabase.from("user_settings").update(values).eq("user_id", session.user.id).select(columns).single();
   let res = settings
     ? await update()
@@ -55,6 +55,8 @@ async function main() {
   $("who").textContent = `${ctx.profile.family_name} ${ctx.profile.given_name}(社員番号 ${ctx.profile.employee_no})`;
   $("pin-user").value = ctx.profile.employee_no;
 
+  // 新しく使い始める人(設定の行がまだ無い人)は外した状態から。今の利用者は、保存されている値(列が無いときは入れる)
+  $("google-sync").checked = settings ? settings.google_sync !== false : false;
   if (settings) {
     $("work-id").value = settings.work_calendar_id || "";
     $("holiday-id").value = settings.holiday_calendar_id || "";
@@ -66,7 +68,9 @@ async function main() {
     $("offduty-id").value = settings.offduty_calendar_id || "";
   }
   if (!isReady(settings)) $("first-time").classList.remove("hidden");
-  if (isReady(settings)) message("result", "接続テスト済みです。", "ok");
+  if (isReady(settings)) {
+    message("result", settings.google_sync === false ? "保存済みです(Googleカレンダーには登録しません)。" : "接続テスト済みです。", "ok");
+  }
   updateGoInput();
 
   loadOffices().catch((err) => message("result", err.message || String(err), "error"));
@@ -86,7 +90,17 @@ async function main() {
 
   // 区所・ID・「出勤を2件」「非番を2件」・タイトルの時間・時間つきを変えたら、保存するまでテスト済みの表示と「勤務入力へ」を消す
   // (保存せずに勤務入力へ進むと、変えた設定が使われないため)
-  const checks = ["office", "split-day", "split-offduty", "title-day", "title-offduty", "timed-events"];
+  // 「Googleカレンダーにも登録する」を外すと、Google用の設定をたたみ、保存だけにする(IDは消さない)
+  const updateGoogle = () => {
+    const on = $("google-sync").checked;
+    $("google-top").classList.toggle("hidden", !on);
+    $("google-fields").classList.toggle("hidden", !on);
+    $("save").textContent = on ? "保存して接続テスト" : "保存";
+  };
+  $("google-sync").addEventListener("change", updateGoogle);
+  updateGoogle();
+
+  const checks = ["google-sync", "office", "split-day", "split-offduty", "title-day", "title-offduty", "timed-events"];
   [...checks, "work-id", "holiday-id", "offduty-id"].forEach((id) =>
     $(id).addEventListener(checks.includes(id) ? "change" : "input", () => {
       message("result", "");
@@ -96,7 +110,9 @@ async function main() {
 
   $("save").addEventListener("click", async () => {
     const office = $("office").value;
+    const googleOn = $("google-sync").checked;
     const values = {
+      google_sync: googleOn,
       office_id: office ? Number(office) : null,
       work_calendar_id: $("work-id").value.trim(),
       holiday_calendar_id: $("holiday-id").value.trim(),
@@ -111,9 +127,15 @@ async function main() {
     $("go-input").classList.add("hidden");
     try {
       if (!values.office_id) throw new Error("1. で区所を選んでください。");
-      if (!values.work_calendar_id) throw new Error("勤務用のカレンダーIDを入力してください。");
+      // Googleカレンダーにも登録する人だけ、カレンダーIDと接続テストが要る
+      if (googleOn && !values.work_calendar_id) throw new Error("勤務用のカレンダーIDを入力してください。");
       message("result", "保存しています…");
       await saveSettings(values);
+      if (!googleOn) {
+        message("result", "保存しました。Googleカレンダーには登録しません(勤務入力の「保存」で、入力を残せます)。", "ok");
+        updateGoInput();
+        return;
+      }
       message("result", "接続テスト中です(10秒ほどかかることがあります)…");
       await callFunction("verify-calendar", {}, { timeoutMs: 90000 });
       settings.verified_at = new Date().toISOString();

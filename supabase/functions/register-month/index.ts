@@ -1,6 +1,7 @@
 // 指定月の入力を shift_records に保存し、カレンダーに登録する。
 // このアプリが作った予定だけを消してから作り直す(手で入れた予定は消さない)。
 // saveOnly: true のときは、保存と翌月1日・2日の記録の片付けまでを行い、カレンダーは変えない(勤務入力の「保存」。17回目の N1)。
+// 設定で「Googleカレンダーにも登録する」を外している人は、saveOnly を付けなくても保存だけにする(googleOff)。
 // 保存も登録と同じ順番・同じ鍵で行うので、「保存してから登録」しても翌月1日の片付けが効き、保存とリセットも重ならない
 
 import { requireMember } from "../_shared/auth.ts";
@@ -14,6 +15,7 @@ import {
   deleteRecords,
   eventsToRegister,
   listAppEvents,
+  loadGoogleSync,
   loadMasterSet,
   loadOfficeOnly,
   loadVerifiedCalendars,
@@ -32,7 +34,9 @@ serve(async (req) => {
   const body = await readBody(req);
   const { year, month } = yearMonthOf(body);
   const entries = entriesFrom(body);
-  const saveOnly = body.saveOnly === true;
+  // 「Googleカレンダーにも登録する」を外している人は、「登録」も保存だけにする(Google には何も書かない)
+  const googleOff = body.saveOnly !== true && !(await loadGoogleSync(ctx));
+  const saveOnly = body.saveOnly === true || googleOff;
 
   // 「保存」はカレンダーを変えないので、区所だけ要る(カレンダーの設定・接続テストの前でも、入力を残せるように。AB4)
   const calendars = saveOnly ? await loadOfficeOnly(ctx) : await loadVerifiedCalendars(ctx);
@@ -86,7 +90,7 @@ serve(async (req) => {
     }));
 
     // 「保存」はここまで(カレンダーは変えない。登録したときに作り直す)。登録できない理由があれば添える
-    if (saveOnly) return periodError ? { saved: true, periodError } : { saved: true };
+    if (saveOnly) return { saved: true, ...(googleOff ? { googleOff: true } : {}), ...(periodError ? { periodError } : {}) };
 
     const existing = await listAppEvents(calendars, year, month);
     // 前の登録が途中で失敗して、翌月1日の予定を消したままになっていないか(印が今回の翌月1日なら、作り直す)

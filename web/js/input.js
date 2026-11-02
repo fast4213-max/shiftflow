@@ -30,6 +30,7 @@ const state = {
   holidays: [],
   offduty: new Map(), // 表示中の非番の日(番号を変えたとき、非番になった・非番でなくなった日を調べるため)
   dirty: false,
+  googleSync: true,  // 「Googleカレンダーにも登録する」。外している人は「保存」だけ使う(登録のボタンは隠す)
   edits: 0,          // 書き換えた回数。登録中に書き換えた分を「登録済み」にしないため
   loadId: 0,         // 読み込みの番号。月を続けて移動したとき、古い月の結果で上書きしないため
   registering: false,
@@ -526,7 +527,7 @@ $("picker-cancel").addEventListener("click", () => {
 function moveMonth(delta) {
   if (state.registering || state.saving) return;
   if (delta < 0 && isFirstMonth()) return;
-  if (state.dirty && !confirm("登録していない変更があります。移動しますか？")) return;
+  if (state.dirty && !confirm((state.googleSync ? "登録" : "保存") + "していない変更があります。移動しますか？")) return;
   const date = new Date(state.year, state.month - 1 + delta, 1);
   state.year = date.getFullYear();
   state.month = date.getMonth() + 1;
@@ -554,7 +555,7 @@ window.addEventListener("beforeunload", (ev) => {
 document.addEventListener("click", (ev) => {
   const link = ev.target.closest && ev.target.closest("a[href]");
   if (!link || !state.dirty) return;
-  if (confirm("登録していない変更があります。移動しますか？")) {
+  if (confirm((state.googleSync ? "登録" : "保存") + "していない変更があります。移動しますか？")) {
     leaveConfirmed = true; // 移ると決めたので、beforeunload でもう一度聞かない
     ev.leaveConfirmed = true; // ログアウトの確認(app.js)で、続けて聞かない
     return;
@@ -646,8 +647,10 @@ $("save").addEventListener("click", async () => {
       clearImported();
     }
     // マスタの切替で登録できない日があっても、保存はできる(登録はマスタが入ってから)
-    setStatus("保存しました。カレンダーにはまだ入っていません。" +
-      (result && result.periodError ? "今は登録できません: " + result.periodError : "入れるときは「登録」を押してください。") +
+    setStatus((state.googleSync
+      ? "保存しました。カレンダーにはまだ入っていません。" +
+        (result && result.periodError ? "今は登録できません: " + result.periodError : "入れるときは「登録」を押してください。")
+      : "保存しました。" + (result && result.periodError ? "(マスタがまだ入っていない日は、時間が出ません: " + result.periodError + ")" : "")) +
       (editedMeanwhile ? "保存中に変えたところは、まだ保存していません。" : ""));
     if (!editedMeanwhile) afterSaved();
   } catch (err) {
@@ -807,13 +810,15 @@ $("reset-run").addEventListener("click", async () => {
   }
   const year = Number(m[1]);
   const month = Number(m[2]);
-  if (!confirm(year + "年" + month + "月の予定と入力内容を削除します。よろしいですか？")) return;
+  if (!confirm(year + "年" + month + "月の" + (state.googleSync ? "予定と入力内容" : "入力内容") + "を削除します。よろしいですか？")) return;
   $("reset-dialog").close();
   $("reset").disabled = true;
   setStatus("削除中…");
   try {
     const result = await callFunction("delete-month", { year, month }, { timeoutMs: 150000 });
-    const message = year + "年" + month + "月の予定を" + result.count + "件削除し、入力内容を空にしました。";
+    const message = state.googleSync
+      ? year + "年" + month + "月の予定を" + result.count + "件削除し、入力内容を空にしました。"
+      : year + "年" + month + "月の入力内容を空にしました(Googleカレンダーの予定は消していません)。";
     // 表示中の月を消したときと、前の月を消したとき(1日の非番が変わる)は、画面を読み直す。
     // 前の月のときは、表示中の月に登録していない変更があれば消さないよう読み直さない
     const prev = new Date(state.year, state.month - 2, 1);
@@ -842,7 +847,14 @@ requireLogin("input.html", { needOffice: true })
   .then((ctx) => {
     if (!ctx) return;
     state.officeId = ctx.settings.office_id;
-    $("setup-note").hidden = !!ctx.settings.verified_at;
+    state.googleSync = ctx.settings.google_sync !== false;
+    if (!state.googleSync) {
+      // Googleカレンダーには登録しない人: 登録のボタンを隠して「保存」を主にする(接続テストの案内も出さない)
+      $("register").hidden = true;
+      $("save").classList.add("primary");
+      $("reset-note").textContent = "選んだ月の入力内容を空にします。Googleカレンダーの予定は消しません。";
+    }
+    $("setup-note").hidden = !state.googleSync || !!ctx.settings.verified_at;
     return load().then(() => {
       // 写真取込のリンクで開いたとき(ログインし直したあとも)は、最初の読み込みのあとで取り込む。
       // 読み込みに失敗したときは取り出さずに取っておき、画面を読み直したときに使う(K5)

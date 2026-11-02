@@ -8,6 +8,7 @@ import {
   createEvents,
   deleteAppEvents,
   eventsToRegister,
+  googleSyncOn,
   isOffdutyTitle,
   isOffTitle,
   listAppEvents,
@@ -1061,4 +1062,12 @@ Deno.test("selectAllPages: 1回分(1,000行)ずつ、足りなくなるまで読
   assertEquals(all.length, 2345);
   assertEquals(asked, [[0, 999], [1000, 1999], [2000, 2999]]);
   await assertRejects(() => selectAllPages(() => Promise.resolve({ data: null, error: new Error("boom") })));
+});
+
+// 「Googleカレンダーにも登録する」: false のときだけ保存だけ。値がない(古い画面・列が無い)・true は今までどおり登録する
+Deno.test("googleSyncOn: false のときだけ Google に書かない。値が無い・null・true は登録する", () => {
+  assertEquals(googleSyncOn(false), false);
+  assertEquals(googleSyncOn(true), true);
+  assertEquals(googleSyncOn(undefined), true);
+  assertEquals(googleSyncOn(null), true);
 });
