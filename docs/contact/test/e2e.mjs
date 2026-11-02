@@ -180,6 +180,10 @@ function backend(opts = {}) {
       const offices = [...st.offices].sort((a, b) => a.sort_order - b.sort_order).map((o) => ({ id: o.id, name: o.name, master_count: 1, user_count: 1, periods: [{ id: o.id * 100, starts_on: "2026-10-03", name: "ダイヤ修正", count: 1 }] }));
       return json({ users: 1, verified: 1, active_30d: 1, signups_7d: 0, signup_password_set: true, today: "2026-10-15", offices, no_office: 0, users_list: [] });
     }
+    if (path === "/rest/v1/rpc/admin_usage") {
+      if (opts.usageFail) return json({ message: "boom" }, 500);
+      return json(opts.usage || { db_bytes: 60 * 1048576, db_limit_bytes: 524288000, storage_bytes: 12 * 1048576, storage_files: 80, storage_limit_bytes: 1073741824, photos: 40, photo_bytes: 8 * 1048576, gallery: 12, gallery_bytes: 4 * 1048576, top_users: [{ employee_no: "7000001", name: "山田 太郎", bytes: 3 * 1048576 }] });
+    }
     if (path === "/rest/v1/rpc/admin_stats") {
       return json({
         users: 1, verified: 1, active_30d: 1, signups_7d: 0, signup_password_set: true, today: "2026-10-15",
@@ -2161,7 +2165,7 @@ await check("カレンダー設定: 一番上に説明、一番下に色合い�
   await page.click("#tab-settings");
   await page.waitForSelector("#about");
   const order = await page.$$eval("#panel .card", (els) => els.map((e) => e.querySelector("h3").textContent));
-  assert.deepEqual(order, ["shiftflowカレンダーについて", "ラベル", "画面の色合い"]);
+  assert.deepEqual(order, ["shiftflowカレンダーについて", "ラベル", "あなたの写真・画像の量", "画面の色合い"]);
   assert.ok((await page.textContent("#about")).includes("1つのアカウントで1人分"));
   // 追加
   await page.fill("#nl-name", "家族");
@@ -2580,6 +2584,52 @@ await check("カレンダー: ホーム画面に追加できる(専用の manife
   assert.equal(ar.status(), 200);
   assert.equal((await ar.body()).readUInt32BE(16), 180);
   assert.equal(await page.getAttribute('meta[name="apple-mobile-web-app-title"]', "content"), "shiftflowカレンダー");
+  await ctx.close();
+});
+
+
+await check("管理画面: 概要に無料枠の使用量(データベース・Storage の MB と割合・写真と画像の内訳・多い人)が出る。80%を超えたら注意を出す。読めなくても概要は出る", async () => {
+  const a = await open("admin.html", { userId: "a1", opts: { profile: ADMIN } });
+  await a.page.waitForSelector("#usage-bars .bar-row");
+  const rows = await a.page.locator("#usage-bars .bar-row").allTextContents();
+  assert.ok(rows[0].includes("データベース") && rows[0].includes("60MB / 500MB(12%)"), rows[0]);
+  assert.ok(rows[1].includes("12MB / 1024MB(1%)"), rows[1]);
+  const detail = await a.page.textContent("#usage-detail");
+  assert.ok(detail.includes("予定の写真 40枚(8MB)") && detail.includes("画像の置き場 12枚(4MB)"), detail);
+  assert.ok((await a.page.textContent("#usage-top")).includes("7000001 山田 太郎(3MB)"));
+  assert.ok(!(await a.page.textContent("#alerts")).includes("無料枠"));
+  assert.equal(await a.page.locator("#usage-bars .bar-fill.warn, #usage-bars .bar-fill.bad").count(), 0);
+  await a.page.screenshot({ path: OUT + "admin-usage.png", fullPage: true });
+  await a.ctx.close();
+  // 80%・95%を超える
+  const b = await open("admin.html", { userId: "a1", opts: { profile: ADMIN, usage: { db_bytes: 450 * 1048576, db_limit_bytes: 524288000, storage_bytes: 1040 * 1048576, storage_files: 9, storage_limit_bytes: 1073741824, photos: 1, photo_bytes: 1, gallery: 1, gallery_bytes: 1, top_users: [] } } });
+  await b.page.waitForSelector("#usage-bars .bar-row");
+  assert.equal(await b.page.locator("#usage-bars .bar-fill.warn").count(), 1);
+  assert.equal(await b.page.locator("#usage-bars .bar-fill.bad").count(), 1);
+  const alerts = await b.page.textContent("#alerts");
+  assert.ok(alerts.includes("無料枠の使用量が80%を超えています") && alerts.includes("データベース") && alerts.includes("Storage"), alerts);
+  await b.ctx.close();
+  // 使用量が読めない: 枠だけ隠して、概要は出す
+  const c = await open("admin.html", { userId: "a1", opts: { profile: ADMIN, usageFail: true } });
+  await c.page.waitForSelector("#kpi-users");
+  await c.page.waitForFunction(() => document.getElementById("kpi-users").textContent !== "—");
+  assert.equal(await c.page.isVisible("#usage-panel"), false);
+  await c.ctx.close();
+});
+
+await check("カレンダー設定: 自分の写真・画像の量が出る(MB・枚数)", async () => {
+  const { page, ctx, be } = await calOpen();
+  await page.waitForSelector(".bar");
+  be.st.cal.cal_gallery = [{ id: "G1", user_id: "u1", path: "u1/g.jpg", title: "", size_bytes: 3 * 1048576, created_at: "2026-11-01T00:00:00Z" }];
+  be.st.cal.cal_events.push({ id: "E1", user_id: "u1", title: "x", start_date: today, end_date: today, all_day: true, start_time: "", end_time: "", label_id: be.st.cal.cal_labels[0].id, memo: "", repeat_rule: "none", repeat_until: null, exdates: [], years_label: "", version: 1 });
+  be.st.cal.cal_photos = [{ id: "P1", user_id: "u1", event_id: "E1", path: "u1/p.jpg", size_bytes: 524288, expires_on: null, created_at: "2026-11-01T00:00:00Z" }];
+  await page.reload();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-settings");
+  const text = await page.textContent("#my-usage");
+  assert.ok(text.includes("約 3.5MB(画像の置き場 1/10枚・予定の写真 1枚)"), text);
+  const order = await page.$$eval("#panel .card", (els) => els.map((e) => e.querySelector("h3").textContent));
+  assert.deepEqual(order, ["shiftflowカレンダーについて", "ラベル", "あなたの写真・画像の量", "画面の色合い"]);
   await ctx.close();
 });
 

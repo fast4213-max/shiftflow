@@ -468,6 +468,15 @@ async function deleteEvent(uid, mode) {
 
 // ---------- 設定 ----------
 
+// 自分が使っている写真・画像の量(保存してある大きさの合計)
+function usageText() {
+  let photos = 0, photoBytes = 0;
+  for (const list of S.photos.values()) for (const p of list) { photos++; photoBytes += Number(p.size_bytes) || 0; }
+  const galleryBytes = S.gallery.reduce((n, g) => n + (Number(g.size_bytes) || 0), 0);
+  const mb = (b) => (b < 104858 ? "0.1MB未満" : `${Math.round((b / 1048576) * 10) / 10}MB`);
+  return `約 ${mb(photoBytes + galleryBytes)}(画像の置き場 ${S.gallery.length}/10枚・予定の写真 ${photos}枚)`;
+}
+
 function openSettings() {
   const theme = storageGet(THEME_KEY) || "auto";
   const labelRows = S.labels.map((l, i) => `<div class="lrow" data-lid="${esc(l.id)}">
@@ -494,6 +503,7 @@ function openSettings() {
       ${labelRows}
       <div class="lrow"><input type="color" id="nl-color" value="#8e44ad" aria-label="新しいラベルの色"><input class="in" id="nl-name" maxlength="20" placeholder="新しいラベルの名前" aria-label="新しいラベルの名前"><button class="btn sm pri" data-act="l-add"${customCount >= 10 ? " disabled" : ""}>追加</button></div>
       <p class="msg err" id="label-msg"></p></div>
+    <div class="card" id="my-usage"><h3>あなたの写真・画像の量</h3><p>${esc(usageText())}</p><p class="sub">画像の置き場は1人10枚まで、予定の写真は1つの予定に3枚までです。写真は予定が終わって1か月で消えます。</p></div>
     <div class="card"><h3>画面の色合い</h3><div class="seg" role="radiogroup">
       ${[["auto", "自動"], ["light", "ライト"], ["dark", "ダーク"]].map(([v, t]) => `<label><input type="radio" name="theme" value="${v}"${theme === v ? " checked" : ""}><span>${t}</span></label>`).join("")}
     </div><p class="sub">「自動」は、端末のダークモードの設定に合わせます。この端末だけの設定です。</p></div>

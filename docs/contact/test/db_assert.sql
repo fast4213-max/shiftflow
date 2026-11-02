@@ -630,4 +630,45 @@ begin
 end
 $$;
 
+-- 無料枠の使用量(管理者だけ)
+do $$
+declare
+  admin_id uuid := 'ffffffff-0000-4000-8000-000000000001';
+  u uuid := 'ffffffff-0000-4000-8000-000000000002';
+  l uuid;
+  e uuid;
+  r jsonb;
+  failed boolean := false;
+begin
+  assert not has_function_privilege('anon', 'public.admin_usage()', 'execute'), 'anon が admin_usage を実行できる';
+  insert into auth.users (id) values (admin_id), (u);
+  insert into public.profiles (user_id, role) values (admin_id, 'admin');
+  insert into public.profiles (user_id, employee_no, family_name, given_name) values (u, '7000011', '使', '用');
+  insert into public.cal_labels (user_id, name, color) values (u, '試', '#112233') returning id into l;
+  insert into public.cal_events (user_id, title, start_date, end_date, label_id) values (u, 'x', current_date, current_date, l) returning id into e;
+  insert into public.cal_photos (user_id, event_id, path, size_bytes) values (u, e, u::text || '/a.jpg', 150000), (u, e, u::text || '/b.jpg', 50000);
+  insert into public.cal_gallery (user_id, path, size_bytes) values (u, u::text || '/g.jpg', 300000);
+  insert into storage.objects (bucket_id, name, owner, metadata) values ('calendar', u::text || '/a.jpg', u, '{"size": 150000}'), ('calendar', u::text || '/b.jpg', u, '{"size": 50000}');
+  -- 管理者でないと呼べない
+  perform set_config('request.jwt.claim.sub', u::text, true);
+  begin
+    perform public.admin_usage();
+  exception when others then failed := sqlerrm like '管理者だけ%';
+  end;
+  assert failed, '管理者でなくても使用量を見られる';
+  perform set_config('request.jwt.claim.sub', admin_id::text, true);
+  r := public.admin_usage();
+  assert (r ->> 'db_limit_bytes')::bigint = 524288000 and (r ->> 'storage_limit_bytes')::bigint = 1073741824, '無料枠の上限が違う';
+  assert (r ->> 'db_bytes')::bigint > 0, 'データベースの大きさが取れない';
+  assert (r ->> 'storage_bytes')::bigint = 200000 and (r ->> 'storage_files')::int = 2, 'Storage の使用量が違う';
+  assert (r ->> 'photos')::int = 2 and (r ->> 'photo_bytes')::bigint = 200000, '予定の写真の数・大きさが違う';
+  assert (r ->> 'gallery')::int = 1 and (r ->> 'gallery_bytes')::bigint = 300000, '画像の数・大きさが違う';
+  assert (r #>> '{top_users,0,employee_no}') = '7000011' and (r #>> '{top_users,0,bytes}')::bigint = 500000, '使用量の多い人が違う';
+  delete from storage.objects where bucket_id = 'calendar';
+  delete from auth.users where id in (admin_id, u);
+  delete from public.profiles where user_id in (admin_id, u);
+  perform set_config('request.jwt.claim.sub', '', true);
+end
+$$;
+
 select 'db_assert: all ok' as result;

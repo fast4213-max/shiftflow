@@ -26,6 +26,7 @@ const MASTER_COLUMNS = [
 const OFFICE_NAME_MAX = 60;
 
 let stats = null;
+let usage = null; // 無料枠の使用量(admin_usage)。読めなくても概要は出す
 // マスタのタブ: 選んでいる区所の、全部の切替日のマスタの行(読み込み中・失敗のときは null。S4)
 let masterRows = null;
 let masterRowsOfficeId = null;
@@ -111,6 +112,56 @@ function openPeriod(officeId, periodId) {
   loadMaster().catch((err) => message(err.message, "error"));
 }
 
+// 無料枠の使用量: 上限に対する割合の棒。80%を超えたら橙、95%を超えたら赤。概要の上の注意にも出す
+const MB = 1048576;
+const mbText = (bytes) => (bytes / MB >= 10 ? Math.round(bytes / MB) : Math.round((bytes / MB) * 10) / 10) + "MB";
+function renderUsage() {
+  const panel = $("usage-panel");
+  if (!usage) { panel.classList.add("hidden"); return; }
+  panel.classList.remove("hidden");
+  const rows = [
+    ["データベース", Number(usage.db_bytes), Number(usage.db_limit_bytes)],
+    ["写真・画像の置き場(Storage)", Number(usage.storage_bytes), Number(usage.storage_limit_bytes)],
+  ];
+  const box = $("usage-bars");
+  box.innerHTML = "";
+  const alertsOut = [];
+  for (const [name, used, limit] of rows) {
+    const pct = limit ? (used / limit) * 100 : 0;
+    const row = document.createElement("div");
+    row.className = "bar-row";
+    const label = document.createElement("span");
+    label.className = "bar-name";
+    label.textContent = name;
+    const track = document.createElement("div");
+    track.className = "bar-track";
+    const fill = document.createElement("div");
+    fill.className = "bar-fill" + (pct >= 95 ? " bad" : pct >= 80 ? " warn" : "");
+    fill.style.width = Math.min(100, pct) + "%";
+    track.appendChild(fill);
+    const count = document.createElement("span");
+    count.className = "bar-count";
+    count.textContent = `${mbText(used)} / ${mbText(limit)}(${Math.round(pct)}%)`;
+    row.append(label, track, count);
+    box.appendChild(row);
+    if (pct >= 80) alertsOut.push(`${name} ${Math.round(pct)}%`);
+  }
+  $("usage-detail").textContent =
+    `予定の写真 ${usage.photos}枚(${mbText(Number(usage.photo_bytes))})・画像の置き場 ${usage.gallery}枚(${mbText(Number(usage.gallery_bytes))})。` +
+    "写真は予定が終わって1か月で消えます。無料枠は Supabase の無料プランの目安です。";
+  const top = $("usage-top");
+  top.innerHTML = "";
+  if ((usage.top_users || []).length) {
+    const p = document.createElement("p");
+    p.className = "muted";
+    p.textContent = "写真・画像の量が多い人: " + usage.top_users.map((u) => `${u.employee_no} ${u.name}(${mbText(Number(u.bytes))})`).join("、");
+    top.appendChild(p);
+  }
+  if (alertsOut.length) {
+    $("alerts").appendChild(alertBox("warn", `無料枠の使用量が80%を超えています: ${alertsOut.join("、")}。写真の枚数や大きさを下げるか、プランを見直してください。`));
+  }
+}
+
 function renderOverview() {
   $("kpi-users").textContent = stats.users;
   $("kpi-verified").textContent = stats.verified;
@@ -150,6 +201,7 @@ function renderOverview() {
   if (stats.no_office > 0) {
     alerts.appendChild(alertBox("info", `区所をまだ選んでいない人が ${stats.no_office}人 います(設定画面で選んでもらいます)。`));
   }
+  renderUsage();
 
   const bars = $("office-bars");
   bars.innerHTML = "";
@@ -889,9 +941,10 @@ function renderSettings() {
 
 async function refresh() {
   try {
-    const { data, error } = await supabase.rpc("admin_stats");
+    const [{ data, error }, usageRes] = await Promise.all([supabase.rpc("admin_stats"), supabase.rpc("admin_usage")]);
     if (error) throw error;
     stats = data;
+    usage = usageRes.error ? null : usageRes.data;
     renderOverview();
     renderUsers();
     renderOffices();

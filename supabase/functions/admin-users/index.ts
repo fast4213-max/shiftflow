@@ -2,6 +2,7 @@
 
 import { requireAdmin } from "../_shared/auth.ts";
 import { AppError, readBody, serve } from "../_shared/http.ts";
+import { removeUserFiles } from "../_shared/calendar-files.ts";
 import { resetPin } from "../_shared/login-core.ts";
 
 serve(async (req) => {
@@ -16,7 +17,9 @@ serve(async (req) => {
   if (!target || target.role !== "user") throw new AppError(404, "利用者が見つかりません。", "not_found");
 
   if (body.action === "delete") {
-    // プロフィール・設定・勤務記録は一緒に消える(カレンダーに登録済みの予定は残る)
+    // カレンダーの写真・画像のファイルを先に消す(利用者を消すと行は消えるが、ファイルは残ってしまうため。消せなければ利用者も消さない)
+    await removeUserFiles(ctx.admin, userId);
+    // プロフィール・設定・勤務記録・カレンダーの予定などは一緒に消える(Googleカレンダーに登録済みの予定は残る)
     const { error: deleteError } = await ctx.admin.auth.admin.deleteUser(userId);
     if (deleteError) throw deleteError;
     return { ok: true };

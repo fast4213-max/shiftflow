@@ -40,6 +40,13 @@ body.admin .topbar a.current, body.admin .topbar .brand { color: #fff; }
 .bar-fill { background: var(--accent); height: 100%; border-radius: 0 4px 4px 0; min-width: 2px; }
 .bar-count { text-align: right; font-variant-numeric: tabular-nums; }
 
+/* 無料枠の使用量(棒グラフ。80%を超えたら橙、95%を超えたら赤) */
+.usage .bar-row { grid-template-columns: minmax(6em, 9em) 1fr minmax(8em, 11em); }
+.usage .bar-track { border-radius: 4px; }
+.usage .bar-fill { border-radius: 4px; }
+.bar-fill.warn { background: #e08a00; }
+.bar-fill.bad { background: #c62828; }
+
 /* 注意 */
 .alert { border-radius: 10px; padding: 10px 14px; margin: 10px 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .alert.warn { background: #fff4e5; border: 1px solid #f5c98a; }
