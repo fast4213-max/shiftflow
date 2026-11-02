@@ -18,6 +18,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus.doctemplate import LayoutError
 from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 FONT_PATH = "/usr/share/fonts/opentype/ipafont-gothic/ipagp.ttf"
@@ -106,13 +107,29 @@ class Kit:
         ]))
         return [t]
 
-    def code_box(self, lines):
-        cell = [Paragraph(esc(line) if line.strip() else "&nbsp;", self.code) for line in lines]
-        t = Table([[cell]], colWidths=[WIDTH])
+    def code_box(self, lines, cols=2):
+        """指示文の箱。長いので、真ん中に近い「#」の見出しで2段に分ける。"""
+        def keep_indent(line):  # 先頭の空白は Paragraph で消えるので、字下げを残す
+            body = line.lstrip(" ")
+            return "&nbsp;" * (len(line) - len(body)) + esc(body)
+
+        def cell(part):
+            return [Paragraph(keep_indent(x) if x.strip() else "&nbsp;", self.code) for x in part]
+
+        if cols == 2:
+            heads = [n for n, x in enumerate(lines) if x.startswith("# ")]
+            cut = min(heads, key=lambda n: abs(n - len(lines) / 2))
+            data, widths = [[cell(lines[:cut]), cell(lines[cut:])]], [WIDTH / 2, WIDTH / 2]
+        else:
+            data, widths = [[cell(lines)]], [WIDTH]
+        t = Table(data, colWidths=widths)
         t.setStyle(TableStyle([("FONTNAME", (0, 0), (-1, -1), FONT),
                                ("BACKGROUND", (0, 0), (-1, -1), CODE_BG),
                                ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#b5b5b5")),
+                               ("LINEAFTER", (0, 0), (0, -1), 0.4, colors.HexColor("#cfcfcf")),
+                               ("VALIGN", (0, 0), (-1, -1), "TOP"),
                                ("LEFTPADDING", (0, 0), (-1, -1), 2.5 * mm),
+                               ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm),
                                ("TOPPADDING", (0, 0), (-1, -1), 1.5 * mm),
                                ("BOTTOMPADDING", (0, 0), (-1, -1), 1.8 * mm)]))
         return [t]
@@ -236,7 +253,11 @@ def fit_and_build(name, story_fn, hi=11.0, lo=6.5):
         doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=MARGIN, rightMargin=MARGIN,
                                 topMargin=MARGIN, bottomMargin=MARGIN, title=name.split(".")[0], author="",
                                 initialFontName=FONT, initialFontSize=10)
-        doc.build(story_fn(Kit(size)))
+        try:
+            doc.build(story_fn(Kit(size)))
+        except LayoutError:  # 1つの箱がページより高い。文字を小さくしてやり直す
+            size -= 0.1
+            continue
         if doc.page == 1:
             path = os.path.join(OUT_DIR, name)
             with open(path, "wb") as f:
