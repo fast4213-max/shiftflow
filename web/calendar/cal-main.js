@@ -2,7 +2,7 @@
 // 勤務の予定は、勤務の記録から Edge Function(calendar-shifts)が、勤務入力の設定どおりに組み立てて返す(Google には何も書かない・読まない)。
 // 自分で作る予定・ラベルは、Supabase の cal_* の表(本人の行だけ・RLS)。
 import { callFunction, currentSession, friendlyText, go, loadProfile, loadSettings, selectAllPages, supabase } from "../js/app.js?v=dev";
-import { createExtras } from "./cal-extra.js?v=dev";
+import { createExtras, shrinkForEvent } from "./cal-extra.js?v=dev";
 import {
   addDays, addMonths, compareForDay, dateKey, expandEvent, gridRange, layoutWeek, monthIndex, monthLimits, textOn, todayJst, weekday, whenText, WEEKDAYS,
   yearsText,
@@ -25,6 +25,7 @@ const S = {
   today: todayJst(),
   needOffice: false,
   byUid: new Map(),    // 今の画面の予定(uid → 予定)
+  photos: new Map(),   // 予定の id → 写真の行(cal_photos)
   panel: null,         // 開いているパネル
   todos: [], importants: [], gallery: [], stampDefs: [], stamps: [], // 後の段階の表(cal-extra.js)
 };
@@ -79,6 +80,20 @@ async function loadOwn() {
   S.own = rows.map(rowToOwn);
 }
 
+// 予定の写真の一覧。期限(予定の終了日から1か月)を過ぎたものは、ファイルを消してから行を消す(開いたときに、持ち主が片付ける)
+async function loadPhotos() {
+  const rows = await selectAllPages((from, to) => supabase.from("cal_photos").select("*").order("created_at").range(from, to));
+  S.photos = new Map();
+  for (const r of rows) { if (!S.photos.has(r.event_id)) S.photos.set(r.event_id, []); S.photos.get(r.event_id).push(r); }
+  const expired = rows.filter((r) => r.expires_on && r.expires_on < S.today);
+  if (!expired.length) return;
+  if (!(await extras.removeFiles(expired.map((r) => r.path)))) return; // ファイルを消せなかったら、行は残して次に開いたときにやり直す
+  const { error } = await supabase.from("cal_photos").delete().in("id", expired.map((r) => r.id));
+  if (error) return;
+  const gone = new Set(expired.map((r) => r.id));
+  for (const [k, list] of S.photos) { const rest = list.filter((r) => !gone.has(r.id)); if (rest.length) S.photos.set(k, rest); else S.photos.delete(k); }
+}
+
 // 勤務の予定(月の画面の範囲)。同じ月は読み直さない(勤務入力から戻ったときは、cache を空にして読み直す)
 async function loadShifts(y, m) {
   const key = `${y}-${m}`;
@@ -101,6 +116,7 @@ async function loadShifts(y, m) {
 async function reloadAll({ keepShifts = false } = {}) {
   if (!keepShifts) S.shifts.clear();
   await Promise.all([loadLabels(), loadOwn(), extras.load()]);
+  await loadPhotos().catch(() => {});
   await ensureShifts();
   render();
 }
@@ -244,7 +260,18 @@ function openEvent(uid) {
     ${label ? `<p><span class="chip" style="--c:${esc(colorOf(e.labelId))}"><i></i>${esc(label.name)}</span></p>` : ""}
     ${rep ? `<p class="sub">繰り返し: ${esc(rep)}</p>` : ""}${yearsText(e) ? `<p class="sub">${esc(yearsText(e))}</p>` : ""}
     ${e.memo ? `<p style="white-space:pre-wrap;word-break:break-word">${esc(e.memo)}</p>` : ""}
+    ${photosDetailHtml(e)}
     <p class="msg err" id="detail-msg"></p>${actions}</div>`);
+  extras.hydrate($("panel"));
+}
+
+function photosDetailHtml(e) {
+  const list = e.src === "own" ? S.photos.get(e.baseId || e.id) || [] : [];
+  if (!list.length) return "";
+  const md = (d) => `${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日`;
+  const exp = list.map((p) => p.expires_on).filter(Boolean).sort()[0];
+  const note = exp ? `写真は${md(exp)}に消えます(予定が終わって1か月後)。` : "繰り返しの予定の写真は、自動では消えません。";
+  return `<div class="pgrid">${list.map((p) => `<img class="pimg" data-path="${esc(p.path)}" data-act="ph-view" data-exp="${esc(p.expires_on || "")}" alt="写真">`).join("")}</div><p class="sub">${esc(note)}</p>`;
 }
 
 // ---------- 予定の追加・編集 ----------
@@ -257,6 +284,7 @@ function openForm(source, defaultDate, mode = "all") {
   const base = source ? S.own.find((x) => x.id === (source.baseId || source.id)) : null;
   const useOcc = source && mode === "occ" && source.occ;
   const labels = ownLabels();
+  const baseId = base ? base.id : null;
   draft = source && base
     ? {
         id: base.id, version: base.version, mode: useOcc ? "occ" : "all", occ: source.occ || "", exdates: base.exdates,
@@ -268,7 +296,53 @@ function openForm(source, defaultDate, mode = "all") {
         id: null, mode: "new", title: "", labelId: labels[0] ? labels[0].id : "", start: defaultDate, end: defaultDate, allDay: true,
         startTime: "09:00", endTime: "10:00", memo: "", repeat: "none", until: "", yearsLabel: "",
       };
+  draft.keep = useOcc ? [] : (S.photos.get(baseId) || []).slice(); // 付いている写真(「この回だけ」の編集は、新しい予定になるので持たない)
+  draft.added = [];   // これから付ける写真 { blob, url }
+  draft.removed = []; // 外す写真(保存したときに消す)
   renderForm();
+}
+
+function photosFormHtml(d) {
+  const total = d.keep.length + d.added.length;
+  const thumbs = d.keep.map((p) => `<span class="pth"><img data-path="${esc(p.path)}" alt="写真"><button data-act="ph-rm" data-id="${esc(p.id)}" aria-label="外す">✕</button></span>`).join("") +
+    d.added.map((a, i) => `<span class="pth"><img src="${esc(a.url)}" alt="写真"><button data-act="ph-rm-new" data-i="${i}" aria-label="外す">✕</button></span>`).join("");
+  return `<div class="fld"><label class="lb">写真(3枚まで)</label><div class="pgrid">${thumbs}</div>
+    <label class="btn filebtn" style="margin-top:6px${total >= 3 ? ";opacity:.4" : ""}">＋ 写真を追加<input type="file" id="f-photo" accept="image/*" multiple${total >= 3 ? " disabled" : ""}></label>
+    <p class="sub">小さくして保存します。${d.repeat !== "none" ? "繰り返しの予定の写真は、自動では消えません。" : "写真は、予定が終わって1か月後に消えます。"}</p></div>`;
+}
+
+async function addPhotos(files) {
+  const room = 3 - (draft.keep.length + draft.added.length);
+  const list = [...files].slice(0, Math.max(0, room));
+  let msg = files.length > list.length ? "写真は3枚までなので、入りきらなかった分は入れていません。" : "";
+  for (const f of list) {
+    try {
+      const blob = await shrinkForEvent(f);
+      if (blob) draft.added.push({ blob, url: URL.createObjectURL(blob) });
+      else msg = "写真を読み込めませんでした。";
+    } catch (e) { msg = "写真を読み込めませんでした。"; }
+  }
+  renderForm(msg);
+}
+
+// 保存した予定に、写真を付け外しする。失敗した枚数と理由を返す
+async function persistPhotos(eventId, d) {
+  const fails = [];
+  if (d.removed.length) {
+    if (await extras.removeFiles(d.removed.map((p) => p.path))) {
+      const { error } = await supabase.from("cal_photos").delete().in("id", d.removed.map((p) => p.id));
+      if (error) fails.push(friendlyText(error.message));
+    } else fails.push("写真を外せませんでした");
+  }
+  for (const a of d.added) {
+    const path = `${S.userId}/e-${extras.uuid()}.jpg`;
+    try {
+      await extras.upload(path, a.blob, "image/jpeg");
+      const { error } = await supabase.from("cal_photos").insert({ event_id: eventId, path, size_bytes: a.blob.size });
+      if (error) { await extras.removeFiles([path]); throw error; }
+    } catch (e) { fails.push(friendlyText(e.message || String(e))); }
+  }
+  return fails;
 }
 
 function renderForm(message = "") {
@@ -291,8 +365,10 @@ function renderForm(message = "") {
     <div class="fld"><label class="tg"><input type="checkbox" id="f-allday" data-f="allDay"${d.allDay ? " checked" : ""}> 終日</label></div>
     ${time}${rep}
     <div class="fld"><label class="lb" for="f-memo">メモ</label><textarea class="in" id="f-memo" data-f="memo" maxlength="1000">${esc(d.memo)}</textarea></div>
+    ${photosFormHtml(d)}
     <p class="msg err" id="form-msg">${esc(message)}</p>
     <div class="btns"><button class="btn pri" data-act="save" id="f-save">保存</button><button class="btn" data-act="close">やめる</button></div></div>`;
+  extras.hydrate($("panel"));
 }
 
 function readDraftField(el) {
@@ -328,10 +404,12 @@ async function saveDraft() {
   const err = draftError(d);
   if (err) return renderForm(err);
   $("f-save").disabled = true;
+  let eventId = d.id;
   try {
     if (d.mode === "new") {
-      const { error } = await supabase.from("cal_events").insert(rowFromDraft(d));
+      const { data, error } = await supabase.from("cal_events").insert(rowFromDraft(d)).select().single();
       if (error) throw error;
+      eventId = data.id;
     } else if (d.mode === "all") {
       const { data, error } = await supabase.from("cal_events").update(rowFromDraft(d)).eq("id", d.id).eq("version", d.version).select();
       if (error) throw error;
@@ -342,15 +420,19 @@ async function saveDraft() {
       const upd = await supabase.from("cal_events").update({ exdates: ex }).eq("id", d.id).eq("version", d.version).select();
       if (upd.error) throw upd.error;
       if (!upd.data || !upd.data.length) { await reloadAll(); return renderForm("別の端末で変更されたか、消されています。読み直しました。もう一度直してください。"); }
-      const ins = await supabase.from("cal_events").insert(rowFromDraft({ ...d, repeat: "none", until: "" }));
+      const ins = await supabase.from("cal_events").insert(rowFromDraft({ ...d, repeat: "none", until: "" })).select().single();
       if (ins.error) {
         await supabase.from("cal_events").update({ exdates: d.exdates || [] }).eq("id", d.id); // 元に戻す
         throw ins.error;
       }
+      eventId = ins.data.id;
     }
+    // 写真の付け外し(予定は保存できているので、写真だけ失敗したときは、予定は残して知らせる)
+    const fails = d.keep.length + d.added.length + d.removed.length ? await persistPhotos(eventId, d) : [];
     draft = null;
     await reloadAll({ keepShifts: true });
     closePanel();
+    if (fails.length) showBanner(`予定は保存しました。写真${fails.length}件は保存できませんでした(${esc(fails[0])})。予定を開いて、もう一度付けてください。`);
   } catch (e) {
     renderForm(friendlyText(e.message || String(e)));
   }
@@ -371,6 +453,9 @@ async function deleteEvent(uid, mode) {
       if (error) throw error;
       if (!data || !data.length) { await reloadAll(); $("detail-msg").textContent = "別の端末で変更されています。読み直しました。"; return; }
     } else {
+      // 写真のファイルを先に消す(予定を消すと、写真の行も一緒に消え、ファイルだけが残ってしまうため)
+      const photos = S.photos.get(base.id) || [];
+      if (photos.length && !(await extras.removeFiles(photos.map((p) => p.path)))) throw new Error("写真を消せませんでした。もう一度お試しください。");
       const { error } = await supabase.from("cal_events").delete().eq("id", base.id);
       if (error) throw error;
     }
@@ -563,6 +648,9 @@ function bind() {
     if (act === "del") return deleteEvent(el.dataset.uid, el.dataset.mode);
     if (act === "save") return saveDraft();
     if (act.startsWith("l-")) return settingsAction(act, el);
+    if (act === "ph-view") { $("viewer-img").src = el.src; $("viewer-cap").textContent = el.dataset.exp ? `この写真は${Number(el.dataset.exp.slice(5, 7))}月${Number(el.dataset.exp.slice(8, 10))}日に消えます` : ""; $("viewer").hidden = false; return; }
+    if (act === "ph-rm" && draft) { const p = draft.keep.find((x) => x.id === el.dataset.id); draft.keep = draft.keep.filter((x) => x.id !== el.dataset.id); if (p) draft.removed.push(p); return renderForm(); }
+    if (act === "ph-rm-new" && draft) { const i = Number(el.dataset.i); const a = draft.added[i]; if (a) URL.revokeObjectURL(a.url); draft.added.splice(i, 1); return renderForm(); }
     extras.panelClick(el, act);
   });
   $("panel").addEventListener("keydown", (ev) => { extras.panelKey(ev); });
@@ -572,6 +660,7 @@ function bind() {
   });
   $("panel").addEventListener("change", (ev) => {
     const el = ev.target;
+    if (draft && el.id === "f-photo") { addPhotos(el.files).then(() => { el.value = ""; }); return; }
     if (draft && el.dataset.f) return readDraftField(el);
     if (el.dataset.lf) return labelFieldChanged(el);
     if (el.name === "theme") { storageSet(THEME_KEY, el.value); applyTheme(); return; }
@@ -605,9 +694,11 @@ async function main() {
   } catch (_) { /* 読めなければ全部表示 */ }
   S.y = Number(S.today.slice(0, 4));
   S.m = Number(S.today.slice(5, 7));
+  S.userId = session.user.id;
   extras = createExtras({ S, $, esc, supabase, openPanel, setPanel, closePanel, head, render, fail, friendlyText, selectAllPages, userId: session.user.id });
   bind();
   await Promise.all([loadLabels(), loadOwn(), extras.load()]);
+  await loadPhotos().catch(() => {});
   $("boot").hidden = true;
   render();
   try { await ensureShifts(); render(); } catch (e) { fail(e); }

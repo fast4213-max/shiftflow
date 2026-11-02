@@ -162,3 +162,10 @@ textarea.in { min-height: 90px; resize: vertical; }
 .viewer p { color: #fff; margin: 8px; font-size: 14px; }
 .filebtn { display: inline-block; }
 .filebtn input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+
+/* ---- 予定の写真 ---- */
+.pgrid { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
+.pth { position: relative; }
+.pth img { width: 84px; height: 64px; object-fit: cover; border-radius: 6px; background: var(--alt); display: block; }
+.pth button { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; background: #222; color: #fff; font-size: 12px; line-height: 22px; text-align: center; }
+.pimg { width: 96px; height: 72px; object-fit: cover; border-radius: 6px; cursor: zoom-in; background: var(--alt); }

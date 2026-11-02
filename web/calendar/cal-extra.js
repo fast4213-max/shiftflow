@@ -26,6 +26,15 @@ export async function shrinkForGallery(file) {
   return b;
 }
 
+// 予定に付ける写真: 長い辺1280px・約200KB以下のJPEG(3枚まで・予定の終了日から1か月で消える)
+const EVENT_PHOTO_BYTES = 200 * 1024;
+export async function shrinkForEvent(file) {
+  let b = await shrinkImage(file, 1280, "image/jpeg", 0.8);
+  if (b && b.size > EVENT_PHOTO_BYTES) b = await shrinkImage(file, 1024, "image/jpeg", 0.7);
+  if (b && b.size > EVENT_PHOTO_BYTES) b = await shrinkImage(file, 800, "image/jpeg", 0.6);
+  return b;
+}
+
 export function createExtras(env) {
   const { S, $, esc, supabase, openPanel, setPanel, closePanel, head, render, userId } = env;
   const urls = new Map();
@@ -55,9 +64,12 @@ export function createExtras(env) {
     const { error } = await supabase.storage.from("calendar").upload(path, blob, { contentType, upsert: false });
     if (error) throw error;
   }
+  // ファイルを消す。消せたら true(消せなかったときは、行を消さないよう false を返す。消し忘れの写真を残さないため)
   async function removeFiles(paths) {
     const list = paths.filter(Boolean);
-    if (list.length) await supabase.storage.from("calendar").remove(list);
+    if (!list.length) return true;
+    const { error } = await supabase.storage.from("calendar").remove(list);
+    return !error;
   }
 
   // ---------- 読み込み ----------
@@ -596,6 +608,7 @@ export function createExtras(env) {
   }
 
   return {
+    upload, removeFiles, uuid,
     load, hydrate, stampsLayer, cellTap, bindDrag, trayClick, renderTray,
     openTodo, openImportant, openGallery, toggleStampMode,
     panelClick, panelChange, panelInput, panelKey,

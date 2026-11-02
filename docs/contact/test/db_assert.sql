@@ -240,8 +240,8 @@ begin
   perform public.delete_master_period(nxt);
   assert not exists (select 1 from public.shift_master where period_id = nxt), '消した切替日の行が残る';
 
-  -- 古い切替日の自動削除: 次の切替日が前月の1日より前なら消える
-  --   2000-01-01 は次(2001-01-01)が前月の1日より前なので消える。2001-01-01 は次(base)が今月なので、前月の記録のために残す
+  -- 古い切替日の自動削除: 次の切替日が13か月前の月の1日以前なら消える
+  --   2000-01-01 は次(2001-01-01)が13か月前より前なので消える。2001-01-01 は次(base)が今月なので、1年分の記録のために残す
   insert into public.master_periods (office_id, starts_on, name) values (office, date '2000-01-01', '古い'), (office, date '2001-01-01', '前');
   -- 次の切替日に行があるときだけ前を消す(AB10)
   insert into public.shift_master (office_id, period_id, code, kind)
@@ -576,6 +576,57 @@ begin
   delete from public.profiles where user_id in (u1, u2);
   assert (select count(*) from public.cal_labels) = 0 and (select count(*) from public.cal_events) = 0
      and (select count(*) from public.cal_photos) = 0 and (select count(*) from public.cal_gallery) = 0, '利用者を消しても、カレンダーの行が残る';
+end
+$$;
+
+-- 保存期間: 勤務の記録は13か月・カレンダーの予定とスタンプは12か月。写真が残っている予定と、終わりの無い繰り返しは消さない
+do $$
+declare
+  u uuid := 'eeeeeeee-0000-4000-8000-000000000001';
+  first_this date := date_trunc('month', (now() at time zone 'Asia/Tokyo')::date)::date;
+  l uuid;
+  d uuid;
+  e_old uuid;
+  e_photo uuid;
+  e_rep uuid;
+  e_rep_end uuid;
+  e_keep uuid;
+begin
+  assert not has_function_privilege('anon', 'public.purge_old_calendar()', 'execute'), 'anon が purge_old_calendar を実行できる';
+  assert not has_function_privilege('authenticated', 'public.purge_old_calendar()', 'execute'), 'authenticated が purge_old_calendar を実行できる';
+  insert into auth.users (id) values (u);
+  insert into public.profiles (user_id, employee_no, family_name, given_name) values (u, '7000009', '試', '九');
+  -- 勤務の記録: 14か月前・13か月前の月初の前日は消え、13か月前の月初・12か月前は残る
+  insert into public.shift_records (user_id, date, code, memo) values
+    (u, (first_this - interval '13 months')::date - 1, '1', ''),
+    (u, (first_this - interval '14 months')::date, '1', ''),
+    (u, (first_this - interval '13 months')::date, '1', ''),
+    (u, (first_this - interval '12 months')::date, '1', '');
+  assert public.count_old_shift_records() = 2, '消える勤務の記録の数が違う(13か月)';
+  insert into public.cal_labels (user_id, name, color) values (u, '試', '#112233') returning id into l;
+  -- 予定: 古い単発・古い単発(写真あり)・終わりの無い繰り返し・終わりが古い繰り返し・12か月前の月初の予定
+  insert into public.cal_events (user_id, title, start_date, end_date, label_id) values (u, '古い', (first_this - interval '12 months')::date - 1, (first_this - interval '12 months')::date - 1, l) returning id into e_old;
+  insert into public.cal_events (user_id, title, start_date, end_date, label_id) values (u, '写真あり', (first_this - interval '13 months')::date, (first_this - interval '13 months')::date, l) returning id into e_photo;
+  insert into public.cal_photos (user_id, event_id, path) values (u, e_photo, u::text || '/x.jpg');
+  insert into public.cal_events (user_id, title, start_date, end_date, label_id, repeat_rule) values (u, '誕生日', (first_this - interval '5 years')::date, (first_this - interval '5 years')::date, l, 'yearly') returning id into e_rep;
+  insert into public.cal_events (user_id, title, start_date, end_date, label_id, repeat_rule, repeat_until) values (u, '終わった繰り返し', (first_this - interval '3 years')::date, (first_this - interval '3 years')::date, l, 'weekly', (first_this - interval '2 years')::date) returning id into e_rep_end;
+  insert into public.cal_events (user_id, title, start_date, end_date, label_id) values (u, '残る', (first_this - interval '12 months')::date, (first_this - interval '12 months')::date, l) returning id into e_keep;
+  insert into public.cal_stamp_defs (user_id, kind, emoji) values (u, 'emoji', '🙂') returning id into d;
+  insert into public.cal_stamps (user_id, date, stamp_def_id, x, y, size) values (u, (first_this - interval '12 months')::date - 1, d, .5, .5, .3), (u, (first_this - interval '12 months')::date, d, .5, .5, .3);
+  perform public.purge_old_shift_records();
+  assert (select count(*) from public.shift_records where user_id = u) = 2, '勤務の記録の消え方が違う';
+  assert not exists (select 1 from public.cal_events where id = e_old), '古い予定が消えない';
+  assert exists (select 1 from public.cal_events where id = e_photo), '写真が残っている予定が消えた';
+  assert exists (select 1 from public.cal_events where id = e_rep), '終わりの無い繰り返しが消えた';
+  assert not exists (select 1 from public.cal_events where id = e_rep_end), '終わりが古い繰り返しが消えない';
+  assert exists (select 1 from public.cal_events where id = e_keep), '12か月前の月初の予定が消えた';
+  assert (select count(*) from public.cal_stamps where user_id = u) = 1, '古いスタンプの消え方が違う';
+  -- 写真が消えたあとの翌日には、予定も消える
+  delete from public.cal_photos where event_id = e_photo;
+  perform public.purge_old_shift_records();
+  assert not exists (select 1 from public.cal_events where id = e_photo), '写真が無くなった古い予定が消えない';
+  delete from auth.users where id = u;
+  delete from public.profiles where user_id = u;
 end
 $$;
 

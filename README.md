@@ -292,7 +292,7 @@ deno test --allow-read --allow-env supabase/functions
 
 ## 古い勤務記録・ログイン記録の自動削除
 
-勤務記録(`shift_records`)は、毎日 日本時間の午前3時に、**前月の1日より前**のぶんが自動で消えます(例: 10月なら 8月以前)。前月末は、月またぎの非番判定に使うので残します。Googleカレンダーの予定は消えません。
+勤務記録(`shift_records`)は、毎日 日本時間の午前3時に、**13か月前の月の1日より前**のぶんが自動で消えます(例: 2026年11月なら 2025年10月1日より前)。カレンダー(shiftflowカレンダー)で過去1年を見返せるようにするためで、1か月の余裕は、月またぎの非番判定が前月末を使うためです。Googleカレンダーの予定は消えません。
 
 - 仕組み: migration `20261003000000_purge_old_shift_records.sql`(`purge_old_shift_records()` を `pg_cron` で毎日実行)
 - 消える件数の確認(SQL エディタで): `select public.count_old_shift_records();`
@@ -302,7 +302,8 @@ deno test --allow-read --allow-env supabase/functions
   `select cron.schedule('purge-old-shift-records', '0 18 * * *', 'select public.purge_old_shift_records()');`
 - ログインの失敗回数(`auth_attempts`)も、30日以上更新されていない行を毎日 日本時間の午前3時10分に消します(`purge_old_auth_attempts()`、ジョブ名 `purge-old-auth-attempts`)。ロック中の行は消えません。`pg_cron` を設定できなかったときの手動登録は `select cron.schedule('purge-old-auth-attempts', '10 18 * * *', 'select public.purge_old_auth_attempts()');`
 - 初めて反映する前に、`count_old_shift_records()` で件数を確かめ、マスタを「CSVで保存」で書き出しておく
-- マスタの古い切替日(ダイヤ改正・ダイヤ修正の前のマスタ)とその行も、同じジョブで消えます。次の切替日が前月の1日以前で、次の切替日にマスタ(CSV)が入っているものだけです。残しておきたいときは、消える前に管理画面のそのタブで「CSVで保存」
+- マスタの古い切替日(ダイヤ改正・ダイヤ修正の前のマスタ)とその行も、同じジョブで消えます。次の切替日が**13か月前の月の1日**以前で、次の切替日にマスタ(CSV)が入っているものだけです(個数の上限はありません。半年ごとの改正なら3つ前後残ります)。残しておきたいときは、消える前に管理画面のそのタブで「CSVで保存」
+- shiftflowカレンダーの古い予定・スタンプも、同じジョブで消えます(12か月前の月の1日より前。終わりの無い繰り返しの予定と、写真が残っている予定は消えません)。予定の写真は、予定の終了日から1か月で、持ち主がカレンダーを開いたときにファイルごと消えます
 - お問い合わせは、最後のやり取りから90日で消します(毎日 日本時間の午前3時20分、`purge_old_contact()`、ジョブ名 `purge-old-contact`)。手動登録は `select cron.schedule('purge-old-contact', '20 18 * * *', 'select public.purge_old_contact()');`。Gmail・Discord の分は [`docs/contact/SETUP.md`](docs/contact/SETUP.md)
 
 ## 更新してもデータが消えないために(直す人向けのメモ)

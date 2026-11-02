@@ -106,7 +106,8 @@ function backend(opts = {}) {
       const table = path.slice("/rest/v1/".length);
       const rows = st.cal[table] || (st.cal[table] = []);
       const filters = [...url.searchParams.entries()].filter(([, v]) => v.startsWith("eq.")).map(([k, v]) => [k, v.slice(3)]);
-      const match = (r) => filters.every(([k, v]) => String(r[k]) === v);
+      const inFilters = [...url.searchParams.entries()].filter(([, v]) => v.startsWith("in.(")).map(([k, v]) => [k, v.slice(4, -1).split(",")]);
+      const match = (r) => filters.every(([k, v]) => String(r[k]) === v) && inFilters.every(([k, list]) => list.includes(String(r[k])));
       const wantObject = (req.headers()["accept"] || "").includes("vnd.pgrst.object");
       const rep = (list) => json(wantObject ? list[0] ?? null : list);
       if (req.method() === "GET") return rep(rows.filter(match).sort((a, b) => (a.sort || 0) - (b.sort || 0)));
@@ -119,6 +120,13 @@ function backend(opts = {}) {
           if (table === "cal_stamps") Object.assign(row, { rotation: 0, notes: [], ...b });
           if (table === "cal_gallery") Object.assign(row, { title: "", ...b });
           if (table === "cal_importants") Object.assign(row, { body: "", ...b });
+          if (table === "cal_photos") {
+            // DB のトリガーと同じ: 消す日は、繰り返しでない予定の終了日の1か月後(繰り返しは消さない)
+            const ev = st.cal.cal_events.find((e) => e.id === b.event_id);
+            const [yy, mm, dd] = ev ? ev.end_date.split("-").map(Number) : [0, 0, 0];
+            const last = new Date(Date.UTC(yy, mm + 1, 0)).getUTCDate();
+            row.expires_on = ev && ev.repeat_rule === "none" ? new Date(Date.UTC(yy, mm, Math.min(dd, last))).toISOString().slice(0, 10) : null;
+          }
           if (table === "cal_events") Object.assign(row, { exdates: [], repeat_rule: "none", memo: "", start_time: "", end_time: "", repeat_until: null, years_label: "", ...b, version: 1 });
           rows.push(row);
           return row;
@@ -139,6 +147,8 @@ function backend(opts = {}) {
         rows.length = 0;
         rows.push(...keep);
         // 外部キーの「消したら一緒に消える」(スタンプの種類 → 置いたスタンプ)
+        // 予定を消すと、写真の行も一緒に消える
+        if (table === "cal_events") st.cal.cal_photos = (st.cal.cal_photos || []).filter((x) => !gone.some((g) => g.id === x.event_id));
         if (table === "cal_stamp_defs") st.cal.cal_stamps = (st.cal.cal_stamps || []).filter((x) => !gone.some((g) => g.id === x.stamp_def_id));
         return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*" } });
       }
@@ -2436,6 +2446,106 @@ await check("カレンダー: 上のボタン・下のタブが幅320pxでもは
     const b = await page.locator(id).boundingBox();
     assert.ok(b && b.x >= 0 && b.x + b.width <= 320, `${id} がはみ出す: ${JSON.stringify(b)}`);
   }
+  await ctx.close();
+});
+
+
+const shiftIso = (d, n) => { const x = new Date(d + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+
+await check("カレンダー(予定の写真): 3枚まで・小さくして入れる・予定の詳細に出して、消える日を知らせる・外す・予定を消すとファイルも消す", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-new");
+  await page.fill("#f-title", "運動会");
+  await page.setInputFiles("#f-photo", [DIR + "photo.jpg", DIR + "big.png", DIR + "photo.jpg", DIR + "big.png"]);
+  await page.waitForFunction(() => document.querySelectorAll(".pth").length === 3);
+  assert.ok((await page.textContent("#form-msg")).includes("3枚まで"));
+  assert.equal(await page.isDisabled("#f-photo"), true);
+  await page.click("#f-save");
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  assert.equal(be.st.uploads.length, 3);
+  for (const u of be.st.uploads) {
+    assert.ok(u.head.includes("image/jpeg"));
+    assert.ok(u.size < 260 * 1024, `約200KB以下: ${u.size}`);
+    assert.ok(/\/e-.*\.jpg$/.test(u.path), u.path);
+  }
+  assert.equal(be.st.cal.cal_photos.length, 3);
+  const ev = be.st.cal.cal_events[0];
+  assert.ok(be.st.cal.cal_photos.every((p) => p.event_id === ev.id));
+  // 詳細: 写真が出て、消える日を知らせる
+  await page.click('.bar:has-text("運動会")');
+  await page.waitForFunction(() => document.querySelectorAll(".pimg").length === 3);
+  const text = await page.textContent("#panel");
+  assert.ok(text.includes("に消えます(予定が終わって1か月後)"), text);
+  await page.waitForFunction(() => [...document.querySelectorAll(".pimg")].every((i) => i.complete && i.naturalWidth > 0));
+  await page.locator(".pimg").first().click();
+  assert.equal(await page.isVisible("#viewer"), true);
+  await page.click("#viewer");
+  // 1枚外して、別の1枚を付ける
+  await page.click('[data-act="edit"]');
+  await page.locator('[data-act="ph-rm"]').first().click();
+  assert.equal(await page.locator(".pth").count(), 2);
+  await page.setInputFiles("#f-photo", [DIR + "photo.jpg"]);
+  await page.waitForFunction(() => document.querySelectorAll(".pth").length === 3);
+  await page.click("#f-save");
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  assert.equal(be.st.removed.length, 1);
+  assert.equal(be.st.uploads.length, 4);
+  assert.equal(be.st.cal.cal_photos.length, 3);
+  // 予定を消すと、写真のファイルも消す(行より先に)
+  page.on("dialog", (d) => d.accept().catch(() => {}));
+  await page.click('.bar:has-text("運動会")');
+  await page.click('[data-act="del"]');
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  assert.equal(be.st.cal.cal_events.length, 0);
+  assert.equal(be.st.removed.length, 1 + 3);
+  assert.equal(be.st.cal.cal_photos.length, 0);
+  assert.deepEqual(errors.filter((e) => !e.startsWith("dialog")), []);
+  await ctx.close();
+});
+
+await check("カレンダー(予定の写真): 期限(予定の終了日から1か月)を過ぎた写真は、開いたときに、ファイルを消してから行を消す。期限の前の写真と、繰り返しの予定の写真は残す", async () => {
+  const { page, ctx, be, errors } = await calOpen({}, {});
+  await page.waitForSelector(".bar");
+  const L = be.st.cal.cal_labels.find((l) => l.kind === "custom").id;
+  const mk = (id, end, repeat) => ({ id, user_id: "u1", title: id, start_date: end, end_date: end, all_day: true, start_time: "", end_time: "", label_id: L, memo: "", repeat_rule: repeat, repeat_until: null, exdates: [], years_label: "", version: 1 });
+  be.st.cal.cal_events.push(mk("E-old", shiftIso(today, -60), "none"), mk("E-new", shiftIso(today, -10), "none"), mk("E-rep", shiftIso(today, -400), "yearly"));
+  const ph = (id, ev, exp) => ({ id, user_id: "u1", event_id: ev, path: `u1/${id}.jpg`, size_bytes: 1, expires_on: exp, created_at: "2026-10-01T00:00:00Z" });
+  be.st.cal.cal_photos.push(ph("P-old", "E-old", shiftIso(today, -30)), ph("P-new", "E-new", shiftIso(today, 20)), ph("P-rep", "E-rep", null));
+  await page.reload();
+  await page.waitForSelector(".bar");
+  await page.waitForFunction(() => true);
+  await page.waitForTimeout(500);
+  assert.deepEqual(be.st.removed, ["u1/P-old.jpg"], "期限を過ぎた写真のファイルだけ消す");
+  assert.deepEqual(be.st.cal.cal_photos.map((p) => p.id), ["P-new", "P-rep"], "行も、ファイルを消したあとに消す");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("カレンダー(予定の写真): ファイルを消せなかったときは、行を残して次にやり直す。写真だけ保存に失敗しても、予定は残して知らせる", async () => {
+  const { page, ctx, be, errors } = await calOpen({}, {});
+  await page.waitForSelector(".bar");
+  const L = be.st.cal.cal_labels.find((l) => l.kind === "custom").id;
+  be.st.cal.cal_events.push({ id: "E-old", user_id: "u1", title: "E-old", start_date: shiftIso(today, -60), end_date: shiftIso(today, -60), all_day: true, start_time: "", end_time: "", label_id: L, memo: "", repeat_rule: "none", repeat_until: null, exdates: [], years_label: "", version: 1 });
+  be.st.cal.cal_photos.push({ id: "P-old", user_id: "u1", event_id: "E-old", path: "u1/P-old.jpg", size_bytes: 1, expires_on: shiftIso(today, -30), created_at: "2026-10-01T00:00:00Z" });
+  // ファイルを消せない(Storage が失敗する)
+  await page.route("**/storage/v1/object/calendar", (r) => r.request().method() === "DELETE" ? r.fulfill({ status: 500, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ message: "x" }) }) : r.fallback());
+  await page.reload();
+  await page.waitForSelector(".bar");
+  await page.waitForTimeout(500);
+  assert.equal(be.st.cal.cal_photos.length, 1, "ファイルを消せなかったので、行は残す");
+  // 写真だけ失敗: Storage に入れられない
+  await page.route("**/storage/v1/object/calendar/**", (r) => r.request().method() === "POST" ? r.fulfill({ status: 500, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ message: "upload failed" }) }) : r.fallback());
+  await page.click("#tab-new");
+  await page.fill("#f-title", "写真つき");
+  await page.setInputFiles("#f-photo", [DIR + "photo.jpg"]);
+  await page.waitForFunction(() => document.querySelectorAll(".pth").length === 1);
+  await page.click("#f-save");
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  assert.ok(be.st.cal.cal_events.some((e) => e.title === "写真つき"), "予定は残る");
+  await page.waitForSelector("#banner:not([hidden])");
+  assert.ok((await page.textContent("#banner")).includes("写真1件は保存できませんでした"));
+  assert.equal(be.st.cal.cal_photos.filter((p) => p.event_id !== "E-old").length, 0);
   await ctx.close();
 });
 
