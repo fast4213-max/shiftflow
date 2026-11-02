@@ -419,4 +419,164 @@ begin
 end
 $$;
 
+-- shiftflowカレンダーの表(cal_*)と Storage: 本人の行だけ・上限・入力の確かめ・消す日の計算・権限
+do $$
+declare
+  u1 uuid := 'dddddddd-0000-4000-8000-000000000001';
+  u2 uuid := 'dddddddd-0000-4000-8000-000000000002';
+  l1 uuid;
+  l2 uuid;
+  e1 uuid;
+  e2 uuid;
+  d1 uuid;
+  t text;
+  n int;
+  ok boolean;
+begin
+  -- 権限: 未ログインは触れない。利用者は決めた列だけ。RLS は全部の表で有効
+  foreach t in array array['cal_labels', 'cal_events', 'cal_photos', 'cal_stamp_defs', 'cal_stamps', 'cal_todos', 'cal_importants', 'cal_gallery'] loop
+    assert (select relrowsecurity from pg_class where oid = ('public.' || t)::regclass), t || ' の RLS が無効';
+    assert not has_table_privilege('anon', 'public.' || t, 'select, insert, update, delete'), 'anon が ' || t || ' を触れる';
+    assert has_table_privilege('authenticated', 'public.' || t, 'select, insert, delete'), 'authenticated が ' || t || ' を使えない';
+    assert has_table_privilege('service_role', 'public.' || t, 'select, insert, update, delete'), 'service_role が ' || t || ' を触れない';
+  end loop;
+  assert not has_column_privilege('authenticated', 'public.cal_photos', 'expires_on', 'update'), '利用者が写真の消す日を書き換えられる';
+  assert not has_table_privilege('authenticated', 'public.cal_photos', 'update'), '利用者が写真の行を更新できる';
+  assert not has_column_privilege('authenticated', 'public.cal_gallery', 'path', 'update'), '利用者が画像の場所を書き換えられる';
+  assert has_column_privilege('authenticated', 'public.cal_gallery', 'title', 'update'), '利用者が画像の名前を直せない';
+  assert not has_function_privilege('anon', 'public.cal_ensure_default_labels()', 'execute'), 'anon が cal_ensure_default_labels を実行できる';
+  assert has_function_privilege('authenticated', 'public.cal_ensure_default_labels()', 'execute'), 'authenticated が cal_ensure_default_labels を実行できない';
+  assert not has_function_privilege('authenticated', 'public.cal_limit()', 'execute'), 'authenticated が cal_limit を実行できる';
+
+  -- Storage(テストの偽物): calendar バケットは非公開・1MBまで・画像だけ。自分のフォルダだけ
+  assert (select count(*) from storage.buckets where id = 'calendar' and public = false and file_size_limit = 1048576) = 1, 'calendar バケットの設定が違う';
+  assert (select count(*) from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname like 'calendar_%') = 3, 'calendar の Storage の権限が3つではない';
+
+  insert into auth.users (id) values (u1), (u2);
+  insert into public.profiles (user_id, employee_no, family_name, given_name) values (u1, '7000001', '試', '一'), (u2, '7000002', '試', '二');
+
+  -- ===== u1 =====
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub', u1::text, true);
+  perform public.cal_ensure_default_labels();
+  perform public.cal_ensure_default_labels();
+  assert (select count(*) from public.cal_labels) = 3, '最初のラベルが3つにならない(2回呼んでも増えない)';
+  assert (select count(*) from public.cal_labels where kind in ('duty', 'off')) = 2, '勤務・休日のラベルが無い';
+  select id into l1 from public.cal_labels where kind = 'custom';
+
+  -- ラベル: 色の形・名前の長さ・勤務/休日は1つだけ・自分で作るのは10件まで
+  ok := false;
+  begin insert into public.cal_labels (name, color) values ('x', 'red'); exception when check_violation then ok := true; end;
+  assert ok, '色が #RRGGBB でなくても入る';
+  ok := false;
+  begin insert into public.cal_labels (kind, name, color) values ('duty', 'もう1つ', '#112233'); exception when unique_violation then ok := true; end;
+  assert ok, '勤務のラベルが2つ入る';
+  for n in 1..9 loop insert into public.cal_labels (name, color, sort) values ('ラベル' || n, '#112233', n + 10); end loop;
+  ok := false;
+  begin insert into public.cal_labels (name, color) values ('11個目', '#112233'); exception when check_violation then ok := true; end;
+  assert ok, '自分で作るラベルが10件を超えて入る';
+
+  -- 予定: 分単位の時刻・終日でない予定には開始時刻・同じ日で終了が開始より前は不可・version は更新のたびに +1
+  insert into public.cal_events (title, start_date, end_date, all_day, label_id) values ('歯医者', '2026-11-10', '2026-11-10', true, l1) returning id into e1;
+  assert (select version from public.cal_events where id = e1) = 1, '予定の version が 1 でない';
+  update public.cal_events set title = '歯医者2', version = 99 where id = e1;
+  assert (select version from public.cal_events where id = e1) = 2, 'version を画面から決められる(更新のたびに +1 になっていない)';
+  insert into public.cal_events (title, start_date, end_date, all_day, start_time, end_time, label_id)
+    values ('会議', '2026-11-10', '2026-11-10', false, '09:07', '10:43', l1);
+  ok := false;
+  begin insert into public.cal_events (title, start_date, end_date, all_day, label_id) values ('x', '2026-11-10', '2026-11-10', false, l1); exception when check_violation then ok := true; end;
+  assert ok, '終日でないのに開始時刻が無い予定が入る';
+  ok := false;
+  begin insert into public.cal_events (title, start_date, end_date, all_day, start_time, end_time, label_id) values ('x', '2026-11-10', '2026-11-10', false, '10:00', '09:00', l1); exception when check_violation then ok := true; end;
+  assert ok, '同じ日で、終了が開始より前の予定が入る';
+  ok := false;
+  begin insert into public.cal_events (title, start_date, end_date, all_day, start_time, label_id) values ('x', '2026-11-10', '2026-11-10', false, '25:00', l1); exception when check_violation then ok := true; end;
+  assert ok, '25:00 の予定が入る';
+  -- 日をまたぐ予定(泊など)は、終了が開始より前の時刻でもよい
+  insert into public.cal_events (title, start_date, end_date, all_day, start_time, end_time, label_id)
+    values ('泊', '2026-11-10', '2026-11-11', false, '22:30', '08:15', l1);
+  ok := false;
+  begin insert into public.cal_events (title, start_date, end_date, label_id) values ('x', '2026-11-10', '2026-11-09', l1); exception when check_violation then ok := true; end;
+  assert ok, '終了日が開始日より前の予定が入る';
+
+  -- 写真: 1つの予定に3枚まで・消す日は「予定の終了日から1か月」・他人のフォルダの場所は不可
+  for n in 1..3 loop insert into public.cal_photos (event_id, path, size_bytes) values (e1, u1::text || '/p' || n || '.jpg', 150000); end loop;
+  assert (select count(distinct expires_on) from public.cal_photos where event_id = e1) = 1
+     and (select min(expires_on) from public.cal_photos where event_id = e1) = date '2026-12-10', '写真を消す日が予定の終了日の1か月後でない';
+  ok := false;
+  begin insert into public.cal_photos (event_id, path) values (e1, u1::text || '/p4.jpg'); exception when check_violation then ok := true; end;
+  assert ok, '1つの予定に4枚目の写真が入る';
+  ok := false;
+  begin insert into public.cal_photos (event_id, path) values ((select id from public.cal_events where title = '会議'), u2::text || '/x.jpg'); exception when check_violation then ok := true; end;
+  assert ok, '他人のフォルダの場所の写真が入る';
+  update public.cal_events set end_date = '2026-11-20' where id = e1;
+  assert (select min(expires_on) from public.cal_photos where event_id = e1) = date '2026-12-20', '予定の終了日を変えても、写真を消す日が変わらない';
+  update public.cal_events set repeat_rule = 'yearly' where id = e1;
+  assert (select count(*) from public.cal_photos where event_id = e1 and expires_on is null) = 3, '繰り返しの予定の写真に、消す日が付く';
+
+  -- スタンプ・TODO・重要メモ・画像
+  insert into public.cal_stamp_defs (kind, emoji) values ('emoji', '🙂') returning id into d1;
+  ok := false;
+  begin insert into public.cal_stamp_defs (kind, emoji) values ('emoji', ''); exception when check_violation then ok := true; end;
+  assert ok, '絵文字が空のスタンプの種類が入る';
+  insert into public.cal_stamps (date, stamp_def_id, x, y, size) values ('2026-11-10', d1, 0.5, 0.5, 0.3);
+  ok := false;
+  begin insert into public.cal_stamps (date, stamp_def_id, x, y, size, notes) values ('2026-11-10', d1, 0.5, 0.5, 0.3, jsonb_build_array(1,2,3,4,5,6,7,8,9,10,11)); exception when check_violation then ok := true; end;
+  assert ok, 'スタンプのメモが10件を超えて入る';
+  insert into public.cal_todos (text) values ('牛乳を買う');
+  ok := false;
+  begin insert into public.cal_todos (text) values (''); exception when check_violation then ok := true; end;
+  assert ok, '空のTODOが入る';
+  insert into public.cal_importants (title, body) values ('病院', '電話 000');
+  for n in 1..10 loop insert into public.cal_gallery (path, title) values (u1::text || '/g' || n || '.jpg', '日程表'); end loop;
+  ok := false;
+  begin insert into public.cal_gallery (path) values (u1::text || '/g11.jpg'); exception when check_violation then ok := true; end;
+  assert ok, '画像の置き場に11枚目が入る';
+
+  -- Storage の権限: 自分のフォルダには入れられ、他人のフォルダには入れられない
+  insert into storage.objects (bucket_id, name, owner) values ('calendar', u1::text || '/a.jpg', u1);
+  ok := false;
+  begin insert into storage.objects (bucket_id, name, owner) values ('calendar', u2::text || '/a.jpg', u1); exception when insufficient_privilege then ok := true; end;
+  assert ok, '他人のフォルダに写真を入れられる';
+
+  -- ===== u2: u1 のものは見えない・触れない =====
+  perform set_config('request.jwt.claim.sub', u2::text, true);
+  foreach t in array array['cal_labels', 'cal_events', 'cal_photos', 'cal_stamp_defs', 'cal_stamps', 'cal_todos', 'cal_importants', 'cal_gallery'] loop
+    execute format('select count(*) from public.%I', t) into n;
+    assert n = 0, 'u2 に u1 の ' || t || ' が見える';
+  end loop;
+  assert (select count(*) from storage.objects) = 0, 'u2 に u1 の写真の置き場が見える';
+  update public.cal_events set title = 'のっとり' where id = e1;
+  get diagnostics n = row_count;
+  assert n = 0, 'u2 が u1 の予定を書き換えられる';
+  delete from public.cal_events where id = e1;
+  get diagnostics n = row_count;
+  assert n = 0, 'u2 が u1 の予定を消せる';
+  ok := false;
+  begin insert into public.cal_events (title, start_date, end_date, label_id) values ('x', '2026-11-10', '2026-11-10', l1); exception when foreign_key_violation then ok := true; end;
+  assert ok, 'u2 が u1 のラベルで予定を作れる';
+  ok := false;
+  begin insert into public.cal_stamps (date, stamp_def_id, x, y, size) values ('2026-11-10', d1, 0.5, 0.5, 0.3); exception when foreign_key_violation then ok := true; end;
+  assert ok, 'u2 が u1 のスタンプの種類を使える';
+  ok := false;
+  begin insert into public.cal_photos (event_id, path) values (e1, u2::text || '/x.jpg'); exception when foreign_key_violation then ok := true; end;
+  assert ok, 'u2 が u1 の予定に写真を付けられる';
+
+  -- ログインしていない人(プロフィールが無い人)は、自分の行でも作れない
+  perform set_config('request.jwt.claim.sub', 'dddddddd-0000-4000-8000-0000000000ff', true);
+  ok := false;
+  begin insert into public.cal_todos (text) values ('x'); exception when insufficient_privilege then ok := true; end;
+  assert ok, 'プロフィールの無い人が作れる';
+
+  reset role;
+  perform set_config('request.jwt.claim.sub', '', true);
+  -- 利用者を消すと、カレンダーの行も全部消える
+  delete from storage.objects where bucket_id = 'calendar';
+  delete from auth.users where id in (u1, u2);
+  delete from public.profiles where user_id in (u1, u2);
+  assert (select count(*) from public.cal_labels) = 0 and (select count(*) from public.cal_events) = 0
+     and (select count(*) from public.cal_photos) = 0 and (select count(*) from public.cal_gallery) = 0, '利用者を消しても、カレンダーの行が残る';
+end
+$$;
+
 select 'db_assert: all ok' as result;
