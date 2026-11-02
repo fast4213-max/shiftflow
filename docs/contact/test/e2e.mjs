@@ -2230,6 +2230,7 @@ await check("カレンダー(TODO): 追加(Enter)・チェックで「済み」�
   await page.click("#tab-todo");
   await page.fill("#td-new", "牛乳を買う");
   await page.press("#td-new", "Enter");
+  await page.waitForFunction(() => document.querySelectorAll(".trow[data-tid]").length === 1); // 1件目が入って画面が作り直されてから、次を書く
   await page.fill("#td-new", "<b>パン</b>");
   await page.click('[data-act="todo-add"]');
   await page.waitForFunction(() => document.querySelectorAll(".trow[data-tid]").length === 2);
@@ -2546,6 +2547,39 @@ await check("カレンダー(予定の写真): ファイルを消せなかった
   await page.waitForSelector("#banner:not([hidden])");
   assert.ok((await page.textContent("#banner")).includes("写真1件は保存できませんでした"));
   assert.equal(be.st.cal.cal_photos.filter((p) => p.event_id !== "E-old").length, 0);
+  await ctx.close();
+});
+
+
+await check("カレンダー: ホーム画面に追加できる(専用の manifest・アイコン・名前)。勤務登録の manifest とは別の範囲", async () => {
+  const { page, ctx } = await calOpen();
+  await page.waitForSelector(".bar");
+  const href = await page.getAttribute('link[rel="manifest"]', "href");
+  assert.equal(href, "manifest.webmanifest");
+  const res = await page.request.get(new URL(href, page.url()).href);
+  const m = await res.json();
+  assert.equal(m.name, "shiftflowカレンダー");
+  assert.equal(m.display, "standalone");
+  assert.equal(m.scope, "./");
+  assert.equal(m.start_url, "./index.html");
+  const main = await (await page.request.get(BASE + "/manifest.webmanifest")).json();
+  assert.notEqual(m.name, main.name);
+  assert.notEqual(m.id, main.id);
+  // アイコンが本当にあり、大きさが宣言どおり(any 2つ・maskable 1つ)
+  assert.deepEqual(m.icons.map((i) => i.purpose), ["any", "any", "maskable"]);
+  for (const icon of m.icons) {
+    const r = await page.request.get(new URL(icon.src, new URL(href, page.url())).href);
+    assert.equal(r.status(), 200, icon.src);
+    const b = await r.body();
+    assert.equal(b.subarray(1, 4).toString(), "PNG");
+    const [w, h] = [b.readUInt32BE(16), b.readUInt32BE(20)];
+    assert.equal(`${w}x${h}`, icon.sizes, icon.src);
+  }
+  const apple = await page.getAttribute('link[rel="apple-touch-icon"]', "href");
+  const ar = await page.request.get(new URL(apple, page.url()).href);
+  assert.equal(ar.status(), 200);
+  assert.equal((await ar.body()).readUInt32BE(16), 180);
+  assert.equal(await page.getAttribute('meta[name="apple-mobile-web-app-title"]', "content"), "shiftflowカレンダー");
   await ctx.close();
 });
 
