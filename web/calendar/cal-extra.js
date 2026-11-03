@@ -6,16 +6,36 @@ export const NOTE_MAX = 10;
 const GALLERY_BYTES = 400 * 1024;
 
 // 画像を縮小して Blob にする(長い辺 maxSide まで。向きを直し、描き直すので位置情報は消える)
+// 画像を読む。端末によって、createImageBitmap の指定(向きの扱い)や形式(iPhone の HEIC など)が通らないことがあるので、
+// ①向きを直して読む → ②指定なしで読む → ③ <img> で読む(向きはブラウザが直す)の順に試す(L9)
+async function decodeImage(file) {
+  if (typeof createImageBitmap === "function") {
+    try { return await createImageBitmap(file, { imageOrientation: "from-image" }); } catch (_) { /* 次の方法へ */ }
+    try { return await createImageBitmap(file); } catch (_) { /* 次の方法へ */ }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return img;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+const sizeOf = (img) => ({ w: img.naturalWidth || img.width, h: img.naturalHeight || img.height });
+
 export async function shrinkImage(file, maxSide, type, quality) {
-  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
-  const k = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+  const img = await decodeImage(file);
+  const { w, h } = sizeOf(img);
+  const k = Math.min(1, maxSide / Math.max(w, h));
   const c = document.createElement("canvas");
-  c.width = Math.max(1, Math.round(bmp.width * k));
-  c.height = Math.max(1, Math.round(bmp.height * k));
+  c.width = Math.max(1, Math.round(w * k));
+  c.height = Math.max(1, Math.round(h * k));
   const g = c.getContext("2d");
   if (type === "image/jpeg") { g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); }
-  g.drawImage(bmp, 0, 0, c.width, c.height);
-  if (bmp.close) bmp.close();
+  g.drawImage(img, 0, 0, c.width, c.height);
+  if (img.close) img.close();
   return await new Promise((res) => c.toBlob(res, type, quality));
 }
 // 「画像」の置き場に入れる画像: 長い辺1400px・約400KB以下
@@ -37,25 +57,29 @@ export async function shrinkForEvent(file) {
 
 export function createExtras(env) {
   const { S, $, esc, supabase, openPanel, setPanel, closePanel, head, render, userId } = env;
-  const urls = new Map();
+  // 画像の期限つき URL(1時間)。期限の5分前を過ぎたものは作り直す(開いたままの画面で、画像が出なくならないように。M5)
+  const urls = new Map(); // path → { url, exp }
+  const SIGN_SECONDS = 3600;
+  const freshUrl = (p) => { const u = urls.get(p); return u && u.exp - Date.now() > 5 * 60 * 1000 ? u.url : ""; };
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
   const errText = (e) => env.friendlyText(e && e.message ? e.message : String(e));
   const say = (id, text, ok = false) => { const el = $(id); if (el) { el.textContent = text || ""; el.className = "msg " + (ok ? "ok" : "err"); } };
 
   // ---------- 画像の URL(非公開なので、期限つきの URL を作って使う) ----------
   async function signed(paths) {
-    const need = [...new Set(paths.filter((p) => p && !urls.has(p)))];
+    const need = [...new Set(paths.filter((p) => p && !freshUrl(p)))];
     if (!need.length) return;
-    const { data, error } = await supabase.storage.from("calendar").createSignedUrls(need, 3600);
+    const { data, error } = await supabase.storage.from("calendar").createSignedUrls(need, SIGN_SECONDS);
     if (error) return;
-    for (const d of data || []) if (d.signedUrl) urls.set(d.path, d.signedUrl);
+    for (const d of data || []) if (d.signedUrl) urls.set(d.path, { url: d.signedUrl, exp: Date.now() + SIGN_SECONDS * 1000 });
   }
+  async function urlFor(path) { await signed([path]); return freshUrl(path); }
   async function hydrate(root) {
     const imgs = [...(root || document).querySelectorAll("img[data-path]")];
     if (!imgs.length) return;
     await signed(imgs.map((i) => i.dataset.path));
     for (const img of imgs) {
-      const u = urls.get(img.dataset.path);
+      const u = freshUrl(img.dataset.path);
       if (u && img.getAttribute("src") !== u) img.src = u;
     }
   }
@@ -79,7 +103,7 @@ export function createExtras(env) {
       supabase.from("cal_importants").select("*").order("sort").order("created_at"),
       supabase.from("cal_gallery").select("*").order("created_at", { ascending: false }),
       supabase.from("cal_stamp_defs").select("*").order("sort").order("created_at"),
-      env.selectAllPages((from, to) => supabase.from("cal_stamps").select("*").range(from, to)),
+      env.selectAllPages((from, to) => supabase.from("cal_stamps").select("*").order("created_at").order("id").range(from, to)),
     ].map((p) => Promise.resolve(p).then((r) => (Array.isArray(r) ? { data: r } : r))));
     for (const r of [t, i, g, d]) if (r.error) throw r.error;
     S.todos = t.data || [];
@@ -203,12 +227,10 @@ export function createExtras(env) {
     setPanel(galleryHtml());
     hydrate($("panel"));
   }
-  function galView(id) {
+  async function galView(id) {
     const g = S.gallery.find((x) => x.id === id);
     if (!g) return;
-    $("viewer-img").src = urls.get(g.path) || "";
-    $("viewer-cap").textContent = g.title || "";
-    $("viewer").hidden = false;
+    env.openViewer(await urlFor(g.path), g.title || "");
   }
 
   // ====================== スタンプ ======================
@@ -243,6 +265,7 @@ export function createExtras(env) {
     const t = $("tray");
     t.hidden = !mode.on;
     $("tab-stamp").classList.toggle("on", mode.on);
+    $("tab-today").classList.toggle("on", !mode.on); // どちらか1つだけを太字に
     if (mode.on) { t.innerHTML = trayHtml(); hydrate(t); }
   }
   function toggleStampMode(force) {
@@ -252,10 +275,14 @@ export function createExtras(env) {
     render();
   }
 
-  async function placeStamp(date) {
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  async function placeStamp(date, pos) {
     const d = defOf(mode.def);
     if (!d) return;
-    const row = { date, stamp_def_id: d.id, x: 0.5, y: 0.58, size: d.default_size, rotation: 0 };
+    // タップした場所に置く(マスの中の位置。指定が無いときは真ん中の少し下)
+    const x = pos ? clamp(pos.x, 0.12, 0.88) : 0.5;
+    const y = pos ? clamp(pos.y, 0.2, 0.88) : 0.58;
+    const row = { date, stamp_def_id: d.id, x, y, size: d.default_size, rotation: 0 };
     const { data, error } = await supabase.from("cal_stamps").insert(row).select().single();
     if (error) { env.fail(error); return; }
     S.stamps.push(data);
@@ -265,9 +292,9 @@ export function createExtras(env) {
   }
 
   // 日付のマスをタップしたとき。スタンプの画面なら、ここで受ける(true)
-  function cellTap(date) {
+  function cellTap(date, pos) {
     if (!mode.on) return false;
-    if (mode.def) placeStamp(date); else toggleStampMode(false);
+    if (mode.def) placeStamp(date, pos); else toggleStampMode(false);
     return true;
   }
 
@@ -282,6 +309,7 @@ export function createExtras(env) {
     weeks.addEventListener("pointerdown", (ev) => {
       const el = ev.target.closest(".stamp");
       if (!el) return;
+      if (mode.on && mode.def) return; // 置くスタンプを選んでいるあいだは、置いてあるスタンプの上のタップも、そのマスへの配置にする(M4)
       ev.preventDefault();
       drag = { sid: el.dataset.sid, el, x0: ev.clientX, y0: ev.clientY, moved: false, ghost: null, over: null, id: ev.pointerId };
       try { el.setPointerCapture(ev.pointerId); } catch (_) { /* 取れなくても動く */ }
@@ -603,6 +631,8 @@ export function createExtras(env) {
     return false;
   }
   function panelKey(ev) {
+    // 日本語入力の変換を確定する Enter(isComposing・keyCode 229。Safari は確定のあとに keyCode 229 の keydown が来る)では、追加しない(M2)
+    if (ev.isComposing || ev.keyCode === 229) return false;
     if (ev.key === "Enter" && ev.target.id === "td-new") { ev.preventDefault(); todoAdd().catch((e) => say("x-msg", errText(e))); return true; }
     return false;
   }
@@ -613,5 +643,8 @@ export function createExtras(env) {
     openTodo, openImportant, openGallery, toggleStampMode,
     panelClick, panelChange, panelInput, panelKey,
     stampMode: () => mode.on,
+    hasPick: () => !!mode.def,
+    cellAt,
+    urlFor,
   };
 }

@@ -1892,6 +1892,8 @@ await check("管理画面: 区所の追加を2回押しても、1回だけ送る
   });
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => !document.getElementById("pin-dialog").open);
+  // 閉じたあとの処理(close イベント)は、少し遅れて動く。値が消えるのを待つ(待たないと、ときどき落ちる)
+  await page.waitForFunction(() => document.getElementById("pin-value").textContent === "");
   assert.equal(await page.textContent("#pin-value"), "");
   assert.deepEqual(errors, []);
   await ctx.close();
@@ -2362,10 +2364,11 @@ await check("カレンダー(スタンプ): 絵文字・文字のスタンプを
   await page.click(`.cell[data-date="${today}"]`, { position: { x: 4, y: 4 } });
   await page.waitForSelector(".stamp");
   assert.equal(be.st.cal.cal_stamps.length, 1);
-  assert.deepEqual([be.st.cal.cal_stamps[0].date, be.st.cal.cal_stamps[0].x, be.st.cal.cal_stamps[0].size], [today, 0.5, be.st.cal.cal_stamp_defs[0].default_size]);
+  assert.deepEqual([be.st.cal.cal_stamps[0].date, be.st.cal.cal_stamps[0].size], [today, be.st.cal.cal_stamp_defs[0].default_size]);
+  assert.ok(be.st.cal.cal_stamps[0].x >= 0.12 && be.st.cal.cal_stamps[0].x <= 0.88, "タップした場所(マスの左上)に近い位置: " + be.st.cal.cal_stamps[0].x);
   assert.equal((await page.locator(".stamp").first().textContent()).trim(), "🎂");
-  // 何も選ばずにマスをタップ → スタンプの画面が閉じる(日の詳細は開かない)
-  await page.click(`.cell[data-date="${today}"]`, { position: { x: 4, y: 4 } });
+  // 何も選ばずにマスをタップ(置いたスタンプを避けた場所) → スタンプの画面が閉じる(日の詳細は開かない)
+  await page.click(`.cell[data-date="${today}"]`, { position: { x: 44, y: 95 } });
   assert.equal(await page.isVisible("#tray"), false);
   assert.equal(await page.isVisible("#panel"), false);
   // タップで選ぶ → 大きさ・回転(保存)・メモ
@@ -2384,7 +2387,7 @@ await check("カレンダー(スタンプ): 絵文字・文字のスタンプを
   assert.equal(await page.locator("#panel u").count(), 0);
   // メモは日の詳細には出ない
   await page.click('[data-act="close"]');
-  await page.click(`.cell[data-date="${today}"]`, { position: { x: 4, y: 4 } });
+  await page.click(`.cell[data-date="${today}"]`, { position: { x: 44, y: 95 } });
   assert.ok(!(await page.textContent("#panel")).includes("ケーキ予約"));
   await page.click('[data-act="close"]');
   // 消す
@@ -2630,6 +2633,234 @@ await check("カレンダー設定: 自分の写真・画像の量が出る(MB�
   assert.ok(text.includes("約 3.5MB(画像の置き場 1/10枚・予定の写真 1枚)"), text);
   const order = await page.$$eval("#panel .card", (els) => els.map((e) => e.querySelector("h3").textContent));
   assert.deepEqual(order, ["shiftflowカレンダーについて", "ラベル", "あなたの写真・画像の量", "画面の色合い"]);
+  await ctx.close();
+});
+
+
+// ---------- カレンダーのデバッグの直し(2026-11-03) ----------
+await check("デバッグ M1: 終わって1か月以上たった予定には、写真を付けられない(選べない・案内が出る)。期限の日までは付けられる。繰り返しの予定は付けられる", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-new");
+  await page.fill("#f-title", "昔の予定");
+  const past = shiftIso(today, -50);
+  await page.fill("#f-start", past);
+  await page.fill("#f-end", past);
+  assert.equal(await page.isDisabled("#f-photo"), true);
+  assert.ok((await page.textContent("#panel")).includes("終わって1か月以上たった予定には、写真を付けられません"));
+  // 繰り返し(毎年)なら付けられる
+  await page.selectOption("#f-rep", "yearly");
+  assert.equal(await page.isDisabled("#f-photo"), false);
+  await page.setInputFiles("#f-photo", [DIR + "photo.jpg"]);
+  await page.waitForFunction(() => document.querySelectorAll(".pth").length === 1);
+  // 繰り返しをやめると、付けた写真があるまま保存はできない(案内が出る)
+  await page.selectOption("#f-rep", "none");
+  await page.click("#f-save");
+  await page.waitForSelector("#form-msg:not(:empty)");
+  assert.ok((await page.textContent("#form-msg")).includes("写真を付けられません"));
+  assert.equal(be.st.cal.cal_events.length, 0);
+  // 1か月前の今日に終わる予定(期限が今日)は、まだ付けられる
+  const border = (await page.evaluate((t) => { const [y, m, d] = t.split("-").map(Number); const x = new Date(Date.UTC(y, m - 2, Math.min(d, new Date(Date.UTC(y, m - 1, 0)).getUTCDate()))); return x.toISOString().slice(0, 10); }, today));
+  await page.fill("#f-start", border);
+  await page.fill("#f-end", border);
+  assert.equal(await page.isDisabled("#f-photo"), false, "期限が今日の予定には、まだ付けられる");
+  assert.ok(!(await page.textContent("#photo-block")).includes("付けられません"));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("デバッグ M2: 日本語入力の変換を確定する Enter(isComposing・keyCode 229)では、TODO を追加しない。ふつうの Enter では追加する", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-todo");
+  await page.fill("#td-new", "かいもの");
+  const fire = (init) => page.evaluate((i) => document.getElementById("td-new").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...i })), init);
+  await fire({ isComposing: true });
+  await fire({ keyCode: 229 }); // Safari: 確定のあとの keydown
+  await page.waitForTimeout(300);
+  assert.equal(be.st.cal.cal_todos.length, 0);
+  assert.equal(await page.inputValue("#td-new"), "かいもの");
+  await page.press("#td-new", "Enter");
+  await page.waitForFunction(() => document.querySelectorAll(".trow[data-tid]").length === 1);
+  assert.equal(be.st.cal.cal_todos[0].text, "かいもの");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("デバッグ M3: 月を移ったときに勤務の予定が読めなかったら、案内が出て残る。次の月の移動で消える。区所の案内と並べて出せる", async () => {
+  const { page, ctx, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.route("**/functions/v1/calendar-shifts", (r) => r.fulfill({ status: 500, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ error: "勤務の予定を読めませんでした(テスト)。" }) }));
+  await page.click("#next");
+  await page.waitForSelector("#banner:not([hidden])");
+  await page.waitForTimeout(600);
+  assert.ok((await page.textContent("#banner")).includes("読めませんでした"), "描き直しでも消えない");
+  await page.setViewportSize({ width: 400, height: 800 }); // 描き直し(resize)でも消えない
+  await page.waitForTimeout(300);
+  assert.equal(await page.isVisible("#banner"), true);
+  await page.unroute("**/functions/v1/calendar-shifts");
+  await page.click("#prev");
+  await page.waitForTimeout(500);
+  assert.equal(await page.isVisible("#banner"), false, "次の移動で、前の失敗の案内は消える");
+  assert.deepEqual(errors.filter((e) => !e.includes("500")), []);
+  await ctx.close();
+});
+
+await check("デバッグ M4: スタンプを選んでいるあいだは、置いたスタンプの上・予定の帯の上をタップしても、そのマスに置ける。置く場所はタップした場所", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  be.st.cal.cal_stamp_defs = [{ id: "D1", user_id: "u1", kind: "emoji", emoji: "🎂", image_path: "", text: "", text_color: "#ffffff", bg_color: "#5b4bd6", shape: "round", default_size: 0.5, sort: 1, created_at: "2026-11-01T00:00:00Z" }];
+  await page.reload();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-stamp");
+  await page.click("#tray .tk");
+  const cell = page.locator(`.cell[data-date="${today}"]`);
+  const box = await cell.boundingBox();
+  await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.7);
+  await page.waitForFunction(() => document.querySelectorAll(".stamp").length === 1);
+  const first = be.st.cal.cal_stamps[0];
+  assert.ok(Math.abs(first.x - 0.3) < 0.05 && Math.abs(first.y - 0.7) < 0.05, `タップした場所: ${first.x},${first.y}`);
+  // もう1つ: 1つ目のスタンプの真上をタップ
+  await page.click("#tray .tk");
+  const sb = await page.locator(".stamp").first().boundingBox();
+  await page.mouse.click(sb.x + sb.width / 2, sb.y + sb.height / 2);
+  await page.waitForFunction(() => document.querySelectorAll(".stamp").length === 2);
+  assert.equal(await page.isVisible("#panel"), false, "編集を開かない");
+  // 予定の帯の上
+  await page.click("#tray .tk");
+  const bar = await page.locator(".bar").first().boundingBox();
+  await page.mouse.click(bar.x + bar.width / 2, bar.y + bar.height / 2);
+  await page.waitForFunction(() => document.querySelectorAll(".stamp").length === 3);
+  assert.equal(await page.isVisible("#panel"), false, "予定の詳細を開かない");
+  assert.equal(be.st.cal.cal_stamps.length, 3);
+  // 何も選んでいないときは、スタンプのタップで編集が開く(置かない・画面は閉じない)
+  await page.locator(".stamp").last().click();
+  await page.waitForSelector("#st-size");
+  assert.equal(be.st.cal.cal_stamps.length, 3);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("デバッグ M5: 画像の期限つき URL は、期限が近づいたら作り直す(1時間以上開いたままでも、画像が出る)", async () => {
+  const { page, ctx, be, errors } = await calOpen({}, {});
+  await page.addInitScript(() => { const n = Date.now.bind(Date); window.__off = 0; Date.now = () => n() + window.__off; });
+  await page.reload();
+  await page.waitForSelector(".bar");
+  be.st.cal.cal_gallery = [{ id: "G1", user_id: "u1", path: "u1/g.jpg", title: "表", size_bytes: 10, created_at: "2026-11-01T00:00:00Z" }];
+  await page.reload();
+  await page.waitForSelector(".bar");
+  const signs = () => be.st.calls.filter((c) => c.path.startsWith("/storage/v1/object/sign/calendar") && c.method === "POST").length;
+  await page.click("#btn-gal");
+  await page.waitForFunction(() => document.querySelector(".gitem img")?.getAttribute("src"));
+  const first = signs();
+  await page.click('[data-act="close"]');
+  await page.click("#btn-gal");
+  await page.waitForSelector(".gitem img");
+  await page.waitForTimeout(200);
+  assert.equal(signs(), first, "期限の前なら、作り直さない");
+  await page.click('[data-act="close"]');
+  await page.evaluate(() => { window.__off = 56 * 60 * 1000; }); // 56分後(期限の5分前を過ぎる)
+  await page.click("#btn-gal");
+  await page.waitForFunction(() => document.querySelector(".gitem img")?.getAttribute("src"));
+  await page.waitForTimeout(200);
+  assert.equal(signs(), first + 1, "期限が近いので作り直す");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("デバッグ L5: 12か月より前に終わる予定は作れない(案内)。誕生日などの繰り返しは、昔の日付から始められる", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-new");
+  await page.fill("#f-title", "古い予定");
+  await page.fill("#f-start", "2020-01-01");
+  await page.fill("#f-end", "2020-01-01");
+  await page.click("#f-save");
+  await page.waitForSelector("#form-msg:not(:empty)");
+  assert.ok((await page.textContent("#form-msg")).includes("より前の予定は作れません"));
+  assert.equal(be.st.cal.cal_events.length, 0);
+  await page.selectOption("#f-rep", "yearly");
+  await page.click("#f-save");
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  assert.equal(be.st.cal.cal_events.length, 1);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("デバッグ L6・L2: スタンプの画面では「スタンプ」だけが太字。ファイルを選ぶボタンは、入力がボタンの上に重なる", async () => {
+  const { page, ctx, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  assert.equal(await page.locator("#tab-today.on").count(), 1);
+  await page.click("#tab-stamp");
+  assert.equal(await page.locator("#tab-today.on").count(), 0);
+  assert.equal(await page.locator("#tab-stamp.on").count(), 1);
+  await page.click('#tray [data-act="st-off"]');
+  assert.equal(await page.locator("#tab-today.on").count(), 1);
+  await page.click("#btn-gal");
+  const [lb, ib] = await Promise.all([page.locator(".filebtn").boundingBox(), page.locator("#gal-file").boundingBox()]);
+  assert.ok(Math.abs(lb.x - ib.x) <= 3 && Math.abs(lb.y - ib.y) <= 3 && Math.abs(lb.width - ib.width) <= 3, `入力がボタンに重なる: ${JSON.stringify([lb, ib])}`);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("デバッグ L9: 画像を読む方法が使えない端末(createImageBitmap が失敗する)でも、<img> で読んで縮小・保存できる", async () => {
+  const { page, ctx, be, errors } = await calOpen({}, {});
+  await page.addInitScript(() => { window.createImageBitmap = () => Promise.reject(new Error("unsupported")); });
+  await page.reload();
+  await page.waitForSelector(".bar");
+  await page.click("#btn-gal");
+  await page.setInputFiles("#gal-file", [DIR + "photo.jpg"]);
+  await page.waitForFunction(() => document.querySelectorAll(".gitem").length === 1, null, { timeout: 15000 });
+  assert.equal(be.st.uploads.length, 1);
+  assert.ok(be.st.uploads[0].head.includes("image/jpeg"));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("デバッグ L10: 戻るボタンで、パネル・大きな画像を閉じる(アプリを閉じない)。✕で閉じたあとの戻るは、あとから開いたパネルを閉じない", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  const url = page.url();
+  // 戻るボタンでパネルが閉じる
+  await page.click("#tab-settings");
+  await page.waitForSelector("#about");
+  await page.goBack();
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  assert.equal(page.url(), url, "ページは移らない");
+  // ✕ で閉じたあとに別のパネルを開き、戻るで閉じる
+  await page.click("#tab-todo");
+  await page.click('[data-act="close"]');
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  await page.click("#tab-settings");
+  await page.waitForTimeout(300);
+  assert.equal(await page.isVisible("#panel"), true, "✕ の戻る(読み飛ばし)が、あとのパネルを閉じない");
+  await page.goBack();
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  // 画像の置き場 → 大きな画像 → 戻る(画像だけ閉じる)→ 戻る(パネルが閉じる)
+  be.st.cal.cal_gallery = [{ id: "G1", user_id: "u1", path: "u1/g.jpg", title: "表", size_bytes: 10, created_at: "2026-11-01T00:00:00Z" }];
+  await page.reload();
+  await page.waitForSelector(".bar");
+  await page.click("#btn-gal");
+  await page.waitForSelector(".gitem img");
+  await page.waitForFunction(() => document.querySelector(".gitem img")?.getAttribute("src"));
+  await page.locator(".gitem img").first().click();
+  assert.equal(await page.isVisible("#viewer"), true);
+  await page.goBack();
+  await page.waitForFunction(() => document.getElementById("viewer").hidden);
+  assert.equal(await page.isVisible("#panel"), true, "画像だけが閉じる");
+  await page.goBack();
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  // Esc: 画像 → パネルの順
+  await page.click("#btn-gal");
+  await page.waitForSelector(".gitem img");
+  await page.waitForFunction(() => document.querySelector(".gitem img")?.getAttribute("src"));
+  await page.locator(".gitem img").first().click();
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => document.getElementById("viewer").hidden);
+  assert.equal(await page.isVisible("#panel"), true);
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  assert.deepEqual(errors, []);
   await ctx.close();
 });
 

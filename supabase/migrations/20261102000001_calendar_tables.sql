@@ -325,5 +325,9 @@ begin
     with check (bucket_id = 'calendar' and (storage.foldername(name))[1] = auth.uid()::text and public.is_member());
   create policy calendar_delete_own on storage.objects for delete to authenticated
     using (bucket_id = 'calendar' and (storage.foldername(name))[1] = auth.uid()::text and public.is_member());
+exception when others then
+  -- 本番の Storage の持ち主の権限で作れないときも、migration 全体(あとの反映)は止めない。
+  -- その場合は、docs/mycalendar/CHECKLIST.md の「Storage の権限を手で作る SQL」を SQL エディタで実行する
+  raise notice 'Storage の calendar バケット・権限を作れませんでした(%)。docs/mycalendar/CHECKLIST.md の手順で手で作ってください', sqlerrm;
 end
 $$;

@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  addDays, addMonths, compareForDay, diffDays, expandEvent, gridRange, layoutWeek, monthLimits, textOn, todayJst, weekday, whenText, yearsText,
+  addDays, addMonths, addMonthsIso, compareForDay, oldestDate, photosClosed, diffDays, expandEvent, gridRange, layoutWeek, monthLimits, textOn, todayJst, weekday, whenText, yearsText,
 } from "../../../web/calendar/cal-core.js";
 
 test("日付の計算は月・年をまたぐ", () => {
@@ -87,4 +87,24 @@ test("予定の日時の文字: 分単位の時刻・日をまたぐ", () => {
   assert.equal(whenText({ start: "2026-11-10", end: "2026-11-10", allDay: true }), "11/10(火)　終日");
   assert.equal(whenText({ start: "2026-11-10", end: "2026-11-10", allDay: false, startTime: "09:07", endTime: "10:43" }), "11/10(火)　9:07〜10:43");
   assert.equal(whenText({ start: "2026-11-10", end: "2026-11-11", allDay: false, startTime: "22:30", endTime: "08:15" }), "11/10(火) 22:30 〜 11/11(水) 8:15");
+});
+
+test("L3: 何か月も続く毎月の予定は、始まりが何か月も前にあるぶんを落とさない。毎年の予定(366日まで)も", () => {
+  const monthly = { id: "m", start: "2026-01-01", end: "2026-04-21", repeat: "monthly" }; // 110日続く(毎月始まるので重なる)
+  assert.deepEqual(expandEvent(monthly, "2026-06-01", "2026-06-10").map((o) => o.occ), ["2026-03-01", "2026-04-01", "2026-05-01", "2026-06-01"]);
+  const yearly = { id: "y", start: "2024-03-01", end: "2025-03-02", repeat: "yearly" }; // 366日続く
+  assert.deepEqual(expandEvent(yearly, "2026-01-10", "2026-01-20").map((o) => o.occ), ["2025-03-01"]);
+});
+
+test("M1: 写真の期限(終了日から1か月後)が過ぎた予定は、写真を付けられない。繰り返しの予定は付けられる", () => {
+  assert.equal(addMonthsIso("2026-01-31", 1), "2026-02-28"); // 月末に寄せる(DB と同じ)
+  assert.equal(addMonthsIso("2026-12-15", 1), "2027-01-15");
+  assert.equal(photosClosed({ end: "2026-10-03", repeat: "none" }, "2026-11-03"), false); // 期限は 11/3 (今日。まだ消えない)
+  assert.equal(photosClosed({ end: "2026-10-02", repeat: "none" }, "2026-11-03"), true);
+  assert.equal(photosClosed({ end: "2020-01-01", repeat: "yearly" }, "2026-11-03"), false);
+});
+
+test("L5: 予定を作れるいちばん古い日は、12か月前の月の1日(画面の見られる範囲と同じ)", () => {
+  assert.equal(oldestDate("2026-11-03"), "2025-11-01");
+  assert.equal(oldestDate("2027-01-31"), "2026-01-01");
 });

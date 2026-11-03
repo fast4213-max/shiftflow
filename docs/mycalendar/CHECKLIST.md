@@ -76,10 +76,31 @@
 - [ ] 本番で確かめる: 管理画面の使用量が、Supabase のダッシュボードの数字と近いか(データベースの大きさは目安。Supabase の請求の数え方とは少し違うことがある)
 
 ## 8. 最終チェック(デバッグの回。ご依頼 2026-11-02: 作り終わってから、まとめてやる)
-- [ ] 既存の画面テスト「管理画面: 区所の追加を2回押しても、1回だけ送る(AD11)。仮のPINは Esc で閉じても画面に残らない(AD12)」が、ときどき落ちる問題(カレンダーの前の版でも落ちる。タイミングの問題と思われる)。原因を調べて直す
+- [x] 既存の画面テスト AD12 がときどき落ちる問題: 原因は、ダイアログを閉じたあとの処理(close イベント)が少し遅れて動くのに、テストが先に値を見ていたこと。テスト側で待つように直した(デバッグ 23回目の AE18)
 - [ ] 実機チェック(Android・iPhone): 月の画面の見え方・文言・色(ライト・ダーク)・日の詳細・予定の追加(分単位)・ラベルのチップ・スタンプのドラッグ・画像と写真(iPhone の HEIC が縮小できるか)・ホーム画面に追加した別アプリ
 - [ ] 本番のStorage: `calendar` バケットと `calendar_*` の3つの権限ができているか(ダッシュボードの Storage → Policies)。できていなければ手で作る
 - [ ] 今の利用者の「登録」「リセット」が今までどおりか(1段階目)・勤務の記録が消えすぎていないか(5段階目の保存期間)
 - [ ] 文言の見直し(設定の説明・使い方ページ・README の Google カレンダー前提の書き方)
 - [ ] パソコンの2か月表示(設定の一番下)・スタンプの「元に戻す」・月の画像の書き出し(必要なら)
-- [ ] 「コードを見直す」デバッグ(`/code-review`)を、migration・権限・Storage・写真の削除に対してかける
+- [x] 全体のデバッグ(23回目 AE1〜AE18。[`docs/DEBUG-LOG.md`](../DEBUG-LOG.md))。全部直した
+- [ ] 「コードを見直す」デバッグ(`/code-review`)を、migration・権限・Storage・写真の削除に対してかける(任意)
+- [ ] デバッグで直したもののうち、実機でしか確かめられないもの: iPhone でファイルを選ぶボタンを押したとき画面が飛ばないか(AE9)・iPhone の写真(HEIC)が縮小できるか(AE16)・Android の戻るボタンでパネルが閉じるか(AE17)
+
+## Storage の権限を手で作る SQL(migration で作れなかったときだけ)
+本番に反映したあと、migration のログに「Storage の calendar バケット・権限を作れませんでした」と出たとき、またはダッシュボードの Storage → Policies に `calendar_*` の3つが無いときに、SQL エディタで実行する。
+
+```sql
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('calendar', 'calendar', false, 1048576, array['image/jpeg', 'image/png', 'image/webp'])
+on conflict (id) do update set public = false, file_size_limit = 1048576, allowed_mime_types = array['image/jpeg', 'image/png', 'image/webp'];
+
+drop policy if exists calendar_select_own on storage.objects;
+drop policy if exists calendar_insert_own on storage.objects;
+drop policy if exists calendar_delete_own on storage.objects;
+create policy calendar_select_own on storage.objects for select to authenticated
+  using (bucket_id = 'calendar' and (storage.foldername(name))[1] = auth.uid()::text and public.is_member());
+create policy calendar_insert_own on storage.objects for insert to authenticated
+  with check (bucket_id = 'calendar' and (storage.foldername(name))[1] = auth.uid()::text and public.is_member());
+create policy calendar_delete_own on storage.objects for delete to authenticated
+  using (bucket_id = 'calendar' and (storage.foldername(name))[1] = auth.uid()::text and public.is_member());
+```

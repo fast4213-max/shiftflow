@@ -115,3 +115,51 @@ export function buildShiftView(
   }
   return out;
 }
+
+// 画面の月の範囲(months)の、勤務の予定。1か月前から組み立てて、前の月の末日からの分だけ残す。
+// (前の月の末日が泊で、時間つきの設定のとき、泊は翌月1日の朝までの1件になる。前の月を組み立てないと、
+//  範囲の最初の月の1日に、余計な「〜」が出て、泊の続きが出なくなるため。M6)
+export function buildShiftViewWithCarry(
+  { months, ...rest }: {
+    months: { year: number; month: number }[];
+    records: RecordMap;
+    master: unknown;
+    holidays: string[];
+    settings: ShiftViewSettings;
+  },
+): ViewEvent[] {
+  const first = months[0];
+  const prev = first.month === 1 ? { year: first.year - 1, month: 12 } : { year: first.year, month: first.month - 1 };
+  const keepFrom = addDays(dateKey(first.year, first.month, 1), -1);
+  return buildShiftView({ months: [prev, ...months], ...rest }).filter((e) => e.date >= keepFrom);
+}
+
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+// 実在する日付か(2000〜2100年。「2026-13-45」などは通さない)
+export function validIso(s: string): boolean {
+  if (!DATE.test(s)) return false;
+  const y = Number(s.slice(0, 4));
+  const m = Number(s.slice(5, 7));
+  const d = Number(s.slice(8, 10));
+  return y >= 2000 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= daysInMonth(y, m);
+}
+
+// from〜to にかかる月(古い順)
+export function monthsBetween(from: string, to: string): { year: number; month: number }[] {
+  const out: { year: number; month: number }[] = [];
+  let y = Number(from.slice(0, 4));
+  let m = Number(from.slice(5, 7));
+  const endY = Number(to.slice(0, 4));
+  const endM = Number(to.slice(5, 7));
+  while (y < endY || (y === endY && m <= endM)) {
+    out.push({ year: y, month: m });
+    m++;
+    if (m > 12) {
+      m = 1;
+      y++;
+    }
+  }
+  return out;
+}
+

@@ -509,6 +509,16 @@ begin
   ok := false;
   begin insert into public.cal_photos (event_id, path) values ((select id from public.cal_events where title = '会議'), u2::text || '/x.jpg'); exception when check_violation then ok := true; end;
   assert ok, '他人のフォルダの場所の写真が入る';
+  -- M1: 終わって1か月以上たった予定には、写真を付けられない(付けても、すぐ消えるため)
+  insert into public.cal_events (title, start_date, end_date, label_id)
+    values ('昔の予定', ((now() at time zone 'Asia/Tokyo')::date - 60), ((now() at time zone 'Asia/Tokyo')::date - 60), l1) returning id into e2;
+  ok := false;
+  begin insert into public.cal_photos (event_id, path) values (e2, u1::text || '/old.jpg'); exception when check_violation then ok := true; end;
+  assert ok, '期限をもう過ぎた予定に写真が付けられる';
+  -- 繰り返しの予定は、昔の日付でも付けられる(消さないため)
+  insert into public.cal_events (title, start_date, end_date, label_id, repeat_rule)
+    values ('昔の誕生日', ((now() at time zone 'Asia/Tokyo')::date - 400), ((now() at time zone 'Asia/Tokyo')::date - 400), l1, 'yearly') returning id into e2;
+  insert into public.cal_photos (event_id, path) values (e2, u1::text || '/bd.jpg');
   update public.cal_events set end_date = '2026-11-20' where id = e1;
   assert (select min(expires_on) from public.cal_photos where event_id = e1) = date '2026-12-20', '予定の終了日を変えても、写真を消す日が変わらない';
   update public.cal_events set repeat_rule = 'yearly' where id = e1;
@@ -606,8 +616,10 @@ begin
   insert into public.cal_labels (user_id, name, color) values (u, '試', '#112233') returning id into l;
   -- 予定: 古い単発・古い単発(写真あり)・終わりの無い繰り返し・終わりが古い繰り返し・12か月前の月初の予定
   insert into public.cal_events (user_id, title, start_date, end_date, label_id) values (u, '古い', (first_this - interval '12 months')::date - 1, (first_this - interval '12 months')::date - 1, l) returning id into e_old;
-  insert into public.cal_events (user_id, title, start_date, end_date, label_id) values (u, '写真あり', (first_this - interval '13 months')::date, (first_this - interval '13 months')::date, l) returning id into e_photo;
+  -- 写真は、期限が過ぎた予定には付けられない(M1)ので、今日の予定に付けてから、日付を古くする
+  insert into public.cal_events (user_id, title, start_date, end_date, label_id) values (u, '写真あり', first_this, first_this, l) returning id into e_photo;
   insert into public.cal_photos (user_id, event_id, path) values (u, e_photo, u::text || '/x.jpg');
+  update public.cal_events set start_date = (first_this - interval '13 months')::date, end_date = (first_this - interval '13 months')::date where id = e_photo;
   insert into public.cal_events (user_id, title, start_date, end_date, label_id, repeat_rule) values (u, '誕生日', (first_this - interval '5 years')::date, (first_this - interval '5 years')::date, l, 'yearly') returning id into e_rep;
   insert into public.cal_events (user_id, title, start_date, end_date, label_id, repeat_rule, repeat_until) values (u, '終わった繰り返し', (first_this - interval '3 years')::date, (first_this - interval '3 years')::date, l, 'weekly', (first_this - interval '2 years')::date) returning id into e_rep_end;
   insert into public.cal_events (user_id, title, start_date, end_date, label_id) values (u, '残る', (first_this - interval '12 months')::date, (first_this - interval '12 months')::date, l) returning id into e_keep;

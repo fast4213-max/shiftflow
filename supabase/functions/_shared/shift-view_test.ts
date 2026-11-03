@@ -3,7 +3,7 @@
 
 import { assertEquals } from "jsr:@std/assert@1";
 import { indexMaster } from "./plan.js";
-import { buildShiftView } from "./shift-view.ts";
+import { buildShiftView, buildShiftViewWithCarry, monthsBetween, validIso } from "./shift-view.ts";
 
 const master = indexMaster([
   { code: "25", kind: "日勤", weekday_start: "10:15", weekday_end: "19:02", holiday_start: "", holiday_end: "", stay: "" },
@@ -74,4 +74,39 @@ Deno.test("buildShiftView: 前の月の月末の泊から続く1日の非番は�
     view({ "2026-09-30": { code: "5", memo: "" } }),
     [["2026-10-01", "2026-10-01", "work", "〜", "", ""]],
   );
+});
+
+// M6: 前の月の末日が泊で、時間つきの設定のとき、範囲の最初の月(11月)だけを組み立てると、1日に余計な「〜」が出て泊の続きが出ない。
+// 前の月から組み立てて、前の月の末日からの分だけ残す
+const viewCarry = (records: Record<string, { code: string; memo: string }>, settings: Record<string, boolean>, months: { year: number; month: number }[]) =>
+  buildShiftViewWithCarry({ months, records, master, holidays: [], settings }).map((e) => [e.date, e.endDate, e.calendar, e.title, e.startTime, e.endTime]);
+
+Deno.test("buildShiftViewWithCarry: 時間つきの設定で、月末の泊は翌月1日の朝までの1件(範囲が翌月から始まっても、1日に「〜」を出さない)", () => {
+  const records = { "2026-10-31": { code: "5", memo: "" } };
+  assertEquals(viewCarry(records, { timedEvents: true }, [{ year: 2026, month: 11 }]), [["2026-10-31", "2026-11-01", "work", "5", "10:00", "09:00"]]);
+  // 前の月から組み立てない今までの方法だと、余計な「〜」が出る(これが直した問題)
+  assertEquals(view(records, { timedEvents: true }, [{ year: 2026, month: 11 }]), [["2026-11-01", "2026-11-01", "work", "〜", "", ""]]);
+});
+
+Deno.test("buildShiftViewWithCarry: ふつうの設定は今までと同じ(月末の泊と、翌月1日の「〜」)。前の月の末日より前の予定は残さない", () => {
+  const records = { "2026-10-30": { code: "25", memo: "" }, "2026-10-31": { code: "5", memo: "" } };
+  assertEquals(viewCarry(records, {}, [{ year: 2026, month: 11 }]), [
+    ["2026-10-31", "2026-10-31", "work", "5", "", ""],
+    ["2026-11-01", "2026-11-01", "work", "〜", "", ""],
+  ]);
+});
+
+Deno.test("buildShiftViewWithCarry: 1月の範囲は前の年の12月から続ける", () => {
+  const records = { "2026-12-31": { code: "5", memo: "" } };
+  assertEquals(viewCarry(records, { timedEvents: true }, [{ year: 2027, month: 1 }]), [["2026-12-31", "2027-01-01", "work", "5", "10:00", "09:00"]]);
+});
+
+Deno.test("validIso: 実在する日付だけ通す", () => {
+  for (const ok of ["2026-11-03", "2028-02-29", "2000-01-01"]) assertEquals(validIso(ok), true, ok);
+  for (const bad of ["2026-13-45", "2026-02-30", "2027-02-29", "2026-00-10", "2026-11-00", "1999-12-31", "2101-01-01", "2026-1-1", "abc", ""]) assertEquals(validIso(bad), false, bad);
+});
+
+Deno.test("monthsBetween: 範囲にかかる月を、古い順に(年をまたぐ)", () => {
+  assertEquals(monthsBetween("2026-12-27", "2027-02-06"), [{ year: 2026, month: 12 }, { year: 2027, month: 1 }, { year: 2027, month: 2 }]);
+  assertEquals(monthsBetween("2026-11-01", "2026-11-30"), [{ year: 2026, month: 11 }]);
 });

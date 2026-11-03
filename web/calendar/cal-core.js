@@ -83,8 +83,9 @@ export function expandEvent(e, a, b) {
   let k0 = 0;
   if (rp === "daily") k0 = Math.max(0, diffDays(e.start, a) - dur - 1);
   else if (rp === "weekly") k0 = Math.max(0, Math.floor((diffDays(e.start, a) - dur) / 7) - 1);
-  else if (rp === "monthly") k0 = Math.max(0, Number(a.slice(0, 4)) * 12 + Number(a.slice(5, 7)) - (base.getUTCFullYear() * 12 + base.getUTCMonth() + 1) - 2);
-  else if (rp === "yearly") k0 = Math.max(0, Number(a.slice(0, 4)) - base.getUTCFullYear() - 1);
+  // 毎月・毎年は、長い予定(何か月も続く)の始まりが、a より何か月・何年も前にあることがあるので、長さぶん手前から数える
+  else if (rp === "monthly") k0 = Math.max(0, Number(a.slice(0, 4)) * 12 + Number(a.slice(5, 7)) - (base.getUTCFullYear() * 12 + base.getUTCMonth() + 1) - (Math.ceil(dur / 28) + 1));
+  else if (rp === "yearly") k0 = Math.max(0, Number(a.slice(0, 4)) - base.getUTCFullYear() - (1 + Math.ceil(dur / 365)));
   const out = [];
   for (let k = k0; k < k0 + 6000; k++) {
     const d = rp === "daily" ? new Date(base.getTime() + k * 86400000)
@@ -169,3 +170,25 @@ export function whenText(e) {
   return `${f(e.start)}${e.allDay ? "" : " " + t(e.startTime)} 〜 ${f(e.end)}${e.allDay ? "" : e.endTime ? " " + t(e.endTime) : ""}`;
 }
 export { WD as WEEKDAYS };
+
+// ---------- 保存期間・写真の期限(DB と同じ数え方) ----------
+
+// 月を足す。その月に同じ日がなければ、最終日に寄せる(Postgres の date + interval '1 month' と同じ)
+export function addMonthsIso(s, n) {
+  const y = Number(s.slice(0, 4));
+  const m0 = Number(s.slice(5, 7)) - 1 + n;
+  const ty = y + Math.floor(m0 / 12);
+  const tm = ((m0 % 12) + 12) % 12;
+  return dateKey(ty, tm + 1, Math.min(Number(s.slice(8, 10)), daysInMonth(ty, tm + 1)));
+}
+
+// 予定の写真の期限(終了日から1か月後)が、もう過ぎているか。繰り返しの予定の写真は消えないので、過ぎない
+export function photosClosed({ end, repeat }, today) {
+  return (!repeat || repeat === "none") && addMonthsIso(end, 1) < today;
+}
+
+// 予定を作れる、いちばん古い日(12か月前の月の1日。これより前の予定は、夜の処理で消える)
+export function oldestDate(today) {
+  const m = monthLimits(today).min;
+  return dateKey(m.y, m.m, 1);
+}

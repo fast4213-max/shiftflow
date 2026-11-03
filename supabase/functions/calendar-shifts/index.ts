@@ -7,42 +7,25 @@ import { ensureHolidayYears } from "../_shared/holidays.ts";
 import { AppError, readBody, serve } from "../_shared/http.ts";
 import { addDays, dateKey, daysInMonth, holidayYearsFor } from "../_shared/plan.js";
 import { loadMasterSet } from "../_shared/shift-calendar.ts";
-import { buildShiftView } from "../_shared/shift-view.ts";
+import { buildShiftViewWithCarry, monthsBetween, validIso } from "../_shared/shift-view.ts";
 
 const MAX_MONTHS = 5;
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
-
-// from〜to にかかる月(古い順)
-export function monthsBetween(from: string, to: string): { year: number; month: number }[] {
-  const out: { year: number; month: number }[] = [];
-  let y = Number(from.slice(0, 4));
-  let m = Number(from.slice(5, 7));
-  const endY = Number(to.slice(0, 4));
-  const endM = Number(to.slice(5, 7));
-  while (y < endY || (y === endY && m <= endM)) {
-    out.push({ year: y, month: m });
-    m++;
-    if (m > 12) {
-      m = 1;
-      y++;
-    }
-  }
-  return out;
-}
 
 serve(async (req) => {
   const ctx = await requireMember(req);
   const body = await readBody(req);
   const from = String(body.from || "");
   const to = String(body.to || "");
-  if (!DATE.test(from) || !DATE.test(to) || from > to) throw new AppError(400, "期間の指定が正しくありません。", "bad_period");
+  if (!validIso(from) || !validIso(to) || from > to) throw new AppError(400, "期間の指定が正しくありません。", "bad_period");
   const months = monthsBetween(from, to);
   if (months.length > MAX_MONTHS) throw new AppError(400, "期間が長すぎます。", "bad_period");
 
   const first = dateKey(months[0].year, months[0].month, 1);
   const lastMonth = months[months.length - 1];
   const last = dateKey(lastMonth.year, lastMonth.month, daysInMonth(lastMonth.year, lastMonth.month));
-  const recFrom = addDays(first, -1);
+  // 記録は、1か月前から(前の月の末日からの泊の続きを組み立てるため。buildShiftViewWithCarry)
+  const prevFirst = months[0].month === 1 ? dateKey(months[0].year - 1, 12, 1) : dateKey(months[0].year, months[0].month - 1, 1);
+  const recFrom = addDays(prevFirst, -1);
   const recTo = addDays(last, 1);
   const holFrom = addDays(first, -1);
   const holTo = addDays(last, 2);
@@ -71,7 +54,7 @@ serve(async (req) => {
   const records: Record<string, { code: string; memo: string }> = {};
   for (const r of (recordsRes.data || [])) records[r.date as string] = { code: r.code as string, memo: r.memo as string };
 
-  const shifts = buildShiftView({
+  const shifts = buildShiftViewWithCarry({
     months,
     records,
     master,

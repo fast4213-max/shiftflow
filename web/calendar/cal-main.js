@@ -4,7 +4,7 @@
 import { callFunction, currentSession, friendlyText, go, loadProfile, loadSettings, selectAllPages, supabase } from "../js/app.js?v=dev";
 import { createExtras, shrinkForEvent } from "./cal-extra.js?v=dev";
 import {
-  addDays, addMonths, compareForDay, dateKey, expandEvent, gridRange, layoutWeek, monthIndex, monthLimits, textOn, todayJst, weekday, whenText, WEEKDAYS,
+  addDays, addMonths, compareForDay, dateKey, expandEvent, gridRange, layoutWeek, monthIndex, monthLimits, oldestDate, photosClosed, textOn, todayJst, weekday, whenText, WEEKDAYS,
   yearsText,
 } from "./cal-core.js?v=dev";
 
@@ -24,6 +24,7 @@ const S = {
   y: 0, m: 0,
   today: todayJst(),
   needOffice: false,
+  notice: "",          // 直前の失敗・お知らせ(HTML。esc 済み)
   byUid: new Map(),    // 今の画面の予定(uid → 予定)
   photos: new Map(),   // 予定の id → 写真の行(cal_photos)
   panel: null,         // 開いているパネル
@@ -36,8 +37,18 @@ let extras = null;
 function storageGet(key) { try { return window.localStorage.getItem(key); } catch (_) { return null; } }
 function storageSet(key, value) { try { window.localStorage.setItem(key, value); } catch (_) { /* 保存できない端末では、毎回初期値に戻るだけ */ } }
 
-function showBanner(html) { const b = $("banner"); b.hidden = !html; b.innerHTML = html || ""; }
-function fail(err) { showBanner(esc(friendlyText(err && err.message ? err.message : String(err)))); }
+// 画面の上の案内。区所の案内(needOffice)と、直前の失敗・お知らせ(notice)は別に持つ。
+// 描き直し(render)で notice が消えないように、notice は次の月の移動・読み直しの始めまで残す(M3)
+function showBanner() {
+  const parts = [];
+  if (S.needOffice) parts.push('勤務の予定を出すには、<a href="../settings.html">設定</a>で区所を選んでください。');
+  if (S.notice) parts.push(S.notice);
+  const b = $("banner");
+  b.hidden = !parts.length;
+  b.innerHTML = parts.join("<br>");
+}
+function setNotice(html) { S.notice = html || ""; showBanner(); }
+function fail(err) { setNotice(esc(friendlyText(err && err.message ? err.message : String(err)))); }
 
 const labelOf = (id) => S.labels.find((l) => l.id === id);
 const labelKind = (kind) => S.labels.find((l) => l.kind === kind);
@@ -76,13 +87,13 @@ async function loadLabels() {
 }
 
 async function loadOwn() {
-  const rows = await selectAllPages((from, to) => supabase.from("cal_events").select("*").order("start_date").range(from, to));
+  const rows = await selectAllPages((from, to) => supabase.from("cal_events").select("*").order("start_date").order("id").range(from, to));
   S.own = rows.map(rowToOwn);
 }
 
 // 予定の写真の一覧。期限(予定の終了日から1か月)を過ぎたものは、ファイルを消してから行を消す(開いたときに、持ち主が片付ける)
 async function loadPhotos() {
-  const rows = await selectAllPages((from, to) => supabase.from("cal_photos").select("*").order("created_at").range(from, to));
+  const rows = await selectAllPages((from, to) => supabase.from("cal_photos").select("*").order("created_at").order("id").range(from, to));
   S.photos = new Map();
   for (const r of rows) { if (!S.photos.has(r.event_id)) S.photos.set(r.event_id, []); S.photos.get(r.event_id).push(r); }
   const expired = rows.filter((r) => r.expires_on && r.expires_on < S.today);
@@ -163,7 +174,7 @@ function render() {
   $("prev").disabled = monthIndex(S.y, S.m) <= monthIndex(lim.min.y, lim.min.m);
   $("next").disabled = monthIndex(S.y, S.m) >= monthIndex(lim.max.y, lim.max.m);
   renderChips();
-  showBanner(S.needOffice ? '勤務の予定を出すには、<a href="../settings.html">設定</a>で区所を選んでください。' : "");
+  showBanner();
 
   const events = eventsBetween(g.from, g.to);
   S.byUid = new Map(events.map((e) => [e.id, e]));
@@ -200,17 +211,27 @@ function weekHtml(ws, events, maxLanes) {
 
 // ---------- パネル(日の詳細・予定・追加と編集・設定) ----------
 
-function openPanel(html, { onClose } = {}) {
-  const p = $("panel");
-  p.innerHTML = html;
-  p.hidden = false;
+// 戻るボタン(Android など)で、開いているパネル・大きな画像を閉じる(アプリごと閉じてしまわないように)。
+// 開くたびに履歴を1つ足し、画面の ✕ などで閉じるときは1つ戻す(そのとき起きる popstate は ignorePops で読み飛ばす)
+const layers = [];
+let ignorePops = 0;
+function pushLayer(close) { layers.push({ close }); try { history.pushState({ calLayer: layers.length }, ""); } catch (_) { /* 履歴を足せなくても動く */ } }
+function dropLayer() { if (layers.pop()) { ignorePops++; try { history.back(); } catch (_) { ignorePops--; } } }
+window.addEventListener("popstate", () => {
+  if (ignorePops > 0) { ignorePops--; return; }
+  const l = layers.pop();
+  if (l) l.close(); // 戻るボタン: いちばん上の層を閉じる(履歴はもう戻っている)
+});
+
+function showPanel(onClose) {
+  if (S.panel) { if (onClose !== undefined) S.panel.onClose = onClose; return; }
+  $("panel").hidden = false;
   $("scrim").hidden = false;
   S.panel = { onClose };
-  p.scrollTop = 0;
+  pushLayer(hidePanel);
 }
-// 開いたまま中身だけ入れ替える(スクロールの位置は変えない)
-function setPanel(html) { $("panel").innerHTML = html; }
-function closePanel() {
+function hidePanel() {
+  closeViewerView();
   $("panel").hidden = true;
   $("scrim").hidden = true;
   $("panel").innerHTML = "";
@@ -218,6 +239,30 @@ function closePanel() {
   S.panel = null;
   if (cb) cb();
 }
+function openPanel(html, { onClose } = {}) {
+  const p = $("panel");
+  p.innerHTML = html;
+  showPanel(onClose);
+  p.scrollTop = 0;
+}
+// 開いたまま中身だけ入れ替える(スクロールの位置は変えない)
+function setPanel(html) { $("panel").innerHTML = html; }
+function closePanel() {
+  if (!S.panel) return;
+  if (!$("viewer").hidden) dropLayer(); // 大きな画像が開いていれば、先に閉じる
+  hidePanel();
+  dropLayer();
+}
+
+// 大きな画像
+function closeViewerView() { $("viewer").hidden = true; }
+function openViewer(src, caption) {
+  $("viewer-img").src = src;
+  $("viewer-cap").textContent = caption || "";
+  if ($("viewer").hidden) pushLayer(closeViewerView);
+  $("viewer").hidden = false;
+}
+function closeViewer() { if (!$("viewer").hidden) { closeViewerView(); dropLayer(); } }
 const head = (title, extra = "") => `<div class="ph"><h2>${esc(title)}</h2>${extra}<button class="x" data-act="close" aria-label="閉じる">✕</button></div>`;
 
 function dayLabel(d) { return `${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日(${WEEKDAYS[weekday(d)]})`; }
@@ -304,11 +349,19 @@ function openForm(source, defaultDate, mode = "all") {
 
 function photosFormHtml(d) {
   const total = d.keep.length + d.added.length;
+  const closed = photosClosed({ end: d.end, repeat: d.repeat }, S.today); // 写真の期限がもう過ぎる予定には、写真を付けられない(付けても、すぐ消える)
   const thumbs = d.keep.map((p) => `<span class="pth"><img data-path="${esc(p.path)}" alt="写真"><button data-act="ph-rm" data-id="${esc(p.id)}" aria-label="外す">✕</button></span>`).join("") +
     d.added.map((a, i) => `<span class="pth"><img src="${esc(a.url)}" alt="写真"><button data-act="ph-rm-new" data-i="${i}" aria-label="外す">✕</button></span>`).join("");
   return `<div class="fld"><label class="lb">写真(3枚まで)</label><div class="pgrid">${thumbs}</div>
-    <label class="btn filebtn" style="margin-top:6px${total >= 3 ? ";opacity:.4" : ""}">＋ 写真を追加<input type="file" id="f-photo" accept="image/*" multiple${total >= 3 ? " disabled" : ""}></label>
-    <p class="sub">小さくして保存します。${d.repeat !== "none" ? "繰り返しの予定の写真は、自動では消えません。" : "写真は、予定が終わって1か月後に消えます。"}</p></div>`;
+    <label class="btn filebtn" style="margin-top:6px${total >= 3 || closed ? ";opacity:.4" : ""}">＋ 写真を追加<input type="file" id="f-photo" accept="image/*" multiple${total >= 3 || closed ? " disabled" : ""}></label>
+    <p class="sub">${closed ? "終わって1か月以上たった予定には、写真を付けられません(付けても、すぐ消えるため)。" : "小さくして保存します。" + (d.repeat !== "none" ? "繰り返しの予定の写真は、自動では消えません。" : "写真は、予定が終わって1か月後に消えます。")}</p></div>`;
+}
+
+function refreshPhotoBlock() {
+  const el = $("photo-block");
+  if (!el || !draft) return;
+  el.innerHTML = photosFormHtml(draft);
+  extras.hydrate(el);
 }
 
 async function addPhotos(files) {
@@ -346,11 +399,7 @@ async function persistPhotos(eventId, d) {
 }
 
 function renderForm(message = "") {
-  if ($("panel").hidden) {
-    $("panel").hidden = false;
-    $("scrim").hidden = false;
-    S.panel = S.panel || {};
-  }
+  showPanel(); // 開いていなければ開く(開いているときは、そのまま)
   const d = draft;
   const labels = ownLabels();
   const title = d.id ? (d.mode === "occ" ? "この回だけ編集" : "予定を編集") : "予定を追加";
@@ -365,7 +414,7 @@ function renderForm(message = "") {
     <div class="fld"><label class="tg"><input type="checkbox" id="f-allday" data-f="allDay"${d.allDay ? " checked" : ""}> 終日</label></div>
     ${time}${rep}
     <div class="fld"><label class="lb" for="f-memo">メモ</label><textarea class="in" id="f-memo" data-f="memo" maxlength="1000">${esc(d.memo)}</textarea></div>
-    ${photosFormHtml(d)}
+    <div id="photo-block">${photosFormHtml(d)}</div>
     <p class="msg err" id="form-msg">${esc(message)}</p>
     <div class="btns"><button class="btn pri" data-act="save" id="f-save">保存</button><button class="btn" data-act="close">やめる</button></div></div>`;
   extras.hydrate($("panel"));
@@ -378,7 +427,10 @@ function readDraftField(el) {
   draft[f] = v;
   if (f === "start" && draft.end < draft.start) draft.end = draft.start;
   if (f === "allDay" || f === "repeat") renderForm();
-  else if (f === "start") { const end = $("f-end"); if (end) end.value = draft.end; }
+  else if (f === "start" || f === "end") {
+    if (f === "start") { const end = $("f-end"); if (end) end.value = draft.end; }
+    refreshPhotoBlock(); // 日付を変えると、写真を付けられるか(期限)が変わる。入力中の欄は作り直さず、写真の欄だけ入れ替える
+  }
 }
 
 function draftError(d) {
@@ -390,6 +442,11 @@ function draftError(d) {
     if (d.start === d.end && d.endTime && d.endTime < d.startTime) return "終了時刻が開始時刻より前です。日をまたぐときは、終了日を次の日にしてください。";
   }
   if (d.repeat !== "none" && d.until && d.until < d.start) return "繰り返しの終わりが開始日より前です。";
+  // 12か月より前に終わる予定は、夜の処理で消えるので作らせない(L5)。誕生日などの繰り返し(終わりが無い・新しい)は、昔の日付から始めてよい
+  const oldest = oldestDate(S.today);
+  if (d.repeat === "none" && d.end < oldest) return `${Number(oldest.slice(0, 4))}年${Number(oldest.slice(5, 7))}月より前の予定は作れません(12か月より前の予定は、自動で消えるためです)。`;
+  if (d.repeat !== "none" && d.until && d.until < oldest) return "繰り返しの終わりが12か月より前です(12か月より前の予定は、自動で消えるためです)。";
+  if (photosClosed({ end: d.end, repeat: d.repeat }, S.today) && d.added.length) return "終わって1か月以上たった予定には、写真を付けられません。写真を外すか、日付を直してください。";
   return "";
 }
 
@@ -432,7 +489,7 @@ async function saveDraft() {
     draft = null;
     await reloadAll({ keepShifts: true });
     closePanel();
-    if (fails.length) showBanner(`予定は保存しました。写真${fails.length}件は保存できませんでした(${esc(fails[0])})。予定を開いて、もう一度付けてください。`);
+    if (fails.length) setNotice(`予定は保存しました。写真${fails.length}件は保存できませんでした(${esc(fails[0])})。予定を開いて、もう一度付けてください。`);
   } catch (e) {
     renderForm(friendlyText(e.message || String(e)));
   }
@@ -587,8 +644,9 @@ async function gotoMonth(y, m) {
   const idx = monthIndex(y, m);
   if (idx < monthIndex(lim.min.y, lim.min.m) || idx > monthIndex(lim.max.y, lim.max.m)) return;
   S.y = y; S.m = m;
+  S.notice = ""; // 前の月の失敗の案内は消す(この月の失敗は、下で出し直す)
   render(); // 先に枠を出し、勤務の予定は読めたら足す
-  try { await ensureShifts(); } catch (e) { fail(e); }
+  try { await ensureShifts(); } catch (e) { if (S.y === y && S.m === m) fail(e); return; }
   if (S.y === y && S.m === m) render();
 }
 
@@ -610,7 +668,7 @@ function bind() {
   $("btn-imp").addEventListener("click", () => extras.openImportant());
   $("btn-gal").addEventListener("click", () => extras.openGallery());
   $("tray").addEventListener("click", (ev) => extras.trayClick(ev));
-  $("viewer").addEventListener("click", () => { $("viewer").hidden = true; });
+  $("viewer").addEventListener("click", closeViewer);
   extras.bindDrag();
   $("scrim").addEventListener("click", closePanel);
 
@@ -624,12 +682,20 @@ function bind() {
   });
 
   $("weeks").addEventListener("click", (ev) => {
+    // スタンプの画面: 帯やスタンプの上のタップも、その下のマスのタップとして受ける(M4)。スタンプを選んでいないときのスタンプのタップは、編集を開く(別に処理)
+    if (extras.stampMode()) {
+      if (ev.target.closest(".stamp") && !extras.hasPick()) return;
+      const c = extras.cellAt(ev.clientX, ev.clientY);
+      if (c) {
+        const r = c.getBoundingClientRect();
+        extras.cellTap(c.dataset.date, { x: (ev.clientX - r.left) / r.width, y: (ev.clientY - r.top) / r.height });
+      }
+      return;
+    }
     const bar = ev.target.closest("[data-uid]");
-    if (bar && !extras.stampMode()) return openEvent(bar.dataset.uid);
+    if (bar) return openEvent(bar.dataset.uid);
     const cell = ev.target.closest("[data-date]");
-    if (!cell) return;
-    if (extras.cellTap(cell.dataset.date)) return; // スタンプの画面
-    openDay(cell.dataset.date);
+    if (cell) openDay(cell.dataset.date);
   });
   $("weeks").addEventListener("keydown", (ev) => {
     if ((ev.key === "Enter" || ev.key === " ") && ev.target.dataset && ev.target.dataset.date) { ev.preventDefault(); openDay(ev.target.dataset.date); }
@@ -644,7 +710,8 @@ function bind() {
     if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.6) { const n = addMonths(S.y, S.m, dx < 0 ? 1 : -1); gotoMonth(n.y, n.m); }
   }, { passive: true });
   document.addEventListener("keydown", (ev) => {
-    if (ev.key === "Escape" && S.panel) closePanel();
+    if (ev.key !== "Escape") return;
+    if (!$("viewer").hidden) closeViewer(); else if (S.panel) closePanel();
   });
 
   $("panel").addEventListener("click", (ev) => {
@@ -658,7 +725,11 @@ function bind() {
     if (act === "del") return deleteEvent(el.dataset.uid, el.dataset.mode);
     if (act === "save") return saveDraft();
     if (act.startsWith("l-")) return settingsAction(act, el);
-    if (act === "ph-view") { $("viewer-img").src = el.src; $("viewer-cap").textContent = el.dataset.exp ? `この写真は${Number(el.dataset.exp.slice(5, 7))}月${Number(el.dataset.exp.slice(8, 10))}日に消えます` : ""; $("viewer").hidden = false; return; }
+    if (act === "ph-view") {
+      const cap = el.dataset.exp ? `この写真は${Number(el.dataset.exp.slice(5, 7))}月${Number(el.dataset.exp.slice(8, 10))}日に消えます` : "";
+      extras.urlFor(el.dataset.path).then((u) => openViewer(u || el.src, cap));
+      return;
+    }
     if (act === "ph-rm" && draft) { const p = draft.keep.find((x) => x.id === el.dataset.id); draft.keep = draft.keep.filter((x) => x.id !== el.dataset.id); if (p) draft.removed.push(p); return renderForm(); }
     if (act === "ph-rm-new" && draft) { const i = Number(el.dataset.i); const a = draft.added[i]; if (a) URL.revokeObjectURL(a.url); draft.added.splice(i, 1); return renderForm(); }
     extras.panelClick(el, act);
@@ -705,7 +776,7 @@ async function main() {
   S.y = Number(S.today.slice(0, 4));
   S.m = Number(S.today.slice(5, 7));
   S.userId = session.user.id;
-  extras = createExtras({ S, $, esc, supabase, openPanel, setPanel, closePanel, head, render, fail, friendlyText, selectAllPages, userId: session.user.id });
+  extras = createExtras({ S, $, esc, supabase, openPanel, setPanel, closePanel, openViewer, head, render, fail, friendlyText, selectAllPages, userId: session.user.id });
   bind();
   await Promise.all([loadLabels(), loadOwn(), extras.load()]);
   await loadPhotos().catch(() => {});
