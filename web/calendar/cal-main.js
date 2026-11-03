@@ -184,7 +184,7 @@ function renderChips() {
 
 // ---------- 月の画面(週が途切れず、縦に続く) ----------
 
-const rowHeight = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--rh")) || 96;
+const rowHeight = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--rh")) || 84;
 // 見られる範囲(12か月前の月の最初の週 〜 来年12月の最後の週)
 function listRange() {
   const l = monthLimits(S.today);
@@ -210,8 +210,9 @@ function render() {
   S.byUid = new Map(events.map((e) => [e.id, e]));
   const weeks = [];
   for (let ws = r.from; ws <= r.to; ws = addDays(ws, 7)) weeks.push(ws);
-  const laneH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--lane")) || 17;
-  const maxLanes = Math.max(1, Math.floor((rowHeight() - 27) / laneH));
+  // 帯を並べられる段の数(週の高さ − 帯の始まり)÷(帯の高さ+すきま)。家族カレンダーと同じ数値
+  const cv = (n, d) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(n)) || d;
+  const maxLanes = Math.max(1, Math.floor((rowHeight() - cv("--bart", 17)) / (cv("--bar", 12) + cv("--bgap", 1.5))));
   const cal = $("cal");
   const keep = cal.scrollTop;
   $("weeks").innerHTML = weeks.map((ws) => weekHtml(ws, events, maxLanes)).join("");
