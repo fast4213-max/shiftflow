@@ -105,4 +105,4 @@ create policy calendar_delete_own on storage.objects for delete to authenticated
   using (bucket_id = 'calendar' and (storage.foldername(name))[1] = auth.uid()::text and public.is_member());
 ```
 - [ ] 実機で確かめる(デバッグ 24回目の見送り): スタンプの画面で何も選ばずに予定の帯をタップしたとき画面が閉じる動きで困らないか(D5)・Android の画面のキーボードで TODO の「Enterで追加」が効くか[効かなくても＋ボタンで追加できる](D7)・パネルを開いて閉じたあとにページを再読み込みしても、戻るボタンを余分に押さずにアプリを離れられるか(D8)・iPhone で、写真が横向きにならないか(D6を直したあとの確認)
-- [ ] 利用規約・説明の直し: [`TERMS-DRAFT.md`](TERMS-DRAFT.md) の案を確かめて、`web/terms.html`・`web/help.html`・`SECURITY.md` に反映する(法的な文書なので、文面は確認してから)
+- [x] 利用規約・説明の直し: [`TERMS-DRAFT.md`](TERMS-DRAFT.md) の案のとおりに、`web/terms.html`・`web/help.html`・`SECURITY.md` に反映した(2026-11-03)
