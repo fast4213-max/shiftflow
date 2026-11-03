@@ -230,6 +230,9 @@ begin
   assert public.master_period_on(office, date '2000-01-01') = base, '切替日より前の日に、いちばん古いマスタを使わない';
   assert (select (o ->> 'master_count')::int from jsonb_array_elements(public.admin_stats() -> 'offices') o where (o ->> 'id')::bigint = office) = 1,
          '概要の件数が今日のマスタの件数でない';
+  -- 管理画面の「接続」: Google に登録する人・保存だけの人の数と、利用者ごとの google_sync が返る
+  assert (public.admin_stats() ? 'google_users') and (public.admin_stats() ? 'save_only'), '概要に google_users・save_only が無い';
+  assert (select coalesce(bool_and(e ? 'google_sync'), true) from jsonb_array_elements(public.admin_stats() -> 'users_list') e), '利用者の一覧に google_sync が無い';
   -- もう使っている(いちばん古い)マスタは消せない。まだ始まっていないものは消せて、行も消える
   failed := false;
   begin

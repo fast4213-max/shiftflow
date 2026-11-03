@@ -56,13 +56,14 @@
           <h2>利用者 <span id="users-count" class="muted"></span></h2>
           <input id="user-search" type="search" placeholder="社員番号・名前で探す" autocomplete="off">
         </div>
+        <p class="muted">接続: <b>済</b> = Googleカレンダーに登録できる(接続テスト済み) / <b>保</b> = Googleカレンダーは使わず、保存だけ / <b>—</b> = まだ</p>
         <div class="scroll-x">
           <table class="list">
             <thead id="users-head"><tr>
               <th aria-sort="none"><button type="button" class="sort-btn" data-sort="employee_no">社員番号</button></th>
               <th>氏名</th>
               <th aria-sort="none"><button type="button" class="sort-btn" data-sort="office">区所</button></th>
-              <th aria-sort="none"><button type="button" class="sort-btn" data-sort="verified">接続</button></th>
+              <th aria-sort="none"><button type="button" class="sort-btn" data-sort="verified" title="済 = 接続テスト済み / 保 = Googleなしで保存だけ / — = まだ">接続</button></th>
               <th aria-sort="none"><button type="button" class="sort-btn" data-sort="last_sign_in_at">最終ログイン</button></th>
               <th aria-sort="none"><button type="button" class="sort-btn" data-sort="last_registered_at">最終登録</button></th>
               <th aria-sort="none"><button type="button" class="sort-btn" data-sort="record_days">記録</button></th>

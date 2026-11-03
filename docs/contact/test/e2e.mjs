@@ -201,7 +201,7 @@ function backend(opts = {}) {
       return json({
         users: 1, verified: 1, active_30d: 1, signups_7d: 0, signup_password_set: true, today: "2026-10-15",
         offices: [{ id: 1, name: "A区所", master_count: 1, user_count: 1, periods: opts.adminPeriods || [{ id: 1, starts_on: "2026-10-03", name: "ダイヤ修正", count: 1 }] }],
-        no_office: 0, users_list: [],
+        no_office: 0, users_list: [], ...(opts.stats || {}),
       });
     }
     if (path === "/rest/v1/shift_master" && opts.masterFail) return json({ message: "boom" }, 500);
@@ -3357,6 +3357,24 @@ await check("使い方ページ: 設定ページからの古いリンク(#share�
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "全部開いて、横にはみ出す");
   await page.click("#fold-all");
   assert.equal(await page.evaluate(() => [...document.querySelectorAll("details.fold")].some((d) => d.open)), false);
+  await ctx.close();
+});
+
+await check("管理画面: 「接続」は、済(接続テスト済み)・保(Googleなしで保存だけ)・—(まだ)。接続テスト済みの割合は、Google連携の人の中で数える。並べ替えは 済 → 保 → —", async () => {
+  const u = (no, name, extra) => ({ user_id: "id" + no, employee_no: no, family_name: name, given_name: "太郎", plan: "free", created_at: "2026-10-01T00:00:00Z", last_sign_in_at: null, office: "A区所", verified: false, google_sync: true, last_registered_at: null, record_days: 0, ...extra });
+  const stats = { users: 4, verified: 1, google_users: 2, save_only: 1, users_list: [u("1000001", "未接続", {}), u("1000002", "保存だけ", { google_sync: false }), u("1000003", "接続済", { verified: true }), u("1000004", "区所なし", { google_sync: false, office: null })] };
+  const { page, ctx, errors } = await open("admin.html#users", { userId: "a1", opts: { profile: ADMIN, stats }, viewport: { width: 1200, height: 900 } });
+  await page.waitForSelector("#users tr");
+  const rows = async () => (await page.locator("#users tr").evaluateAll((trs) => trs.map((tr) => [tr.children[1].textContent, tr.children[3].textContent])));
+  const byName = Object.fromEntries(await rows());
+  assert.equal(byName["未接続 太郎"], "—");
+  assert.equal(byName["保存だけ 太郎"], "保");
+  assert.equal(byName["接続済 太郎"], "済");
+  assert.equal(byName["区所なし 太郎"], "—", "区所を選んでいない人は、保ではなく —");
+  assert.equal(await page.textContent("#kpi-verified-sub"), "Google連携の2人中 50%・保存だけ 1人");
+  await page.click('[data-sort="verified"]');
+  assert.deepEqual((await rows()).map((r) => r[1]).slice(0, 3), ["済", "保", "—"]);
+  assert.deepEqual(errors, []);
   await ctx.close();
 });
 
