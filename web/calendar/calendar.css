@@ -88,7 +88,7 @@ button:disabled { opacity: .35; cursor: default; }
 .wmk { position: absolute; left: 50%; top: 100%; transform: translate(-50%, -50%); font-size: var(--wmf); font-weight: 900; line-height: 1; letter-spacing: -.02em; color: var(--wm); pointer-events: none; z-index: 1; font-variant-numeric: tabular-nums; }
 /* 予定の帯: 四角に近い・白い太字・はみ出した文字は切る */
 .bars { position: absolute; left: 0; right: 0; top: var(--bart); display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-rows: var(--bar); row-gap: var(--bgap); pointer-events: none; z-index: 2; }
-.bar { pointer-events: auto; display: block; height: var(--bar); margin: 0 1.5px; padding: 0 3px; border-radius: 1.5px; font-size: var(--barf); font-weight: 700; line-height: var(--bar); letter-spacing: -.01em; text-align: left; overflow: hidden; text-overflow: clip; white-space: nowrap; background: var(--c); color: var(--t); min-width: 0; }
+.bar { pointer-events: auto; display: block; height: var(--bar); margin: 0 1.5px; padding: 0 3px; border-radius: 1.5px; font-size: var(--barf); font-weight: 700; line-height: var(--bar); letter-spacing: -.01em; text-align: center; overflow: hidden; text-overflow: clip; white-space: nowrap; background: var(--c); color: var(--t); min-width: 0; }
 .bar.cl { margin-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .bar.cr { margin-right: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
 
