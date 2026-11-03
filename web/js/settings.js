@@ -79,8 +79,9 @@ async function main() {
     .then((config) => ($("sa-email").value = config.serviceAccountEmail))
     .catch((err) => ($("sa-email").value = "取得できませんでした: " + err.message));
   $("copy-sa").addEventListener("click", () => copyText($("sa-email").value, $("copy-sa")));
-  // 簡単設定で作ったIDは、すぐ保存する(区所などは上書きしない)
-  initCalendarSetup({ saveIds: (values) => saveSettings(values) });
+  // 簡単設定で作ったIDは、すぐ保存する(区所などは上書きしない)。簡単設定は「Googleカレンダーにも登録する」にチェックがあるときだけ使えるので、
+  // その印も一緒に保存する(入れないと初期値のチェックなしのまま。共有のためにアプリを切り替えて戻ると、チェックが外れて見える)
+  initCalendarSetup({ saveIds: (values) => saveSettings({ ...values, google_sync: true }) });
 
   // 時間つきで登録するあいだは、「2段」「名前に時間」は使われないので押せなくする(チェックは残す)
   const timedOnly = ["split-day", "split-offduty", "title-day", "title-offduty"];
