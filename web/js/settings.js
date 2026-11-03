@@ -82,7 +82,7 @@ async function main() {
   // 簡単設定で作ったIDは、すぐ保存する(区所などは上書きしない)
   initCalendarSetup({ saveIds: (values) => saveSettings(values) });
 
-  // 時間つきで登録するあいだは、「2件で登録」「名前に時間」は使われないので押せなくする(チェックは残す)
+  // 時間つきで登録するあいだは、「2段」「名前に時間」は使われないので押せなくする(チェックは残す)
   const timedOnly = ["split-day", "split-offduty", "title-day", "title-offduty"];
   const updateTimed = () => timedOnly.forEach((id) => ($(id).disabled = $("timed-events").checked));
   $("timed-events").addEventListener("change", updateTimed);
