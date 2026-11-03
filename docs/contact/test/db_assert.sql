@@ -460,8 +460,12 @@ begin
   perform set_config('request.jwt.claim.sub', u1::text, true);
   perform public.cal_ensure_default_labels();
   perform public.cal_ensure_default_labels();
-  assert (select count(*) from public.cal_labels) = 3, '最初のラベルが3つにならない(2回呼んでも増えない)';
-  assert (select count(*) from public.cal_labels where kind in ('duty', 'off')) = 2, '勤務・休日のラベルが無い';
+  assert (select count(*) from public.cal_labels) = 4, '最初のラベルが4つにならない(2回呼んでも増えない)';
+  assert (select count(*) from public.cal_labels where kind in ('duty', 'off', 'offduty')) = 3, '勤務・休日・非番のラベルが無い';
+  -- 今の利用者(勤務・休日・その他だけ持っている)には、非番だけが足される
+  delete from public.cal_labels where kind = 'offduty';
+  perform public.cal_ensure_default_labels();
+  assert (select count(*) from public.cal_labels) = 4 and (select count(*) from public.cal_labels where kind = 'offduty') = 1, '非番のラベルだけが足されない';
   select id into l1 from public.cal_labels where kind = 'custom';
 
   -- ラベル: 色の形・名前の長さ・勤務/休日は1つだけ・自分で作るのは10件まで

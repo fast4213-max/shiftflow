@@ -78,7 +78,8 @@ async function loadLabels() {
     return data || [];
   };
   let rows = await read();
-  if (!rows.length) {
+  // 勤務・休日・非番のラベルが足りなければ作る(今までの利用者には、非番だけが足される)
+  if (!rows.length || ["duty", "off", "offduty"].some((k) => !rows.some((r) => r.kind === k))) {
     const { error } = await supabase.rpc("cal_ensure_default_labels");
     if (error) throw error;
     rows = await read();
@@ -114,8 +115,11 @@ async function loadShifts(y, m) {
   S.needOffice = !!res.needOffice;
   const duty = labelKind("duty");
   const off = labelKind("off");
+  const offduty = labelKind("offduty") || duty; // 非番のラベルがまだ無い(古い画面・反映の途中)ときは、勤務のラベルに入れる
   const events = (res.shifts || []).map((e, i) => {
-    const label = e.calendar === "holiday" ? off : duty;
+    // 勤務・休日・非番を、別々のラベルにする(ラベルのボタンで別々に隠せる)。server の group が無いときは、休日かそれ以外かだけ
+    const group = e.group || (e.calendar === "holiday" ? "off" : "duty");
+    const label = group === "off" ? off : group === "offduty" ? offduty : duty;
     return {
       src: "shift", id: `s:${e.date}:${i}`, title: e.title, start: e.date, end: e.endDate, allDay: e.allDay,
       startTime: e.startTime, endTime: e.endTime, labelId: label ? label.id : "", memo: e.description || "", repeat: "none",
@@ -610,7 +614,7 @@ function openSettings() {
         <li>ホーム画面に追加すると、アプリのように開けます。最初に1回、社員番号とPINでログインします。</li>
         <li>画面の色合いは、この設定の一番下で変えられます。</li>
       </ul></div>
-    <div class="card"><h3>ラベル</h3><p class="sub">名前と色、並び順を決めます。自分で作れるのは10個までです。勤務・休日のラベルは、勤務の予定の色です。</p>
+    <div class="card"><h3>ラベル</h3><p class="sub">名前と色、並び順を決めます。自分で作れるのは10個までです。勤務・休日・非番のラベルは、勤務の予定の色です(非番は、「〜」とその時間です)。</p>
       ${labelRows}
       <div class="lrow"><input type="color" id="nl-color" value="#8e44ad" aria-label="新しいラベルの色"><input class="in" id="nl-name" maxlength="20" placeholder="新しいラベルの名前" aria-label="新しいラベルの名前"><button class="btn sm pri" data-act="l-add"${customCount >= 10 ? " disabled" : ""}>追加</button></div>
       <p class="msg err" id="label-msg"></p></div>

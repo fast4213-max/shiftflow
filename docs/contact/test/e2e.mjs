@@ -75,9 +75,12 @@ function backend(opts = {}) {
     }
     if (path === "/rest/v1/rpc/cal_ensure_default_labels") {
       if (!st.cal.cal_labels.length) {
-        for (const [kind, name, color, sort] of [["duty", "勤務", "#3b6fd4", 1], ["off", "休日", "#e0553f", 2], ["custom", "その他", "#6b7280", 3]]) {
+        for (const [kind, name, color, sort] of [["duty", "勤務", "#3b6fd4", 1], ["off", "休日", "#e0553f", 2], ["offduty", "非番", "#d4607a", 2], ["custom", "その他", "#6b7280", 3]]) {
           st.cal.cal_labels.push({ id: "L" + ++st.calSeq, user_id: "u1", kind, name, color, sort, created_at: "2026-11-02T00:00:00Z" });
         }
+      } else if (!st.cal.cal_labels.some((l) => l.kind === "offduty")) {
+        // 今の利用者(勤務・休日・その他だけ)には、非番だけが足される
+        st.cal.cal_labels.push({ id: "L" + ++st.calSeq, user_id: "u1", kind: "offduty", name: "非番", color: "#d4607a", sort: 2, created_at: "2026-11-03T00:00:00Z" });
       }
       return json(null, 204);
     }
@@ -1951,7 +1954,7 @@ const calOpen = (extra = {}, opts = {}) => open("calendar/index.html", {
 await check("カレンダー: 開くと最初のラベル(勤務・休日・その他)が作られ、ラベルのボタンが並ぶ。今日に印。勤務の予定は帯(終日)と時間つきの帯で出る", async () => {
   const { page, ctx, be, errors } = await calOpen();
   await page.waitForSelector(".bar");
-  assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "その他"]);
+  assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "非番", "その他"]);
   assert.equal(await page.locator(`.cell.tdy[data-date="${today}"]`).count(), 1);
   const bars = await page.locator(".bar").allTextContents();
   assert.ok(bars.includes("25"), bars.join());
@@ -2188,7 +2191,7 @@ await check("カレンダー: 区所を決めていない人には、設定へ�
   const b = await calOpen({}, { shiftsFail: true });
   await b.page.waitForSelector("#banner:not([hidden])");
   assert.ok((await b.page.textContent("#banner")).includes("読めませんでした"));
-  assert.equal(await b.page.locator("#chips .chip").count(), 3);
+  assert.equal(await b.page.locator("#chips .chip").count(), 4);
   await b.ctx.close();
 });
 
@@ -2205,7 +2208,7 @@ await check("カレンダー設定: 一番上に説明、一番下に色合い�
   await page.fill("#nl-color", "#aa3366");
   await page.click('[data-act="l-add"]');
   await page.waitForSelector('[data-lf="name"][value="家族"]');
-  assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "その他", "家族"]);
+  assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "非番", "その他", "家族"]);
   // 名前・色を直す
   const row = page.locator('.lrow[data-lid]', { has: page.locator('[data-lf="name"][value="家族"]') });
   await row.locator('[data-lf="name"]').fill("パートナー");
@@ -2213,8 +2216,8 @@ await check("カレンダー設定: 一番上に説明、一番下に色合い�
   await page.waitForFunction(() => [...document.querySelectorAll("#chips .chip")].some((c) => c.textContent === "パートナー"));
   // 並び替え(上へ)
   await page.locator('[data-act="l-up"]').last().click();
-  await page.waitForFunction(() => document.querySelectorAll("#chips .chip")[2].textContent === "パートナー");
-  assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "パートナー", "その他"]);
+  await page.waitForFunction(() => document.querySelectorAll("#chips .chip")[3].textContent === "パートナー");
+  assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "非番", "パートナー", "その他"]);
   // 使っているラベルは消せない
   await page.keyboard.press("Escape");
   await page.click("#tab-new");
@@ -2228,7 +2231,7 @@ await check("カレンダー設定: 一番上に説明、一番下に色合い�
   await page.waitForSelector("#label-msg:not(:empty)");
   assert.ok((await page.textContent("#label-msg")).includes("使っている予定があるので"));
   // 使っていないラベルは消せる
-  const pRow = page.locator('.lrow[data-lid]').filter({ has: page.locator('input[data-lf="name"]') }).nth(2);
+  const pRow = page.locator('.lrow[data-lid]').filter({ has: page.locator('input[data-lf="name"]') }).nth(3);
   assert.equal(await pRow.locator('[data-lf="name"]').inputValue(), "パートナー");
   await pRow.locator('[data-act="l-del"]').click();
   await page.waitForFunction(() => ![...document.querySelectorAll("#chips .chip")].some((c) => c.textContent === "パートナー"));
@@ -2943,6 +2946,34 @@ await check("デバッグ D9: 使い方ページに、shiftflowカレンダー�
   await ctx.close();
 });
 
+
+
+await check("カレンダー: 勤務・休日・非番を別々のラベルで隠せる。勤務を隠しても、非番(「〜」とその時間)・休日は消えない。今の利用者には、非番のラベルだけが足される", async () => {
+  const ev = (d, title, group, calendar = "work", extra = {}) => ({ date: d, endDate: d, allDay: true, startTime: "", endTime: "", calendar, kind: "day", title, description: "", group, ...extra });
+  const shifts = [ev(today, "25", "duty"), ev(shiftIso(today, 1), "〜 9:54", "offduty"), ev(shiftIso(today, 2), "公休", "off", "holiday")];
+  const { page, ctx, be, errors } = await calOpen({}, { shifts });
+  await page.waitForSelector(".bar");
+  const bars = () => page.locator(".bar").allTextContents();
+  assert.deepEqual((await bars()).sort(), ["25", "〜 9:54", "公休"].sort());
+  await page.click('#chips .chip:has-text("勤務")');
+  assert.deepEqual((await bars()).sort(), ["〜 9:54", "公休"].sort(), "勤務だけが消える");
+  await page.click('#chips .chip:has-text("勤務")');
+  await page.click('#chips .chip:has-text("非番")');
+  assert.deepEqual((await bars()).sort(), ["25", "公休"].sort(), "非番だけが消える");
+  // 非番の色は、非番のラベルの色
+  await page.click('#chips .chip:has-text("非番")');
+  const color = await page.locator('.bar:has-text("〜 9:54")').evaluate((el) => getComputedStyle(el).backgroundColor);
+  assert.equal(color, "rgb(212, 96, 122)");
+  // 今の利用者(勤務・休日・その他だけ持っている)に、非番だけが足される
+  be.st.cal.cal_labels = be.st.cal.cal_labels.filter((l) => l.kind !== "offduty");
+  await page.reload();
+  await page.waitForSelector("#chips .chip");
+  await page.waitForFunction(() => document.querySelectorAll("#chips .chip").length === 4);
+  assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "非番", "その他"]);
+  assert.equal(be.st.cal.cal_labels.filter((l) => l.kind === "offduty").length, 1);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
 
 await browser.close();
 server.kill();

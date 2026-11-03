@@ -3,7 +3,7 @@
 
 import { assertEquals } from "jsr:@std/assert@1";
 import { indexMaster } from "./plan.js";
-import { buildShiftView, buildShiftViewWithCarry, monthsBetween, validIso } from "./shift-view.ts";
+import { buildShiftView, buildShiftViewWithCarry, monthsBetween, toViewEvents, validIso } from "./shift-view.ts";
 
 const master = indexMaster([
   { code: "25", kind: "日勤", weekday_start: "10:15", weekday_end: "19:02", holiday_start: "", holiday_end: "", stay: "" },
@@ -112,4 +112,32 @@ Deno.test("validIso: 実在する日付だけ通す", () => {
 Deno.test("monthsBetween: 範囲にかかる月を、古い順に(年をまたぐ)", () => {
   assertEquals(monthsBetween("2026-12-27", "2027-02-06"), [{ year: 2026, month: 12 }, { year: 2027, month: 1 }, { year: 2027, month: 2 }]);
   assertEquals(monthsBetween("2026-11-01", "2026-11-30"), [{ year: 2026, month: 11 }]);
+});
+
+// 勤務・休日・非番は別々のラベル(画面のラベルのボタンで、別々に隠せる)
+const groups = (records: Record<string, { code: string; memo: string }>, settings: Record<string, boolean> = {}) =>
+  buildShiftView({ months: [{ year: 2026, month: 10 }], records, master, holidays: [], settings }).map((e) => [e.date, e.title, e.group]);
+
+Deno.test("buildShiftView: 勤務・休日・非番のラベル(泊の翌日の「〜」と、手で入れた非番は「非番」)", () => {
+  assertEquals(
+    groups({ "2026-10-05": { code: "25", memo: "" }, "2026-10-11": { code: "5", memo: "" }, "2026-10-14": { code: "公休", memo: "" }, "2026-10-20": { code: "非番", memo: "" }, "2026-10-21": { code: "明", memo: "" } }),
+    [
+      ["2026-10-05", "25", "duty"],
+      ["2026-10-11", "5", "duty"],
+      ["2026-10-12", "〜", "offduty"],
+      ["2026-10-14", "公休", "off"],
+      ["2026-10-20", "非番", "offduty"],
+      ["2026-10-21", "明", "offduty"],
+    ],
+  );
+});
+
+Deno.test("buildShiftView: 非番を2件にする設定で1本にまとめても、非番のラベルのまま。休日は休日のまま", () => {
+  const out = groups({ "2026-10-11": { code: "5", memo: "" } }, { splitDayEvents: true, splitOffdutyEvents: true });
+  assertEquals(out, [["2026-10-11", "5 10:00", "duty"], ["2026-10-12", "〜 9:00", "offduty"]]);
+});
+
+Deno.test("toViewEvents: 休日の予定(休日用のカレンダー)は休日のラベル", () => {
+  const v = toViewEvents({ date: "2026-10-14", calendar: "holiday", kind: "day", title: "公休", description: "" });
+  assertEquals(v.map((e) => e.group), ["off"]);
 });

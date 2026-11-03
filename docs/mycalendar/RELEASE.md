@@ -11,7 +11,7 @@
 ## 1. いまの状態(準備で確かめ済み)
 - main より19コミット進んでいて、main は進んでいない。**合流でぶつかる所は無い**
 - テスト: Deno 223件・計算13件・画面(Chromium)全部・DB assert・lint・型チェック、すべて通過
-- 反映される migration(古い順): `20261102000000_google_sync`・`…01_calendar_tables`・`…02_retention`・`…03_usage`・`20261103000000_calendar_fixes`(本番の最後は `20261018000001`。番号は大きいので止まらない)
+- 反映される migration(古い順): `20261102000000_google_sync`・`…01_calendar_tables`・`…02_retention`・`…03_usage`・`20261103000000_calendar_fixes`・`20261103000001_offduty_label`(本番の最後は `20261018000001`。番号は大きいので止まらない)
 - 新しい Edge Function: `calendar-shifts`(`config.toml` に `verify_jwt = false` 済み)。変わった関数: `register-month`・`delete-month`・`admin-users`
 - 新しく必要な秘密の値(Secrets)・GitHub の設定: **無い**
 

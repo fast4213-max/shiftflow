@@ -3,7 +3,7 @@
 // カレンダーの表記は、利用者の設定どおり・Google に入る予定と同じになる(Google には何も書かない)。
 
 import { addDays, buildPlan, codeOf, dateKey, daysInMonth } from "./plan.js";
-import { addTimeToTitles, type PlannedEvent, splitDayEvents, splitOffdutyEvents, toTimedEvents } from "./shift-calendar.ts";
+import { addTimeToTitles, isOffdutyTitle, type PlannedEvent, splitDayEvents, splitOffdutyEvents, toTimedEvents } from "./shift-calendar.ts";
 
 export type ShiftViewSettings = {
   splitDayEvents?: boolean;
@@ -14,6 +14,8 @@ export type ShiftViewSettings = {
 };
 
 export type ViewEvent = {
+  // どのラベルの予定か: "duty"=勤務・"off"=休日・"offduty"=非番(「〜」と、その時間)。画面のラベルのボタンで、別々に隠せる
+  group: "duty" | "off" | "offduty";
   date: string;
   endDate: string;
   allDay: boolean;
@@ -36,15 +38,25 @@ const TITLE_TIME_END = /[(（]\s*[0-9０-９]{1,2}\s*[:：]\s*[0-9０-９]{2}\s*
 // 出勤・非番を2件で登録する設定のとき、Google には「番号」と「時間」の2件が入る。
 // アプリ内のカレンダーでは、同じ日に2本並ぶと二重に見えるので、1本にまとめる(名前のあとに時間を続ける。例: 「〜 9:54」「25 10:15〜19:02」)。
 // 名前に時間がもう付いている(「〜(9:54)」)ときは、続けない
+export function groupOf(e: PlannedEvent): ViewEvent["group"] {
+  if (e.calendar === "holiday") return "off";
+  // 非番: 泊の翌日の「〜」(自動)と、手で入れた非番(「〜」「非番」「明」など)
+  if (e.kind === "offduty" || (e.kind === "day" && isOffdutyTitle(e.title))) return "offduty";
+  return "duty";
+}
+
 export function toViewEvents(e: PlannedEvent): ViewEvent[] {
   const out: ViewEvent[] = [];
   const calendar = e.calendar as ViewEvent["calendar"];
   if (e.second) {
+    // まとめる前の名前で、どのラベルかを決める(まとめた名前は「〜 9:54」のように変わるため)
     const title = TITLE_TIME_END.test(e.title) ? e.title : `${e.title} ${e.second.title}`.trim();
-    return toViewEvents({ ...e, title, second: undefined });
+    return toViewEvents({ ...e, title, second: undefined }).map((v) => ({ ...v, group: groupOf(e) }));
   }
+  const group = groupOf(e);
   if (e.timed) {
     out.push({
+      group,
       date: e.date,
       endDate: addDays(e.date, Math.floor(e.timed.endMin / 1440)),
       allDay: false,
@@ -56,7 +68,7 @@ export function toViewEvents(e: PlannedEvent): ViewEvent[] {
       description: e.description,
     });
   } else {
-    out.push({ date: e.date, endDate: e.date, allDay: true, startTime: "", endTime: "", calendar, kind: e.kind, title: e.title, description: e.description });
+    out.push({ group, date: e.date, endDate: e.date, allDay: true, startTime: "", endTime: "", calendar, kind: e.kind, title: e.title, description: e.description });
   }
   return out;
 }
