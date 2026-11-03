@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  addDays, addMonths, addMonthsIso, compareForDay, oldestDate, photosClosed, diffDays, expandEvent, gridRange, layoutWeek, monthLimits, textOn, todayJst, weekday, whenText, yearsText,
+  addDays, addMonths, addMonthsIso, resolveCalView, compareForDay, oldestDate, photosClosed, diffDays, expandEvent, gridRange, layoutWeek, monthLimits, textOn, todayJst, weekday, whenText, yearsText,
 } from "../../../web/calendar/cal-core.js";
 
 test("日付の計算は月・年をまたぐ", () => {
@@ -107,4 +107,18 @@ test("M1: 写真の期限(終了日から1か月後)が過ぎた予定は、写�
 test("L5: 予定を作れるいちばん古い日は、12か月前の月の1日(画面の見られる範囲と同じ)", () => {
   assert.equal(oldestDate("2026-11-03"), "2025-11-01");
   assert.equal(oldestDate("2027-01-31"), "2026-01-01");
+});
+
+test("カレンダーに出すもの: 自動(null)は Google の設定から決める。自分で決めた値(true/false)が先", () => {
+  // Google に登録していて、休日用も非番用も無い → 休日は出さない・非番は別にしない
+  assert.deepEqual(resolveCalView({ google_sync: true, holiday_calendar_id: "", offduty_calendar_id: "" }), { duty: true, off: false, offduty: false });
+  // 休日用・非番用のカレンダーがある
+  assert.deepEqual(resolveCalView({ google_sync: true, holiday_calendar_id: "h@x", offduty_calendar_id: "o@x" }), { duty: true, off: true, offduty: true });
+  // Google に登録しない(アプリだけ): 休日は出す・非番は自分で入れるまで別にしない
+  assert.deepEqual(resolveCalView({ google_sync: false, holiday_calendar_id: "", offduty_calendar_id: "" }), { duty: true, off: true, offduty: false });
+  // 設定の行がまだ無い人も、アプリだけの人と同じ
+  assert.deepEqual(resolveCalView(null), { duty: true, off: true, offduty: false });
+  // 自分で決めた値が先
+  assert.deepEqual(resolveCalView({ google_sync: true, holiday_calendar_id: "", cal_show_off: true, cal_offduty_label: true, cal_show_duty: false }), { duty: false, off: true, offduty: true });
+  assert.deepEqual(resolveCalView({ google_sync: true, holiday_calendar_id: "h", offduty_calendar_id: "o", cal_show_off: false, cal_offduty_label: false }), { duty: true, off: false, offduty: false });
 });

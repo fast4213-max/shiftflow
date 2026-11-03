@@ -4,7 +4,7 @@
 import { callFunction, currentSession, friendlyText, go, loadProfile, loadSettings, selectAllPages, supabase } from "../js/app.js?v=dev";
 import { createExtras, shrinkForEvent } from "./cal-extra.js?v=dev";
 import {
-  addDays, addMonths, compareForDay, dateKey, diffDays, expandEvent, gridRange, layoutWeek, monthIndex, monthLimits, oldestDate, photosClosed, textOn, todayJst, weekday, whenText, WEEKDAYS,
+  addDays, addMonths, compareForDay, dateKey, diffDays, expandEvent, resolveCalView, gridRange, layoutWeek, monthIndex, monthLimits, oldestDate, photosClosed, textOn, todayJst, weekday, whenText, WEEKDAYS,
   yearsText,
 } from "./cal-core.js?v=dev";
 
@@ -24,6 +24,8 @@ const S = {
   y: 0, m: 0,
   today: todayJst(),
   needOffice: false,
+  cfg: { duty: true, off: true, offduty: false }, // カレンダーに出すもの(勤務・休日・非番を別のボタンに)
+  settingsRow: null,   // user_settings の行(出すものの設定を保存するため)
   notice: "",          // 直前の失敗・お知らせ(HTML。esc 済み)
   byUid: new Map(),    // 今の画面の予定(uid → 予定)
   photos: new Map(),   // 予定の id → 写真の行(cal_photos)
@@ -50,6 +52,17 @@ function showBanner() {
 function setNotice(html) { S.notice = html || ""; showBanner(); }
 function fail(err) { setNotice(esc(friendlyText(err && err.message ? err.message : String(err)))); }
 
+// カレンダーに出すもの(設定の「このカレンダーに出すもの」。自動のときは Google の設定から決める)。
+// 出さないものは、ラベルのボタンも予定も出さない。非番は、チェックが無ければ勤務に含めて出す
+const labelShown = (l) => l.kind === "duty" ? S.cfg.duty : l.kind === "off" ? S.cfg.off : l.kind === "offduty" ? S.cfg.offduty : true;
+const visibleLabels = () => S.labels.filter(labelShown);
+const groupShown = (g) => g === "off" ? S.cfg.off : g === "offduty" ? (S.cfg.offduty || S.cfg.duty) : S.cfg.duty;
+const labelForGroup = (g) => {
+  const duty = labelKind("duty");
+  if (g === "off") return labelKind("off");
+  if (g === "offduty") return S.cfg.offduty ? labelKind("offduty") || duty : duty;
+  return duty;
+};
 const labelOf = (id) => S.labels.find((l) => l.id === id);
 const labelKind = (kind) => S.labels.find((l) => l.kind === kind);
 const colorOf = (id) => (labelOf(id) || {}).color || FALLBACK.custom;
@@ -113,23 +126,19 @@ async function loadShifts(y, m) {
   const res = await callFunction("calendar-shifts", { from: g.from, to: g.to }, { timeoutMs: 40000 });
   for (const h of res.holidays || []) S.holidays.set(h.date, h.name);
   S.needOffice = !!res.needOffice;
-  const duty = labelKind("duty");
-  const off = labelKind("off");
-  const offduty = labelKind("offduty") || duty; // 非番のラベルがまだ無い(古い画面・反映の途中)ときは、勤務のラベルに入れる
-  const events = (res.shifts || []).map((e, i) => {
-    // 勤務・休日・非番を、別々のラベルにする(ラベルのボタンで別々に隠せる)。server の group が無いときは、休日かそれ以外かだけ
-    const group = e.group || (e.calendar === "holiday" ? "off" : "duty");
-    const label = group === "off" ? off : group === "offduty" ? offduty : duty;
-    return {
-      src: "shift", id: `s:${e.date}:${i}`, title: e.title, start: e.date, end: e.endDate, allDay: e.allDay,
-      startTime: e.startTime, endTime: e.endTime, labelId: label ? label.id : "", memo: e.description || "", repeat: "none",
-    };
-  });
+  // どのラベルになるかは、画面に出すとき(eventsBetween)に決める(設定を変えても、読み直さなくてよいように)。
+  // server の group が無いとき(古い版)は、休日かそれ以外かだけ
+  const events = (res.shifts || []).map((e, i) => ({
+    src: "shift", id: `s:${e.date}:${i}`, title: e.title, start: e.date, end: e.endDate, allDay: e.allDay,
+    startTime: e.startTime, endTime: e.endTime, group: e.group || (e.calendar === "holiday" ? "off" : "duty"), memo: e.description || "", repeat: "none",
+  }));
   S.shifts.set(key, { events });
 }
 
 async function reloadAll({ keepShifts = false } = {}) {
   if (!keepShifts) S.shifts.clear();
+  // 設定で非番の時間用カレンダーを足した・外したあとに、反映する(読めなければ、今のまま)
+  try { const st = await loadSettings(S.session); S.settingsRow = st; S.cfg = resolveCalView(st); } catch (_) { /* 今のまま */ }
   await Promise.all([loadLabels(), loadOwn(), extras.load()]);
   await loadPhotos().catch(() => {});
   await ensureAround();
@@ -165,10 +174,13 @@ function eventsBetween(a, b) {
   const seen = new Set();
   for (const { events } of S.shifts.values()) {
     for (const e of events) {
-      const k = `${e.start}|${e.end}|${e.title}|${e.startTime}|${e.labelId}`;
-      if (seen.has(k) || e.end < a || e.start > b) continue;
+      if (e.end < a || e.start > b || !groupShown(e.group)) continue;
+      const label = labelForGroup(e.group);
+      const labelId = label ? label.id : "";
+      const k = `${e.start}|${e.end}|${e.title}|${e.startTime}|${labelId}`;
+      if (seen.has(k)) continue;
       seen.add(k);
-      out.push(e);
+      out.push({ ...e, labelId });
     }
   }
   return out
@@ -182,7 +194,7 @@ const titleOf = (e) => e.title + (yearsText(e) ? ` ${yearsText(e)}` : "");
 
 function renderChips() {
   const el = $("chips");
-  el.innerHTML = S.labels.map((l) =>
+  el.innerHTML = visibleLabels().map((l) =>
     `<button class="chip${S.hidden.has(l.id) ? " off" : ""}" data-chip="${esc(l.id)}" style="--c:${esc(l.color)}" aria-pressed="${S.hidden.has(l.id) ? "false" : "true"}"><i></i>${esc(l.name)}</button>`).join("");
 }
 
@@ -592,17 +604,18 @@ function usageText() {
   return `約 ${mb(photoBytes + galleryBytes)}(画像の置き場 ${S.gallery.length}/10枚・予定の写真 ${photos}枚)`;
 }
 
-function openSettings() {
+function settingsHtml() {
   const theme = storageGet(THEME_KEY) || "auto";
-  const labelRows = S.labels.map((l, i) => `<div class="lrow" data-lid="${esc(l.id)}">
+  const vis = visibleLabels();
+  const labelRows = vis.map((l, i) => `<div class="lrow" data-lid="${esc(l.id)}">
       <input type="color" value="${esc(l.color)}" data-lf="color" aria-label="色">
       <input class="in" value="${esc(l.name)}" maxlength="20" data-lf="name" aria-label="名前">
       <button class="btn sm" data-act="l-up" data-lid="${esc(l.id)}"${i === 0 ? " disabled" : ""} aria-label="上へ">↑</button>
-      <button class="btn sm" data-act="l-down" data-lid="${esc(l.id)}"${i === S.labels.length - 1 ? " disabled" : ""} aria-label="下へ">↓</button>
+      <button class="btn sm" data-act="l-down" data-lid="${esc(l.id)}"${i === vis.length - 1 ? " disabled" : ""} aria-label="下へ">↓</button>
       ${l.kind === "custom" ? `<button class="btn sm dng" data-act="l-del" data-lid="${esc(l.id)}" aria-label="削除">✕</button>` : '<span style="width:34px"></span>'}
     </div>`).join("");
   const customCount = S.labels.filter((l) => l.kind === "custom").length;
-  openPanel(`${head("設定")}<div class="pb">
+  return (`${head("設定")}<div class="pb">
     <div class="card" id="about"><h3>shiftflowカレンダーについて</h3>
       <ul>
         <li><b>できること</b>: 勤務入力で保存した勤務と、自分で作る予定を、月の画面で見られます。</li>
@@ -614,7 +627,13 @@ function openSettings() {
         <li>ホーム画面に追加すると、アプリのように開けます。最初に1回、社員番号とPINでログインします。</li>
         <li>画面の色合いは、この設定の一番下で変えられます。</li>
       </ul></div>
-    <div class="card"><h3>ラベル</h3><p class="sub">名前と色、並び順を決めます。自分で作れるのは10個までです。勤務・休日・非番のラベルは、勤務の予定の色です(非番は、「〜」とその時間です)。</p>
+    <div class="card" id="calview"><h3>このカレンダーに出すもの</h3>
+      <label class="tg"><input type="checkbox" data-cv="cal_show_duty" id="cv-duty"${S.cfg.duty ? " checked" : ""}> 勤務</label>
+      <label class="tg"><input type="checkbox" data-cv="cal_show_off" id="cv-off"${S.cfg.off ? " checked" : ""}> 休日</label>
+      <label class="tg"><input type="checkbox" data-cv="cal_offduty_label" id="cv-offduty"${S.cfg.offduty ? " checked" : ""}> 非番を別のボタンにする</label>
+      <p class="sub">チェックを外したものは、このカレンダーに出ません(ボタンも出ません)。Googleカレンダーに登録している人で、休日用のカレンダーを作っていない人は、休日が外れた状態から始まります。非番は、チェックを入れると、「〜」とその時間が別のボタン・別の色になります(外すと、勤務に含めて出します)。</p>
+      <p class="msg err" id="cv-msg"></p></div>
+    <div class="card"><h3>ラベル</h3><p class="sub">名前と色、並び順を決めます。自分で作れるのは10個までです。勤務・休日・非番のラベルは、勤務の予定の色です(非番は、「〜」とその時間。設定で非番の時間用カレンダーを使っている人だけに出ます)。</p>
       ${labelRows}
       <div class="lrow"><input type="color" id="nl-color" value="#8e44ad" aria-label="新しいラベルの色"><input class="in" id="nl-name" maxlength="20" placeholder="新しいラベルの名前" aria-label="新しいラベルの名前"><button class="btn sm pri" data-act="l-add"${customCount >= 10 ? " disabled" : ""}>追加</button></div>
       <p class="msg err" id="label-msg"></p></div>
@@ -624,6 +643,15 @@ function openSettings() {
     </div><p class="sub">「自動」は、端末のダークモードの設定に合わせます。この端末だけの設定です。</p></div>
   </div>`);
 }
+function openSettings() { openPanel(settingsHtml()); }
+
+// カレンダーに出すもの(勤務・休日・非番): 保存して、すぐ反映する
+async function saveCalView(col, value) {
+  const { error } = await supabase.from("user_settings").upsert({ user_id: S.userId, [col]: value }, { onConflict: "user_id" });
+  if (error) throw error;
+  S.settingsRow = { ...(S.settingsRow || {}), [col]: value };
+  S.cfg = resolveCalView(S.settingsRow);
+}
 
 async function labelUpdate(id, patch) {
   const { error } = await supabase.from("cal_labels").update(patch).eq("id", id);
@@ -631,11 +659,13 @@ async function labelUpdate(id, patch) {
 }
 
 async function moveLabel(id, delta) {
-  const i = S.labels.findIndex((l) => l.id === id);
+  const vis = visibleLabels(); // 出していないラベル(使っていない非番)は、並べ替えの相手にしない
+  const i = vis.findIndex((l) => l.id === id);
   const j = i + delta;
-  if (i < 0 || j < 0 || j >= S.labels.length) return;
-  const order = S.labels.map((l) => l.id);
+  if (i < 0 || j < 0 || j >= vis.length) return;
+  const order = vis.map((l) => l.id);
   [order[i], order[j]] = [order[j], order[i]];
+  for (const l of S.labels) if (!order.includes(l.id)) order.push(l.id);
   for (let k = 0; k < order.length; k++) {
     const l = S.labels.find((x) => x.id === order[k]);
     if (l.sort !== k + 1) await labelUpdate(l.id, { sort: k + 1 });
@@ -811,6 +841,10 @@ function bind() {
     if (draft && el.dataset.f) return readDraftField(el);
     if (el.dataset.lf) return labelFieldChanged(el);
     if (el.name === "theme") { storageSet(THEME_KEY, el.value); applyTheme(); return; }
+    if (el.dataset.cv) {
+      saveCalView(el.dataset.cv, el.checked).then(() => { setPanel(settingsHtml()); render(); }).catch((err) => { el.checked = !el.checked; const m = $("cv-msg"); if (m) m.textContent = friendlyText(err.message || String(err)); });
+      return;
+    }
     extras.panelChange(el);
   });
 
@@ -834,7 +868,10 @@ async function main() {
   const profile = await loadProfile(session);
   if (!profile) return go("index.html");
   if (profile.role === "admin") return go("admin.html");
-  await loadSettings(session).catch(() => null);
+  const settings = await loadSettings(session).catch(() => null);
+  S.session = session;
+  S.settingsRow = settings;
+  S.cfg = resolveCalView(settings);
   try {
     const saved = JSON.parse(storageGet(HIDDEN_KEY) || "[]");
     if (Array.isArray(saved)) S.hidden = new Set(saved.filter((x) => typeof x === "string"));

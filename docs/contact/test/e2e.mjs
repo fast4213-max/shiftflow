@@ -63,9 +63,12 @@ function backend(opts = {}) {
       return json([]);
     }
     if (path === "/rest/v1/user_settings") {
-      const row = { office_id: 1, work_calendar_id: "w", holiday_calendar_id: null, verified_at: "2026-10-01", split_day_events: false, ...opts.settings };
+      st.settingsPatch = st.settingsPatch || {};
+      const row = { office_id: 1, work_calendar_id: "w", holiday_calendar_id: null, verified_at: "2026-10-01", split_day_events: false, ...opts.settings, ...st.settingsPatch };
       // 保存(PATCH)は、送った値を足した行を返す(.single() なので1件だけ)
       if (req.method() === "PATCH") return json({ ...row, ...body, verified_at: null });
+      // カレンダーの「出すもの」の保存(upsert): 送った値を覚えて、次に読むときに返す
+      if (req.method() === "POST" && body && body.user_id) { Object.assign(st.settingsPatch, body); return json([{ ...row, ...body }], 201); }
       return json([row]);
     }
     // shiftflowカレンダー: 勤務の予定を組み立てる関数と、cal_* の表(メモリの中だけの偽物)
@@ -1946,7 +1949,7 @@ const CAL_SHIFTS = [
 // 確認(confirm)は、OK にして、聞かれた文を asked に入れる(既存のテストと同じ)
 const calOpen = (extra = {}, opts = {}) => open("calendar/index.html", {
   userId: "u1",
-  opts: { profile: USER, shifts: CAL_SHIFTS, ...opts },
+  opts: { profile: USER, shifts: CAL_SHIFTS, settings: { holiday_calendar_id: "h@group.calendar.google.com", offduty_calendar_id: "off@group.calendar.google.com" }, ...opts },
   beforeLoad: async (p) => { p.removeAllListeners("dialog"); p.on("dialog", (d) => d.accept().catch(() => {})); },
   ...extra,
 });
@@ -2201,7 +2204,7 @@ await check("カレンダー設定: 一番上に説明、一番下に色合い�
   await page.click("#tab-settings");
   await page.waitForSelector("#about");
   const order = await page.$$eval("#panel .card", (els) => els.map((e) => e.querySelector("h3").textContent));
-  assert.deepEqual(order, ["shiftflowカレンダーについて", "ラベル", "あなたの写真・画像の量", "画面の色合い"]);
+  assert.deepEqual(order, ["shiftflowカレンダーについて", "このカレンダーに出すもの", "ラベル", "あなたの写真・画像の量", "画面の色合い"]);
   assert.ok((await page.textContent("#about")).includes("1つのアカウントで1人分"));
   // 追加
   await page.fill("#nl-name", "家族");
@@ -2666,7 +2669,7 @@ await check("カレンダー設定: 自分の写真・画像の量が出る(MB�
   const text = await page.textContent("#my-usage");
   assert.ok(text.includes("約 3.5MB(画像の置き場 1/10枚・予定の写真 1枚)"), text);
   const order = await page.$$eval("#panel .card", (els) => els.map((e) => e.querySelector("h3").textContent));
-  assert.deepEqual(order, ["shiftflowカレンダーについて", "ラベル", "あなたの写真・画像の量", "画面の色合い"]);
+  assert.deepEqual(order, ["shiftflowカレンダーについて", "このカレンダーに出すもの", "ラベル", "あなたの写真・画像の量", "画面の色合い"]);
   await ctx.close();
 });
 
@@ -2971,6 +2974,86 @@ await check("カレンダー: 勤務・休日・非番を別々のラベルで�
   await page.waitForFunction(() => document.querySelectorAll("#chips .chip").length === 4);
   assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "非番", "その他"]);
   assert.equal(be.st.cal.cal_labels.filter((l) => l.kind === "offduty").length, 1);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+
+await check("カレンダー: 非番の時間用カレンダーを使っていない人には、「非番」のボタンを出さない(非番の予定は、勤務のボタンで隠れる=今までどおり)。設定のラベルにも出ない", async () => {
+  const ev = (d, title, group, calendar = "work") => ({ date: d, endDate: d, allDay: true, startTime: "", endTime: "", calendar, kind: "day", title, description: "", group });
+  const shifts = [ev(today, "25", "duty"), ev(shiftIso(today, 1), "〜 9:54", "offduty"), ev(shiftIso(today, 2), "公休", "off", "holiday")];
+  const { page, ctx, errors } = await calOpen({}, { shifts, settings: { holiday_calendar_id: "h@group.calendar.google.com", offduty_calendar_id: "" } });
+  await page.waitForSelector(".bar");
+  assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "その他"]);
+  await page.click('#chips .chip:has-text("勤務")');
+  assert.deepEqual((await page.locator(".bar").allTextContents()), ["公休"], "非番も勤務に入るので、一緒に隠れる");
+  await page.click('#chips .chip:has-text("勤務")');
+  await page.click("#tab-settings");
+  const names = await page.$$eval('#panel .lrow [data-lf="name"]', (els) => els.map((e) => e.value));
+  assert.deepEqual(names, ["勤務", "休日", "その他"]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+
+await check("カレンダー設定「このカレンダーに出すもの」: Googleに登録していて休日用カレンダーが無い人は、休日が外れた状態から。チェックを入れると、休日のボタンと予定が出る(保存される)", async () => {
+  const ev = (d, title, group, calendar = "work") => ({ date: d, endDate: d, allDay: true, startTime: "", endTime: "", calendar, kind: "day", title, description: "", group });
+  const shifts = [ev(today, "25", "duty"), ev(shiftIso(today, 2), "公休", "off", "holiday")];
+  const { page, ctx, be, errors } = await calOpen({}, { shifts, settings: { holiday_calendar_id: "", offduty_calendar_id: "" } });
+  await page.waitForSelector(".bar");
+  assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "その他"], "休日のボタンを出さない");
+  assert.deepEqual(await page.locator(".bar").allTextContents(), ["25"], "休日の予定も出さない");
+  await page.click("#tab-settings");
+  assert.equal(await page.isChecked("#cv-duty"), true);
+  assert.equal(await page.isChecked("#cv-off"), false);
+  assert.equal(await page.isChecked("#cv-offduty"), false);
+  await page.check("#cv-off");
+  await page.waitForFunction(() => document.querySelectorAll("#chips .chip").length === 3);
+  assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "その他"]);
+  const post = be.st.calls.find((c) => c.path === "/rest/v1/user_settings" && c.method === "POST");
+  assert.equal(post.body.cal_show_off, true);
+  await page.click('[data-act="close"]');
+  assert.deepEqual((await page.locator(".bar").allTextContents()).sort(), ["25", "公休"].sort());
+  // 開き直しても、自分で決めた値のまま
+  await page.reload();
+  await page.waitForSelector(".bar");
+  assert.deepEqual((await page.locator(".bar").allTextContents()).sort(), ["25", "公休"].sort());
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("カレンダー設定: アプリだけで使う人(Googleに登録しない)は、休日は出る。「非番を別のボタンにする」にチェックを入れると、非番のボタン・別の色が作られる。勤務を外すと勤務は出ない", async () => {
+  const ev = (d, title, group, calendar = "work") => ({ date: d, endDate: d, allDay: true, startTime: "", endTime: "", calendar, kind: "day", title, description: "", group });
+  const shifts = [ev(today, "25", "duty"), ev(shiftIso(today, 1), "〜 9:54", "offduty"), ev(shiftIso(today, 2), "公休", "off", "holiday")];
+  const { page, ctx, be, errors } = await calOpen({}, { shifts, settings: { google_sync: false, holiday_calendar_id: "", offduty_calendar_id: "" } });
+  await page.waitForSelector(".bar");
+  assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "その他"]);
+  await page.click("#tab-settings");
+  assert.equal(await page.isChecked("#cv-off"), true);
+  assert.equal(await page.isChecked("#cv-offduty"), false);
+  await page.check("#cv-offduty");
+  await page.waitForFunction(() => document.querySelectorAll("#chips .chip").length === 4);
+  assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "非番", "その他"]);
+  assert.equal(be.st.calls.filter((c) => c.path === "/rest/v1/user_settings" && c.method === "POST").pop().body.cal_offduty_label, true);
+  // 設定のラベル一覧にも、非番が出る
+  assert.deepEqual(await page.$$eval('#panel .lrow [data-lf="name"]', (els) => els.map((e) => e.value)), ["勤務", "休日", "非番", "その他"]);
+  await page.click('[data-act="close"]');
+  const color = await page.locator('.bar:has-text("〜 9:54")').evaluate((el) => getComputedStyle(el).backgroundColor);
+  assert.equal(color, "rgb(212, 96, 122)");
+  // 非番を外すと、勤務に含めて出る(勤務のボタンで隠れる)
+  await page.click("#tab-settings");
+  await page.uncheck("#cv-offduty");
+  await page.waitForFunction(() => document.querySelectorAll("#chips .chip").length === 3);
+  await page.click('[data-act="close"]');
+  await page.click('#chips .chip:has-text("勤務")');
+  assert.deepEqual(await page.locator(".bar").allTextContents(), ["公休"]);
+  await page.click('#chips .chip:has-text("勤務")');
+  // 勤務を外す
+  await page.click("#tab-settings");
+  await page.uncheck("#cv-duty");
+  await page.waitForFunction(() => document.querySelectorAll("#chips .chip").length === 2);
+  await page.click('[data-act="close"]');
+  assert.deepEqual(await page.locator(".bar").allTextContents(), ["公休"], "勤務(と、勤務に含めた非番)は出ない");
   assert.deepEqual(errors, []);
   await ctx.close();
 });
