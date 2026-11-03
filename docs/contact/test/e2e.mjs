@@ -1961,9 +1961,9 @@ await check("カレンダー: 開くと最初のラベル(勤務・休日・そ�
   assert.equal(await page.locator(`.cell.tdy[data-date="${today}"]`).count(), 1);
   const bars = await page.locator(".bar").allTextContents();
   assert.ok(bars.includes("25"), bars.join());
-  // 時間の予定は、1本(「研修 10:15」)。名前と時間が二重に並ばない
-  assert.equal(bars.filter((t) => t.includes("10:15")).length, 1, bars.join());
-  assert.ok(bars.includes("研修 10:15"), bars.join());
+  // 勤務の時間つきの予定は、帯は名前だけ(行路番号だけ)。時間は中の詳細に出る
+  assert.ok(bars.includes("研修"), bars.join());
+  assert.ok(!bars.some((t) => t.includes("10:15")), "帯に時間は出さない: " + bars.join());
   assert.ok(!bars.some((t) => /(\d+:\d+).*\1/.test(t)), "同じ時間が2回出ない: " + bars.join());
   assert.ok(be.st.calls.some((c) => c.path === "/functions/v1/calendar-shifts" && /^\d{4}-\d\d-\d\d$/.test(c.body.from) && c.body.from <= today && c.body.to >= today));
   assert.deepEqual(errors, []);

@@ -270,7 +270,8 @@ function weekHtml(ws, events, maxLanes) {
     const col = colorOf(e.labelId);
     const cls = ["bar", b.cutLeft ? "cl" : "", b.cutRight ? "cr" : ""].filter(Boolean).join(" ");
     // 「時間」の帯(出勤・退勤の時間。名前が時間そのもの)は、名前だけ。時間を2回出さない
-    const text = titleOf(e) + (e.allDay || !e.startTime || e.kind === "time" ? "" : ` ${e.startTime.replace(/^0/, "")}`);
+    // 勤務の予定(時間つきの設定)も番号だけ。時間は、タップした中の詳細に出る。自分の予定は時刻を添える
+    const text = titleOf(e) + (e.allDay || !e.startTime || e.kind === "time" || e.src === "shift" ? "" : ` ${e.startTime.replace(/^0/, "")}`);
     return `<button class="${cls}" data-uid="${esc(e.id)}" style="grid-column:${b.c1 + 1}/${b.c2 + 2};grid-row:${b.lane + 1};--c:${esc(col)};--t:${textOn(col)}">${esc(text)}</button>`;
   }).join("");
   const dates = [0, 1, 2, 3, 4, 5, 6].map((c) => addDays(ws, c));
