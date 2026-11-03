@@ -77,7 +77,11 @@ export function createImager(env) {
     const imgs = {};
     for (const s of sts) {
       const d = defOf(s.stamp_def_id);
-      if (d.kind === "image" && !(d.image_path in imgs)) imgs[d.image_path] = await loadImg(await imageUrl(d.image_path));
+      if (d.kind === "image" && !(d.image_path in imgs)) {
+        const u = await imageUrl(d.image_path);
+        imgs[d.image_path] = await loadImg(u);
+        if (u) URL.revokeObjectURL(u); // 読み込んだあとは要らない(メモリを残さない)
+      }
     }
     try { await document.fonts.ready; } catch (_) { /* 待てなくても描ける */ }
     const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
@@ -248,7 +252,8 @@ export function createImager(env) {
         revoke(st.mimg);
         st.mimg = { url: URL.createObjectURL(blob), blob, name: `calendar-${v}.png`, label: `${y}年${m}月` };
         st.busy = false;
-        env.setPanel(env.settingsHtml());
+        // 作っている間に別のパネルを開いていたら、上書きしない(設定がまだ開いているときだけ入れ替える)
+        if ($("mimg")) env.setPanel(env.settingsHtml());
         setTimeout(() => { const e2 = $("mimg"); if (e2) e2.scrollIntoView({ block: "start", behavior: "smooth" }); }, 30);
       } catch (e) { st.busy = false; el.disabled = false; say("img-msg", "画像を作れませんでした。"); }
     } else if (name === "img-share") {
