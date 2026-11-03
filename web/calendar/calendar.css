@@ -88,7 +88,7 @@ button:disabled { opacity: .35; cursor: default; }
 .wmk { position: absolute; left: 50%; top: 100%; transform: translate(-50%, -50%); font-size: var(--wmf); font-weight: 900; line-height: 1; letter-spacing: -.02em; color: var(--wm); pointer-events: none; z-index: 1; font-variant-numeric: tabular-nums; }
 /* 予定の帯: 四角に近い・白い太字・はみ出した文字は切る */
 .bars { position: absolute; left: 0; right: 0; top: var(--bart); display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-rows: var(--bar); row-gap: var(--bgap); pointer-events: none; z-index: 2; }
-.bar { pointer-events: auto; display: flex; align-items: center; height: var(--bar); margin: 0 1.5px; padding: 0 3px; border-radius: 1.5px; font-size: var(--barf); font-weight: 700; line-height: 1; letter-spacing: -.01em; text-align: left; overflow: hidden; text-overflow: clip; white-space: nowrap; background: var(--c); color: var(--t); min-width: 0; }
+.bar { pointer-events: auto; display: flex; align-items: center; height: var(--bar); margin: 0 1.5px; padding: .12em 3px 0; border-radius: 1.5px; font-size: var(--barf); font-weight: 700; line-height: 1; letter-spacing: -.01em; text-align: left; overflow: hidden; text-overflow: clip; white-space: nowrap; background: var(--c); color: var(--t); min-width: 0; }
 .bar.cl { margin-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .bar.cr { margin-right: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
 
@@ -217,3 +217,18 @@ textarea.in { min-height: 90px; resize: vertical; }
 .d-stage .stamp { left: 50%; top: 50%; cursor: default; pointer-events: none; }
 .lrow .tk .tx { font-size: 11px; max-width: 48px; overflow: hidden; }
 .lrow .tk img { width: 38px; height: 38px; object-fit: contain; }
+
+/* 〇をつけて画像にする: 日を選んでいるあいだ(予定はそのまま見える) */
+.cell.mk::after { content: ''; position: absolute; left: 50%; top: 50%; width: min(76%, calc(var(--rh) * .76)); aspect-ratio: 1; transform: translate(-50%, -50%); border: 3px solid #e53935; border-radius: 50%; pointer-events: none; z-index: 3; box-sizing: border-box; }
+.tray.markbar { display: flex; align-items: center; gap: 10px; }
+.markbar .cnt { flex: 1; min-width: 0; font-weight: 700; font-size: 14px; }
+.markbar .btn { flex: none; width: auto; white-space: nowrap; }
+.mimg { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 10px; margin: 12px 0; }
+
+/* 「詳しい説明」(折りたたみ) */
+details.more { margin: 2px 0 8px; }
+details.more > summary { cursor: pointer; color: var(--accent); font-size: 12px; list-style: none; padding: 2px 0; }
+details.more > summary::before { content: "▸ "; }
+details.more[open] > summary::before { content: "▾ "; }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > p { margin-top: 4px; }

@@ -3,6 +3,7 @@
 // 自分で作る予定・ラベルは、Supabase の cal_* の表(本人の行だけ・RLS)。
 import { callFunction, currentSession, friendlyText, go, loadProfile, loadSettings, selectAllPages, supabase } from "../js/app.js?v=dev";
 import { createExtras, shrinkForEvent } from "./cal-extra.js?v=dev";
+import { createImager } from "./cal-image.js?v=dev";
 import {
   addDays, addMonths, compareForDay, dateKey, diffDays, expandEvent, resolveCalView, gridRange, layoutWeek, monthIndex, monthLimits, oldestDate, photosClosed, textOn, todayJst, weekday, whenText, WEEKDAYS,
   yearsText,
@@ -33,6 +34,7 @@ const S = {
   todos: [], importants: [], gallery: [], stampDefs: [], stamps: [], // 後の段階の表(cal-extra.js)
 };
 let extras = null;
+let imager = null; // 月の画像・〇つきの画像(cal-image.js)
 
 // ---------- 小さな道具 ----------
 
@@ -154,6 +156,12 @@ async function reloadAll({ keepShifts = false } = {}) {
   render();
 }
 
+// 画像を作る月の勤務の予定を、まだ読んでいなければ読む(見ている月から離れた月の画像のため)
+async function ensureMonthLoaded(y, m) {
+  if (S.shifts.has(`${y}-${m}`)) return;
+  await loadShiftsRange([{ y, m }]);
+}
+
 // 今の月の前後2か月ぶんの勤務の予定を読む(まだ読んでいない月だけ)。続いている月は、1回の通信でまとめて読む。読めたら true
 const loadingMonths = new Set();
 async function ensureAround() {
@@ -206,6 +214,8 @@ function eventsBetween(a, b) {
 }
 
 const titleOf = (e) => e.title + (yearsText(e) ? ` ${yearsText(e)}` : "");
+// 帯の文字。「時間」の帯(出勤・退勤の時間。名前が時間そのもの)と勤務の予定(時間つきの設定でも番号だけ。時間は詳細に出る)は、名前だけ。自分の時間つきの予定は、時刻を添える
+const barText = (e) => titleOf(e) + (e.allDay || !e.startTime || e.kind === "time" || e.src === "shift" ? "" : ` ${e.startTime.replace(/^0/, "")}`);
 
 // ---------- 描画: 月の画面 ----------
 
@@ -277,7 +287,7 @@ function weekHtml(ws, events, maxLanes) {
   for (let c = 0; c < 7; c++) {
     const d = addDays(ws, c);
     const hol = S.holidays.get(d);
-    const cls = ["cell", c === 0 ? "sun" : c === 6 ? "sat" : "", hol ? "hol" : "", d === S.today ? "tdy" : "", Number(d.slice(5, 7)) % 2 === 0 ? "alt" : ""].filter(Boolean).join(" ");
+    const cls = ["cell", c === 0 ? "sun" : c === 6 ? "sat" : "", hol ? "hol" : "", d === S.today ? "tdy" : "", Number(d.slice(5, 7)) % 2 === 0 ? "alt" : "", imager && imager.isMarked(d) ? "mk" : ""].filter(Boolean).join(" ");
     const wd = WEEKDAYS[c];
     // 日付の横に祝日の名前(赤い小さな字)。例: 「3 文化の日」
     cells += `<div class="${cls}" data-date="${d}" role="button" tabindex="0" aria-label="${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日(${wd})${hol ? " " + esc(hol) : ""}"><span class="dtop"><span class="dn">${Number(d.slice(8, 10))}</span>${hol ? `<span class="hn">${esc(hol)}</span>` : ""}</span>${over[c] ? `<span class="more">+${over[c]}</span>` : ""}</div>`;
@@ -286,9 +296,7 @@ function weekHtml(ws, events, maxLanes) {
     const e = b.event;
     const col = colorOf(e.labelId);
     const cls = ["bar", b.cutLeft ? "cl" : "", b.cutRight ? "cr" : ""].filter(Boolean).join(" ");
-    // 「時間」の帯(出勤・退勤の時間。名前が時間そのもの)は、名前だけ。時間を2回出さない
-    // 勤務の予定(時間つきの設定)も番号だけ。時間は、タップした中の詳細に出る。自分の予定は時刻を添える
-    const text = titleOf(e) + (e.allDay || !e.startTime || e.kind === "time" || e.src === "shift" ? "" : ` ${e.startTime.replace(/^0/, "")}`);
+    const text = barText(e);
     return `<button class="${cls}" data-uid="${esc(e.id)}" style="grid-column:${b.c1 + 1}/${b.c2 + 2};grid-row:${b.lane + 1};--c:${esc(col)};--t:${textOn(col)}">${esc(text)}</button>`;
   }).join("");
   const dates = [0, 1, 2, 3, 4, 5, 6].map((c) => addDays(ws, c));
@@ -648,6 +656,7 @@ function settingsHtml() {
         <li><b>時刻</b>は分単位で入れられます。日をまたぐ予定は、終了日を次の日にします。</li>
         <li><b>見返せる期間</b>は、過去1年までです。予定の写真は、予定が終わって1か月で消えます(1つの予定に3枚まで)。</li>
         <li><b>1つのアカウントで1人分</b>のカレンダーです。家族に見せたいときは、このアプリのURLを教えて、その人が自分のアカウントでログインして使うか、勤務をGoogleカレンダーに登録して共有します。</li>
+        <li><b>画像にする</b>: 下の「月のカレンダーを画像にする」と「選んだ日に〇をつけて画像にする」で、カレンダーを1枚の画像にして、LINEで送ったり印刷したりできます(画像は端末の中で作ります)。</li>
         <li>ホーム画面に追加すると、アプリのように開けます。最初に1回、社員番号とPINでログインします。</li>
         <li>画面の色合いは、この設定の一番下で変えられます。</li>
       </ul></div>
@@ -661,6 +670,7 @@ function settingsHtml() {
       ${labelRows}
       <div class="lrow"><input type="color" id="nl-color" value="#8e44ad" aria-label="新しいラベルの色"><input class="in" id="nl-name" maxlength="20" placeholder="新しいラベルの名前" aria-label="新しいラベルの名前"><button class="btn sm pri" data-act="l-add"${customCount >= 10 ? " disabled" : ""}>追加</button></div>
       <p class="msg err" id="label-msg"></p></div>
+    ${imager ? imager.sectionsHtml() : ""}
     <div class="card" id="my-usage"><h3>あなたの写真・画像の量</h3><p>${esc(usageText())}</p><p class="sub">画像の置き場は1人10枚まで、予定の写真は1つの予定に3枚までです。写真は予定が終わって1か月で消えます。</p></div>
     <div class="card"><h3>画面の色合い</h3><div class="seg" role="radiogroup">
       ${[["auto", "自動"], ["light", "ライト"], ["dark", "ダーク"]].map(([v, t]) => `<label><input type="radio" name="theme" value="${v}"${theme === v ? " checked" : ""}><span>${t}</span></label>`).join("")}
@@ -808,6 +818,10 @@ function bind() {
   $("scrim").addEventListener("pointerdown", () => { scrimDown = true; });
   $("scrim").addEventListener("click", () => { if (!scrimDown) return; scrimDown = false; closePanel(); });
 
+  $("markbar").addEventListener("click", (ev) => { const a = ev.target.closest("[data-act]"); if (a) imager.act(a.dataset.act, a); });
+  // 日を選んでいるあいだに、ほかの画面(予定の追加・設定・TODO・スタンプなど)を開くときは、選ぶのをやめる(選んだ日は残る)
+  for (const id of ["tab-new", "tab-settings", "tab-todo", "tab-stamp", "btn-imp", "btn-gal"]) $(id).addEventListener("click", () => imager.end());
+
   $("banner").addEventListener("click", (ev) => { if (ev.target.closest('[data-act="dismiss-notice"]')) setNotice(""); });
   $("chips").addEventListener("click", (ev) => {
     const b = ev.target.closest("[data-chip]");
@@ -819,6 +833,12 @@ function bind() {
   });
 
   $("weeks").addEventListener("click", (ev) => {
+    // 〇をつける日を選んでいるとき: タップした日に〇をつける・外す(帯やスタンプの上でも、その下の日)
+    if (imager.isMarking()) {
+      const c = extras.cellAt(ev.clientX, ev.clientY);
+      if (c) imager.toggleDate(c.dataset.date);
+      return;
+    }
     // スタンプの画面: 帯やスタンプの上のタップも、その下のマスのタップとして受ける(M4)。スタンプを選んでいないときのスタンプのタップは、編集を開く(別に処理)
     if (extras.stampMode()) {
       if (ev.target.closest(".stamp") && !extras.hasPick()) return;
@@ -835,11 +855,12 @@ function bind() {
     if (cell) openDay(cell.dataset.date);
   });
   $("weeks").addEventListener("keydown", (ev) => {
-    if ((ev.key === "Enter" || ev.key === " ") && ev.target.dataset && ev.target.dataset.date) { ev.preventDefault(); openDay(ev.target.dataset.date); }
+    if ((ev.key === "Enter" || ev.key === " ") && ev.target.dataset && ev.target.dataset.date) { ev.preventDefault(); if (imager.isMarking()) imager.toggleDate(ev.target.dataset.date); else openDay(ev.target.dataset.date); }
   });
 
   document.addEventListener("keydown", (ev) => {
     if (ev.key !== "Escape") return;
+    if (imager.isMarking()) return imager.end();
     if (!$("viewer").hidden) closeViewer(); else if (S.panel) closePanel();
   });
 
@@ -854,6 +875,7 @@ function bind() {
     if (act === "del") return deleteEvent(el.dataset.uid, el.dataset.mode);
     if (act === "save") return saveDraft();
     if (act.startsWith("l-")) return settingsAction(act, el);
+    if (act.startsWith("img-") || act.startsWith("mark-")) return imager.act(act, el);
     if (act === "ph-view") {
       const cap = el.dataset.exp ? `この写真は${Number(el.dataset.exp.slice(5, 7))}月${Number(el.dataset.exp.slice(8, 10))}日に消えます` : "";
       extras.urlFor(el.dataset.path).then((u) => openViewer(u || el.src, cap));
@@ -917,7 +939,11 @@ async function main() {
   S.y = Number(S.today.slice(0, 4));
   S.m = Number(S.today.slice(5, 7));
   S.userId = session.user.id;
-  extras = createExtras({ S, $, esc, supabase, openPanel, setPanel, closePanel, openViewer, head, render, fail, friendlyText, selectAllPages, userId: session.user.id });
+  extras = createExtras({ S, $, esc, supabase, openPanel, setPanel, closePanel, openViewer, head, render, fail, friendlyText, selectAllPages, userId: session.user.id, isMarking: () => !!imager && imager.isMarking() });
+  imager = createImager({
+    S, $, esc, eventsBetween, colorOf, barText, urlFor: (p) => extras.urlFor(p), ensureMonth: ensureMonthLoaded, openSettings, setNotice,
+    render, setPanel, settingsHtml, closePanel, stampOff: () => { if (extras.stampMode()) extras.toggleStampMode(false); },
+  });
   bind();
   // 速く出すため、読み込みは一緒に始める。勤務の予定は、まず見える範囲(今の月と前の月)だけ1回で読み、残りは出したあとに読む
   let firstErr = null;

@@ -2211,7 +2211,7 @@ await check("カレンダー設定: 一番上に説明、一番下に色合い�
   await page.click("#tab-settings");
   await page.waitForSelector("#about");
   const order = await page.$$eval("#panel .card", (els) => els.map((e) => e.querySelector("h3").textContent));
-  assert.deepEqual(order, ["shiftflowカレンダーについて", "このカレンダーに出すもの", "ラベル", "あなたの写真・画像の量", "画面の色合い"]);
+  assert.deepEqual(order, ["shiftflowカレンダーについて", "このカレンダーに出すもの", "ラベル", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "あなたの写真・画像の量", "画面の色合い"]);
   assert.ok((await page.textContent("#about")).includes("1つのアカウントで1人分"));
   // 追加
   await page.fill("#nl-name", "家族");
@@ -2676,7 +2676,7 @@ await check("カレンダー設定: 自分の写真・画像の量が出る(MB�
   const text = await page.textContent("#my-usage");
   assert.ok(text.includes("約 3.5MB(画像の置き場 1/10枚・予定の写真 1枚)"), text);
   const order = await page.$$eval("#panel .card", (els) => els.map((e) => e.querySelector("h3").textContent));
-  assert.deepEqual(order, ["shiftflowカレンダーについて", "このカレンダーに出すもの", "ラベル", "あなたの写真・画像の量", "画面の色合い"]);
+  assert.deepEqual(order, ["shiftflowカレンダーについて", "このカレンダーに出すもの", "ラベル", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "あなたの写真・画像の量", "画面の色合い"]);
   await ctx.close();
 });
 
@@ -3251,6 +3251,71 @@ await check("デバッグ 25回目(4): 起動で勤務の予定を読む通信�
   assert.ok(calls.length >= 1 && calls.length <= 3, "通信の数: " + calls.length);
   // どの通信も、サーバーが読める範囲(月の画面で5か月まで)に収まる
   for (const c of calls) assert.ok((new Date(c.body.to) - new Date(c.body.from)) / 86400000 <= 160, `範囲が広すぎる ${c.body.from}〜${c.body.to}`);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("カレンダー設定: 「月のカレンダーを画像にする」「〇をつけて画像にする」が、ラベルの下に並ぶ。月の画像が作れる(横1080px)", async () => {
+  const { page, ctx, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-settings");
+  await page.waitForSelector("#mimg");
+  // 並び: ラベル → 月の画像 → 〇の画像 → 写真・画像の量
+  const order = await page.locator("#panel .card h3").allTextContents();
+  const i = (t) => order.findIndex((x) => x.includes(t));
+  assert.ok(i("ラベル") >= 0 && i("月のカレンダーを画像にする") === i("ラベル") + 1 && i("〇をつけて画像にする") === i("ラベル") + 2 && i("写真・画像の量") === i("ラベル") + 3, order.join(" / "));
+  await page.click('[data-act="img-make"]');
+  await page.waitForSelector("#mimg img.mimg");
+  const dim = await page.locator("#mimg img.mimg").evaluate((im) => new Promise((r) => { if (im.complete) r([im.naturalWidth, im.naturalHeight]); else im.onload = () => r([im.naturalWidth, im.naturalHeight]); }));
+  assert.equal(dim[0], 1080);
+  assert.ok(dim[1] > 600, "高さ: " + dim[1]);
+  // 詳しい説明(折りたたみ)が、2つのカードにある
+  assert.equal(await page.locator("#mimg details.more, #mkimg details.more").count(), 2);
+  assert.equal(await page.locator("#mimg details.more[open]").count(), 0, "最初は閉じている");
+  await page.click("#mimg details.more summary");
+  assert.ok((await page.textContent("#mimg details.more")).includes("横1080px"));
+  assert.equal(await page.locator('#mimg [data-act="img-share"]').count(), 1);
+  assert.equal(await page.locator('#mimg [data-act="img-save"]').count(), 1);
+  // 保存する: ファイルがダウンロードされる
+  const [dl] = await Promise.all([page.waitForEvent("download"), page.click('#mimg [data-act="img-save"]')]);
+  assert.match(dl.suggestedFilename(), /^calendar-\d{4}-\d{2}\.png$/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("カレンダー設定: 〇をつける日を選ぶ(予定を見ながらタップ・もう一度で外す)→ 画像を作ると設定に戻って出る。選びを全部外せる", async () => {
+  const { page, ctx, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-settings");
+  await page.click('[data-act="mark-start"]');
+  await page.waitForSelector("#markbar:not([hidden])");
+  assert.equal(await page.isVisible("#panel"), false, "設定は閉じる(カレンダーが見える)");
+  assert.ok((await page.textContent("#markbar")).includes("〇をつける日をタップ"));
+  assert.equal(await page.locator('#markbar [data-act="mark-make"]').isDisabled(), true);
+  const tap = async (d) => { const b = await page.locator(`.cell[data-date="${d}"]`).boundingBox(); await page.mouse.click(b.x + b.width * 0.8, b.y + b.height * 0.8); };
+  await tap(today);
+  await page.waitForSelector(".cell.mk");
+  const nextDay = await page.evaluate((t) => { const d = new Date(t + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); }, today);
+  await tap(nextDay);
+  await page.waitForFunction(() => document.querySelectorAll(".cell.mk").length === 2);
+  assert.ok((await page.textContent("#markbar")).includes("2日を選んでいます"));
+  await tap(nextDay); // もう一度で外す
+  await page.waitForFunction(() => document.querySelectorAll(".cell.mk").length === 1);
+  assert.equal(await page.isVisible("#panel"), false, "日のタップで、予定の画面は開かない");
+  await page.click('#markbar [data-act="mark-make"]');
+  await page.waitForSelector("#mkimg img.mimg");
+  assert.equal(await page.isVisible("#panel"), true, "設定に戻る");
+  assert.equal(await page.locator("#markbar").isHidden(), true);
+  const w = await page.locator("#mkimg img.mimg").first().evaluate((im) => new Promise((r) => { if (im.complete) r(im.naturalWidth); else im.onload = () => r(im.naturalWidth); }));
+  assert.equal(w, 1080);
+  await page.click('#mkimg [data-act="mark-clear"]');
+  await page.waitForFunction(() => !document.querySelector("#mkimg img.mimg"));
+  assert.equal(await page.locator(".cell.mk").count(), 0);
+  // 日を選んでいる途中で他のタブを開くと、選ぶのをやめる(選んだ日は残る)
+  await page.click('[data-act="mark-start"]').catch(async () => { await page.click("#tab-settings"); await page.click('[data-act="mark-start"]'); });
+  await page.waitForSelector("#markbar:not([hidden])");
+  await page.click("#tab-todo");
+  await page.waitForSelector("#markbar", { state: "hidden" });
   assert.deepEqual(errors, []);
   await ctx.close();
 });

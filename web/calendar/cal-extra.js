@@ -323,6 +323,7 @@ export function createExtras(env) {
     weeks.addEventListener("pointerdown", (ev) => {
       const el = ev.target.closest(".stamp");
       if (!el) return;
+      if (env.isMarking && env.isMarking()) return; // 〇をつける日を選んでいるあいだは、スタンプのタップ・ドラッグも日の選択にする
       if (mode.on && mode.def) return; // 置くスタンプを選んでいるあいだは、置いてあるスタンプの上のタップも、そのマスへの配置にする(M4)
       ev.preventDefault();
       drag = { sid: el.dataset.sid, el, x0: ev.clientX, y0: ev.clientY, moved: false, ghost: null, over: null, id: ev.pointerId };
