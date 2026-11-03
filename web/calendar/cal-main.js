@@ -649,8 +649,14 @@ function openSettings() { openPanel(settingsHtml()); }
 
 // カレンダーに出すもの(勤務・休日・非番): 保存して、すぐ反映する
 async function saveCalView(col, value) {
-  const { error } = await supabase.from("user_settings").upsert({ user_id: S.userId, [col]: value }, { onConflict: "user_id" });
-  if (error) throw error;
+  // upsert は使わない(利用者は user_id を書き換える権限が無く、「permission denied」になる)。あれば更新、無ければ追加(設定ページと同じ)
+  const upd = await supabase.from("user_settings").update({ [col]: value }).eq("user_id", S.userId).select("user_id");
+  if (upd.error) throw upd.error;
+  const hit = Array.isArray(upd.data) ? upd.data.length : upd.data ? 1 : 0;
+  if (!hit) {
+    const ins = await supabase.from("user_settings").insert({ user_id: S.userId, [col]: value });
+    if (ins.error) throw ins.error;
+  }
   S.settingsRow = { ...(S.settingsRow || {}), [col]: value };
   S.cfg = resolveCalView(S.settingsRow);
 }

@@ -66,9 +66,16 @@ function backend(opts = {}) {
       st.settingsPatch = st.settingsPatch || {};
       const row = { office_id: 1, work_calendar_id: "w", holiday_calendar_id: null, verified_at: "2026-10-01", split_day_events: false, ...opts.settings, ...st.settingsPatch };
       // 保存(PATCH)は、送った値を足した行を返す(.single() なので1件だけ)
-      if (req.method() === "PATCH") return json({ ...row, ...body, verified_at: null });
-      // カレンダーの「出すもの」の保存(upsert): 送った値を覚えて、次に読むときに返す
-      if (req.method() === "POST" && body && body.user_id) { Object.assign(st.settingsPatch, body); return json([{ ...row, ...body }], 201); }
+      if (req.method() === "PATCH") {
+        // カレンダーの「出すもの」の保存(update): 送った値を覚えて、次に読むときに返す
+        for (const k of Object.keys(body || {})) if (k.startsWith("cal_")) st.settingsPatch[k] = body[k];
+        return json({ ...row, ...body, verified_at: null });
+      }
+      if (req.method() === "POST" && body && body.user_id) {
+        // 本物は、利用者が user_id を書き換える権限を持たないので、upsert(merge-duplicates)は「permission denied」になる
+        if (/merge-duplicates/.test(req.headers()["prefer"] || "")) return json({ message: "permission denied for table user_settings", code: "42501" }, 403);
+        Object.assign(st.settingsPatch, body); return json([{ ...row, ...body }], 201);
+      }
       return json([row]);
     }
     // shiftflowカレンダー: 勤務の予定を組み立てる関数と、cal_* の表(メモリの中だけの偽物)
@@ -3013,7 +3020,7 @@ await check("カレンダー設定「このカレンダーに出すもの」: Go
   await page.check("#cv-off");
   await page.waitForFunction(() => document.querySelectorAll("#chips .chip").length === 3);
   assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "その他"]);
-  const post = be.st.calls.find((c) => c.path === "/rest/v1/user_settings" && c.method === "POST");
+  const post = be.st.calls.find((c) => c.path === "/rest/v1/user_settings" && c.method === "PATCH" && c.body && "cal_show_off" in c.body);
   assert.equal(post.body.cal_show_off, true);
   await page.click('[data-act="close"]');
   assert.deepEqual((await page.locator(".bar").allTextContents()).sort(), ["25", "公休"].sort());
@@ -3037,7 +3044,7 @@ await check("カレンダー設定: アプリだけで使う人(Googleに登録�
   await page.check("#cv-offduty");
   await page.waitForFunction(() => document.querySelectorAll("#chips .chip").length === 4);
   assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "非番", "その他"]);
-  assert.equal(be.st.calls.filter((c) => c.path === "/rest/v1/user_settings" && c.method === "POST").pop().body.cal_offduty_label, true);
+  assert.equal(be.st.calls.filter((c) => c.path === "/rest/v1/user_settings" && c.method === "PATCH" && c.body && "cal_offduty_label" in c.body).pop().body.cal_offduty_label, true);
   // 設定のラベル一覧にも、非番が出る
   assert.deepEqual(await page.$$eval('#panel .lrow [data-lf="name"]', (els) => els.map((e) => e.value)), ["勤務", "休日", "非番", "その他"]);
   await page.click('[data-act="close"]');
