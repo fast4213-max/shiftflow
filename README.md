@@ -75,6 +75,8 @@ supabase/
 .github/workflows/          Pages への公開、Supabase への自動デプロイ、テスト
 docs/DESIGN.md              設計
 docs/contact/               お問い合わせ・お知らせの設計・セットアップ・GAS のコード(gas/Code.gs)・テスト
+docs/proposal/              改善提案書(A4 1枚の PDF と、作るスクリプト)
+docs/sheets/                セキュリティシート・管理者の手引き・使い方(A4 1枚ずつの PDF と、作るスクリプト)。提出用は、ここと docs/proposal の4つ
 WORKLOG.md                  作業ログ(要約と現在の状態)。デバッグの記録は docs/DEBUG-LOG.md(最初に全回の一覧表。1〜10回目は docs/DEBUG-LOG-archive.md・11〜17回目は -archive-2・18〜22回目は -archive-3・23回目は -archive-4)、古い履歴は docs/WORKLOG-archive*.md
 ```
 
@@ -83,7 +85,7 @@ WORKLOG.md                  作業ログ(要約と現在の状態)。デバッ�
 ## セットアップ(はじめての人向け・ブラウザだけ)
 
 所要時間は1時間ほどです。途中で出てくる値のうち、**サービスアカウントの鍵(JSON)、各種パスワード、アクセストークンは、リポジトリに絶対に書かないでください。**
-画面に書いてよいのは、`web/js/config.js` に入れる Supabase の URL・公開用キーと、かんたん設定用の OAuth クライアント ID(公開してよい値)だけです。
+画面に書いてよいのは、`web/js/config.js` に入れる Supabase の URL・公開用キーと、簡単設定用の OAuth クライアント ID(公開してよい値)だけです。
 
 必要なもの: Google アカウント、GitHub アカウント(このリポジトリを自分のアカウントに置いてあること)
 
@@ -158,7 +160,7 @@ Supabase の左メニュー「Edge Functions」→「Secrets」(または「Proj
    - 「Deploy Supabase を待っていて失敗した」ときは、手順6までできてから、「Actions」→「GitHub Pages」→「Run workflow」で動かし直します(「Re-run jobs」では、また同じ所で失敗します)。1回目の変更が `web/js/config.js` だけのときなどに起きます
    - アプリの URL: `https://<ユーザー名>.github.io/shiftflow/`
 
-### 5-2. (任意)設定画面の「かんたん設定」を使えるようにする
+### 5-2. (任意)設定画面の「簡単設定」を使えるようにする
 
 利用者の Google アカウントで、このアプリ用のカレンダーを自動で作る機能です。使わないなら、この手順は飛ばしてください(`GOOGLE_CLIENT_ID` が空なら、カードは出ません)。
 
