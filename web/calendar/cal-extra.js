@@ -439,7 +439,8 @@ export function createExtras(env) {
     const prev = dd.kind === "image" ? (dd.blobUrl ? `<img src="${esc(dd.blobUrl)}" alt="">` : dd.image_path ? `<img data-path="${esc(dd.image_path)}" alt="">` : "") : defInner(dd);
     return `${head(dd.id ? "スタンプを直す" : "スタンプを作る")}<div class="pb">
       <div class="seg" role="radiogroup">${kinds.map(([v, t]) => `<label><input type="radio" name="dkind" value="${v}" data-df="kind"${dd.kind === v ? " checked" : ""}><span>${t}</span></label>`).join("")}</div>
-      <p style="text-align:center"><span class="tk" id="d-prev" style="display:inline-flex;min-width:72px;height:72px;border:1px solid var(--line);border-radius:12px;align-items:center;justify-content:center;font-size:40px;margin:12px 0">${prev}</span></p>
+      <div class="stc d-stage" id="d-stage"><span class="stamp" id="d-prev" style="--s:${Number(dd.default_size) || 0.34};--r:0deg">${prev}</span></div>
+      <p class="sub" id="d-prevnote">カレンダーに置いたときの実際の大きさで出ています。</p>
       ${dd.kind === "emoji" ? `<div class="fld"><label class="lb" for="d-emoji">絵文字</label><input class="in" id="d-emoji" data-df="emoji" maxlength="8" value="${esc(dd.emoji)}"></div>` : ""}
       ${dd.kind === "text" ? `<div class="fld"><label class="lb" for="d-text">文字(8文字まで)</label><input class="in" id="d-text" data-df="text" maxlength="8" value="${esc(dd.text)}"></div>
         <div class="row2"><div class="fld"><label class="lb" for="d-fg">文字の色</label><input type="color" id="d-fg" data-df="text_color" value="${esc(dd.text_color)}"></div><div class="fld"><label class="lb" for="d-bg">背景の色</label><input type="color" id="d-bg" data-df="bg_color" value="${esc(dd.bg_color)}"></div></div>
@@ -454,12 +455,25 @@ export function createExtras(env) {
     dd = d ? { ...d, blob: null, blobUrl: "" } : { id: null, kind: "emoji", emoji: "🙂", image_path: "", text: "", text_color: "#ffffff", bg_color: "#5b4bd6", shape: "round", default_size: 0.34, blob: null, blobUrl: "" };
     openPanel(defFormHtml());
     hydrate($("panel"));
+    sizeDefPreview();
   }
   function refreshDefPreview() {
     const p = $("d-prev");
     if (!p) return;
     p.innerHTML = dd.kind === "image" ? (dd.blobUrl ? `<img src="${esc(dd.blobUrl)}" alt="">` : dd.image_path ? `<img data-path="${esc(dd.image_path)}" alt="">` : "") : defInner(dd);
     hydrate(p);
+    sizeDefPreview();
+  }
+  // プレビューは、カレンダーに置いたときと同じ大きさ(カレンダーの幅 × 大きさ)で出す。箱が小さいときは、箱の幅に合わせて割り合いを直す
+  function sizeDefPreview() {
+    const stage = $("d-stage"), p = $("d-prev");
+    if (!stage || !p || !dd) return;
+    const cal = [...document.querySelectorAll(".stc")].find((e) => e !== stage);
+    const cw = (cal && cal.clientWidth) || window.innerWidth;
+    const pw = stage.clientWidth || cw;
+    const size = Number(dd.default_size) || 0.34;
+    p.style.setProperty("--s", String(size * cw / pw));
+    stage.style.height = Math.min(Math.max(size * cw + 24, 96), 360) + "px";
   }
   async function saveDef() {
     const row = { kind: dd.kind, emoji: dd.kind === "emoji" ? dd.emoji.trim() : "", text: dd.kind === "text" ? dd.text.trim() : "", text_color: dd.text_color, bg_color: dd.bg_color, shape: dd.shape, default_size: Number(dd.default_size) };
@@ -610,7 +624,7 @@ export function createExtras(env) {
       if (el.dataset.df) {
         if (!dd) return true;
         dd[el.dataset.df] = el.type === "range" ? Number(el.value) : el.value;
-        if (el.dataset.df === "kind") { setPanel(defFormHtml()); hydrate($("panel")); } else refreshDefPreview();
+        if (el.dataset.df === "kind") { setPanel(defFormHtml()); hydrate($("panel")); sizeDefPreview(); } else refreshDefPreview();
         return true;
       }
       if (el.id === "d-file") {

@@ -3136,6 +3136,25 @@ await check("カレンダー(スタンプを作る): 文字スタンプのプレ
   await ctx.close();
 });
 
+await check("カレンダー(スタンプを作る): 大きさのスライダーで、プレビューが実際の大きさ(カレンダーの幅 × 大きさ)に変わる", async () => {
+  const { page, ctx, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  const calW = await page.evaluate(() => document.querySelector(".stc").clientWidth);
+  await page.click("#tab-stamp");
+  await page.click('#tray [data-act="df-new"]');
+  await page.waitForSelector("#d-prev");
+  const widthAt = async (v) => {
+    await page.locator("#d-size").evaluate((el, val) => { el.value = String(val); el.dispatchEvent(new Event("input", { bubbles: true })); }, v);
+    return (await page.locator("#d-prev").boundingBox()).width;
+  };
+  const w1 = await widthAt(0.3), w2 = await widthAt(0.6);
+  assert.ok(Math.abs(w1 - 0.3 * calW) < 2, `0.3 → ${w1} (カレンダー幅 ${calW})`);
+  assert.ok(Math.abs(w2 - 0.6 * calW) < 2, `0.6 → ${w2}`);
+  assert.ok(w2 > w1 * 1.9, "大きさを2倍にすると、プレビューも2倍");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await browser.close();
 server.kill();
 console.log(failures.length ? `\n${failures.length} NG` : "\nall ok");
