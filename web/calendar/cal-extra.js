@@ -439,7 +439,7 @@ export function createExtras(env) {
     const prev = dd.kind === "image" ? (dd.blobUrl ? `<img src="${esc(dd.blobUrl)}" alt="">` : dd.image_path ? `<img data-path="${esc(dd.image_path)}" alt="">` : "") : defInner(dd);
     return `${head(dd.id ? "スタンプを直す" : "スタンプを作る")}<div class="pb">
       <div class="seg" role="radiogroup">${kinds.map(([v, t]) => `<label><input type="radio" name="dkind" value="${v}" data-df="kind"${dd.kind === v ? " checked" : ""}><span>${t}</span></label>`).join("")}</div>
-      <p style="text-align:center"><span class="tk" id="d-prev" style="display:inline-flex;width:72px;height:72px;border:1px solid var(--line);border-radius:12px;align-items:center;justify-content:center;font-size:40px;margin:12px 0">${prev}</span></p>
+      <p style="text-align:center"><span class="tk" id="d-prev" style="display:inline-flex;min-width:72px;height:72px;border:1px solid var(--line);border-radius:12px;align-items:center;justify-content:center;font-size:40px;margin:12px 0">${prev}</span></p>
       ${dd.kind === "emoji" ? `<div class="fld"><label class="lb" for="d-emoji">絵文字</label><input class="in" id="d-emoji" data-df="emoji" maxlength="8" value="${esc(dd.emoji)}"></div>` : ""}
       ${dd.kind === "text" ? `<div class="fld"><label class="lb" for="d-text">文字(8文字まで)</label><input class="in" id="d-text" data-df="text" maxlength="8" value="${esc(dd.text)}"></div>
         <div class="row2"><div class="fld"><label class="lb" for="d-fg">文字の色</label><input type="color" id="d-fg" data-df="text_color" value="${esc(dd.text_color)}"></div><div class="fld"><label class="lb" for="d-bg">背景の色</label><input type="color" id="d-bg" data-df="bg_color" value="${esc(dd.bg_color)}"></div></div>

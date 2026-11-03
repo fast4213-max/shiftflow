@@ -3099,6 +3099,36 @@ await check("設定: Google連携を外しても、カレンダーの表記(時�
   await ctx.close();
 });
 
+
+await check("カレンダー(スタンプを作る): 文字スタンプのプレビューは、色・形つきの札で、箱の真ん中。「画像を選ぶ」の文字はボタンの真ん中", async () => {
+  const { page, ctx, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-stamp");
+  await page.click('#tray [data-act="df-new"]');
+  await page.check('input[name="dkind"][value="text"]', { force: true });
+  await page.fill("#d-text", "休日");
+  const tx = page.locator("#d-prev .tx");
+  await tx.waitFor();
+  const [bg, radius, white] = await tx.evaluate((el) => { const c = getComputedStyle(el); return [c.backgroundColor, c.borderRadius, c.whiteSpace]; });
+  assert.notEqual(bg, "rgba(0, 0, 0, 0)", "背景色が付く");
+  assert.equal(white, "nowrap", "縦に折り返さない");
+  assert.ok(parseFloat(radius) > 20, "丸");
+  const [pb, tb] = await Promise.all([page.locator("#d-prev").boundingBox(), tx.boundingBox()]);
+  assert.ok(Math.abs((pb.x + pb.width / 2) - (tb.x + tb.width / 2)) < 2 && Math.abs((pb.y + pb.height / 2) - (tb.y + tb.height / 2)) < 2, "箱の真ん中: " + JSON.stringify([pb, tb]));
+  assert.ok(tb.height < 40, "1行: " + tb.height);
+  // 長い文字(8文字)でも、箱が広がって収まる
+  await page.fill("#d-text", "ABCDEFGH");
+  const [pb2, tb2] = await Promise.all([page.locator("#d-prev").boundingBox(), tx.boundingBox()]);
+  assert.ok(tb2.x >= pb2.x - 1 && tb2.x + tb2.width <= pb2.x + pb2.width + 1, "箱の中に収まる");
+  // 画像を選ぶボタンの文字は、ボタンの真ん中
+  await page.check('input[name="dkind"][value="image"]', { force: true });
+  const btn = page.locator(".filebtn");
+  const disp = await btn.evaluate((el) => { const c = getComputedStyle(el); return [c.display, c.alignItems, c.justifyContent]; });
+  assert.deepEqual(disp, ["inline-flex", "center", "center"]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await browser.close();
 server.kill();
 console.log(failures.length ? `\n${failures.length} NG` : "\nall ok");
