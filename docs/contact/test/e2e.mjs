@@ -3182,6 +3182,26 @@ await check("カレンダー(スタンプ): 画像のスタンプは、描き直
   await ctx.close();
 });
 
+await check("カレンダー(スタンプ): スタンプをタップして編集を開いた直後に、同じタップの click が背景に当たっても、編集は閉じない。背景を押せば閉じる", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  be.st.cal.cal_stamp_defs = [{ id: "D1", user_id: "u1", kind: "emoji", emoji: "🎂", image_path: "", text: "", text_color: "#ffffff", bg_color: "#5b4bd6", shape: "round", default_size: 0.5, sort: 1, created_at: "2026-10-01T00:00:00Z" }];
+  be.st.cal.cal_stamps = [{ id: "S1", user_id: "u1", stamp_def_id: "D1", date: today, x: 0.5, y: 0.6, size: 0.5, rotation: 0, notes: [], created_at: "2026-10-02T00:00:00Z" }];
+  await page.reload();
+  await page.waitForSelector(".stamp");
+  await page.locator(".stamp").first().click();
+  await page.waitForSelector("#st-size");
+  // 同じタップから遅れて出る click(背景に当たる)を真似る: 押し始めが無い click
+  await page.evaluate(() => document.getElementById("scrim").click());
+  await page.waitForTimeout(300);
+  assert.equal(await page.isVisible("#st-size"), true, "編集が開いたまま");
+  // 背景を実際に押す(押し始めからの click)と閉じる
+  await page.mouse.click(10, 200);
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await browser.close();
 server.kill();
 console.log(failures.length ? `\n${failures.length} NG` : "\nall ok");

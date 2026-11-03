@@ -295,10 +295,12 @@ window.addEventListener("popstate", () => {
   if (l) l.close(); // 戻るボタン: いちばん上の層を閉じる(履歴はもう戻っている)
 });
 
+let scrimDown = false; // 暗い背景を「押し始めた」か(押し始めた click だけで閉じる)
 function showPanel(onClose) {
   if (S.panel) { if (onClose !== undefined) S.panel.onClose = onClose; return; }
   $("panel").hidden = false;
   $("scrim").hidden = false;
+  scrimDown = false; // 開く前から続いている押し込みは、背景を閉じる操作にしない
   S.panel = { onClose };
   pushLayer(hidePanel);
 }
@@ -781,7 +783,10 @@ function bind() {
   $("tray").addEventListener("click", (ev) => extras.trayClick(ev));
   $("viewer").addEventListener("click", closeViewer);
   extras.bindDrag();
-  $("scrim").addEventListener("click", closePanel);
+  // 暗い背景を押したら閉じる。ただし、背景を押し始めた(pointerdown)ときだけ。
+  // スタンプをタップして編集を開いた直後、同じタップの click が出てきた背景に当たり、開いてすぐ閉じていた
+  $("scrim").addEventListener("pointerdown", () => { scrimDown = true; });
+  $("scrim").addEventListener("click", () => { if (!scrimDown) return; scrimDown = false; closePanel(); });
 
   $("banner").addEventListener("click", (ev) => { if (ev.target.closest('[data-act="dismiss-notice"]')) setNotice(""); });
   $("chips").addEventListener("click", (ev) => {
