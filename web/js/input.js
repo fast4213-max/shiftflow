@@ -621,7 +621,7 @@ function clearImported() {
   render();
 }
 
-// 保存: カレンダーには入れず、入力だけを残す(臨時の時間などを、あとで調べて入れるため)。
+// 保存: カレンダーには入れず、入力だけを残す(臨時の時間などを、後で調べて入れるため)。
 // 登録と同じ register-month に saveOnly で送り、保存と翌月1日・2日の記録の片付けまでをサーバーで行う
 // (先に保存だけすると、あとの登録で「登録する前の月末」が分からず片付けが効かなかったため。17回目の N1)
 $("save").addEventListener("click", async () => {
@@ -665,8 +665,8 @@ $("save").addEventListener("click", async () => {
   }
 });
 
-// ---------- ほかの画面で変わったとき ----------
-// 写真取込(Claude のアプリや簡易ブラウザで開く)から戻ったときなど、この画面が隠れていた間に、ほかの画面で
+// ---------- 他の画面で変わったとき ----------
+// 写真取込(Claude のアプリや簡易ブラウザで開く)から戻ったときなど、この画面が隠れていた間に、他の画面で
 // 保存・登録されていることがある。古い入力のまま「登録」すると上書きしてしまうので、画面に戻ったときに、
 // 登録していない変更が無ければ読み直す。変更があるときは読み直さず、古いかもしれないと知らせる(L1)
 const RELOAD_AFTER_HIDDEN_MS = 2000;
@@ -685,7 +685,7 @@ document.addEventListener("visibilitychange", async () => {
   if (state.dirty) {
     // 取り込んだばかりの画面(この画面が新しい内容)では言わない。取込の案内を消さないように(M2)
     if (!state.imported.size) {
-      setStatus("この画面には、登録していない変更があります。ほかの画面で保存・登録していたときは、この画面の内容は古いままです(月を移動し直すと読み直します)。");
+      setStatus("この画面には、登録していない変更があります。他の画面で保存・登録していたときは、この画面の内容は古いままです(月を移動し直すと読み直します)。");
     }
     return;
   }
@@ -696,7 +696,7 @@ document.addEventListener("visibilitychange", async () => {
   await load();
   if (id !== state.loadId || $("status").className === "error") return;
   window.scrollTo(0, y);
-  if (JSON.stringify(state.entries) !== before) setStatus("ほかの画面で変わった内容を読み直しました。");
+  if (JSON.stringify(state.entries) !== before) setStatus("他の画面で変わった内容を読み直しました。");
   else if (prevStatus.text && !prevStatus.error) setStatus(prevStatus.text); // 変わっていなければ、前のメッセージを残す(M2)
 });
 
@@ -856,7 +856,7 @@ requireLogin("input.html", { needOffice: true })
     }
     $("setup-note").hidden = !state.googleSync || !!ctx.settings.verified_at;
     return load().then(() => {
-      // 写真取込のリンクで開いたとき(ログインし直したあとも)は、最初の読み込みのあとで取り込む。
+      // 写真取込のリンクで開いたとき(ログインし直したあとも)は、最初の読み込みの後で取り込む。
       // 読み込みに失敗したときは取り出さずに取っておき、画面を読み直したときに使う(K5)
       if ($("status").className === "error") return;
       const pending = takePendingImport();

@@ -30,7 +30,7 @@ $("form").addEventListener("input", (ev) => {
   setMessage(message, "error");
 });
 $("submit").disabled = true;
-// ログインを保存できない(Safari の「すべてのCookieをブロック」など)と、登録してもそのまま使えないので先に知らせる
+// ログインを保存できない(Safari の「全てのCookieをブロック」など)と、登録してもそのまま使えないので先に知らせる
 if (!canSaveLogin()) setMessage(STORAGE_HELP, "error");
 else if (document.querySelector("#form [data-rejected]")) setMessage(AUTOFILL_HINT, "error");
 

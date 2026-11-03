@@ -77,7 +77,7 @@ export async function revokeSessions(admin: SupabaseClient, userId: string, keep
 }
 
 // 自分のPINを変える(今のPINを確かめてから)。変えたら、新しいPINで入り直したログインを返し、
-// それ以外のログイン(ほかの端末・今のPINを確かめたときのもの・この端末の前のログイン)は消す。
+// それ以外のログイン(他の端末・今のPINを確かめたときのもの・この端末の前のログイン)は消す。
 // PINを変えたあとに入り直せなかったとき(Supabase Auth の混雑など)は、エラーにしない(PINはもう変わっているので)。
 // ログインを全部消して session: null を返し、画面は「新しいPINでログインし直してください」にする
 export async function changePin(

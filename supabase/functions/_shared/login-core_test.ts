@@ -265,7 +265,7 @@ Deno.test("新規登録: 同時登録で社員番号が重複(23505)したら「
   });
   assertEquals(await code(() => signUp(f.deps, reg, "ip")), "already_registered");
   assertEquals(f.users.length, 0);
-  // ほかの DB エラーは、details(行の中身)を含まない形で投げる
+  // 他の DB エラーは、details(行の中身)を含まない形で投げる
   const g = fakes({
     profileInsertError: Object.assign(new Error("value too long\nsecond line"), { code: "22001", details: "Failing row contains (1234567, 山田)" }),
   });
@@ -423,11 +423,11 @@ Deno.test("セッションID: アクセストークン(JWT)から取り出す。
   assertEquals(sessionIdOf("h.@@@.s"), null);
 });
 
-Deno.test("PINの変更: 今のPINが正しければ変わり、新しいPINのログインだけが残る(ほかの端末・確かめたときのログインは消える)", async () => {
+Deno.test("PINの変更: 今のPINが正しければ変わり、新しいPINのログインだけが残る(他の端末・確かめたときのログインは消える)", async () => {
   const f = fakes();
   await signUp(f.deps, reg, "1.1.1.1");
   const phone = await loginWithPin(f.deps, { employee_no: reg.employee_no, pin: reg.pin });
-  await loginWithPin(f.deps, { employee_no: reg.employee_no, pin: reg.pin }); // ほかの端末
+  await loginWithPin(f.deps, { employee_no: reg.employee_no, pin: reg.pin }); // 他の端末
   const userId = f.users[0].id;
   const result = await changePin(f.deps, { userId, employeeNo: reg.employee_no }, { current_pin: reg.pin, new_pin: "１１１１" });
   assertEquals(result.sessionsCleared, true);
@@ -451,7 +451,7 @@ Deno.test("PINの変更: 今のPINが違えば変えない・ログインも消�
   assertEquals(await code(() => changePin(f.deps, user, { current_pin: "0000", new_pin: "1111" })), "locked");
 });
 
-Deno.test("PINの再設定(管理者): 仮のPINで入れるようになり、その人のログインは全部消える。ほかの人のログインは残る", async () => {
+Deno.test("PINの再設定(管理者): 仮のPINで入れるようになり、その人のログインは全部消える。他の人のログインは残る", async () => {
   const f = fakes();
   await signUp(f.deps, reg, "1.1.1.1");
   await signUp(f.deps, { ...reg, employee_no: "7654321" }, "1.1.1.1");
@@ -502,7 +502,7 @@ Deno.test("PINの変更: 変えたあとに新しいPINで入り直せなくて�
   assertEquals(f.users[0].password, passwordFor("9999")); // PINは変わっている
 });
 
-Deno.test("PINの変更: 新しいログインのセッションIDが分からないときは、ほかのログインを消さない(この端末まで出ないように)", async () => {
+Deno.test("PINの変更: 新しいログインのセッションIDが分からないときは、他のログインを消さない(この端末まで出ないように)", async () => {
   const f = fakes({ noSessionId: true });
   await signUp(f.deps, reg, "1.1.1.1");
   await loginWithPin(f.deps, { employee_no: reg.employee_no, pin: reg.pin });

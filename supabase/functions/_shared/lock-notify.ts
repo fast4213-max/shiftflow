@@ -15,7 +15,7 @@ export function pinLockPayload(employeeNo: string, until: string) {
   return {
     embeds: [{
       title: "🔒 PIN の間違いが多いため、ロックしました",
-      description: "同じ社員番号で、PIN の間違いが続きました。本人が忘れたのでなければ、ほかの人が試している可能性があります。\n" +
+      description: "同じ社員番号で、PIN の間違いが続きました。本人が忘れたのでなければ、他の人が試している可能性があります。\n" +
         "本人から連絡があれば、管理画面の「利用者」で PIN を再設定すると、すぐ使えるようになります。",
       color: 0xe53935,
       fields: [

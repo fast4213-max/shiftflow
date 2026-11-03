@@ -240,7 +240,7 @@ Deno.test("書き込み権限がないと、共有設定を確認するメッセ
     AppError,
   );
   assert(err.message.includes("勤務用カレンダーに書き込めません"));
-  assert(err.message.includes("すべての予定の詳細の変更や表示ができます"));
+  assert(err.message.includes("全ての予定の詳細の変更や表示ができます"));
 });
 
 Deno.test("1件失敗したら残りは作らず、作っている途中の分が終わってからエラーにする", async () => {
@@ -501,7 +501,7 @@ Deno.test("createEvents: 番号は終日、2件目は日本時間の時間つき
   const t25 = timed.find((b) => b.summary === "10:00〜18:30");
   assertEquals(t25.start, { dateTime: "2026-10-01T10:00:00", timeZone: "Asia/Tokyo" });
   assertEquals(t25.end, { dateTime: "2026-10-01T18:30:00", timeZone: "Asia/Tokyo" });
-  assertEquals(t25.extendedProperties, tag("day")); // 印が付く(あとで消せる)
+  assertEquals(t25.extendedProperties, tag("day")); // 印が付く(後で消せる)
   // 24時を超えたら翌日
   const t40 = timed.find((b) => b.summary === "23:30");
   assertEquals(t40.end, { dateTime: "2026-10-03T00:30:00", timeZone: "Asia/Tokyo" });
@@ -1049,7 +1049,7 @@ Deno.test("マスタの切替: 登録の確かめは、翌月1日のメモを外
   }
   assertEquals(periodErrorText(plan.errors).includes("翌月の画面で、12/1(非番)のメモに退勤時間"), true);
   assertEquals(periodErrorText([]), "");
-  assertEquals(periodErrorText([{ date: "a", message: "x。" }, { date: "b", message: "y" }]), "x。(ほかに1件)");
+  assertEquals(periodErrorText([{ date: "a", message: "x。" }, { date: "b", message: "y" }]), "x。(他に1件)");
 });
 
 Deno.test("selectAllPages: 1回分(1,000行)ずつ、足りなくなるまで読む(マスタの行が上限を超えても欠けない。AB14)", async () => {

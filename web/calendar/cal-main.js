@@ -367,8 +367,8 @@ function openEvent(uid) {
   if (e.src === "shift") {
     actions = '<p class="sub">勤務の予定は、勤務入力で直します。</p><div class="btns"><a class="btn" href="../input.html">勤務入力を開く</a></div>';
   } else if (e.repeat && e.repeat !== "none") {
-    actions = `<div class="btns"><button class="btn" data-act="edit" data-uid="${esc(uid)}" data-mode="occ">この回だけ編集</button><button class="btn" data-act="edit" data-uid="${esc(uid)}" data-mode="all">すべての回を編集</button></div>
-      <div class="btns"><button class="btn dng" data-act="del" data-uid="${esc(uid)}" data-mode="occ">この回だけ削除</button><button class="btn dng" data-act="del" data-uid="${esc(uid)}" data-mode="all">すべての回を削除</button></div>`;
+    actions = `<div class="btns"><button class="btn" data-act="edit" data-uid="${esc(uid)}" data-mode="occ">この回だけ編集</button><button class="btn" data-act="edit" data-uid="${esc(uid)}" data-mode="all">全ての回を編集</button></div>
+      <div class="btns"><button class="btn dng" data-act="del" data-uid="${esc(uid)}" data-mode="occ">この回だけ削除</button><button class="btn dng" data-act="del" data-uid="${esc(uid)}" data-mode="all">全ての回を削除</button></div>`;
   } else {
     actions = `<div class="btns"><button class="btn" data-act="edit" data-uid="${esc(uid)}" data-mode="all">編集</button><button class="btn dng" data-act="del" data-uid="${esc(uid)}" data-mode="all">削除</button></div>`;
   }
@@ -573,7 +573,7 @@ async function deleteEvent(uid, mode) {
   const base = S.own.find((x) => x.id === (e.baseId || e.id));
   if (!base) return;
   const repeating = base.repeat !== "none";
-  const text = mode === "occ" ? "この回だけ" : repeating ? "すべての回" : "この予定";
+  const text = mode === "occ" ? "この回だけ" : repeating ? "全ての回" : "この予定";
   if (!window.confirm(`${text}を削除します。よろしいですか？`)) return;
   try {
     if (mode === "occ" && repeating) {

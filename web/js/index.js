@@ -101,7 +101,7 @@ async function main() {
     return;
   }
   if (location.hash === "#admin") showTab("admin");
-  // ログインを保存できない(Safari の「すべてのCookieをブロック」など)と、ログインしても
+  // ログインを保存できない(Safari の「全てのCookieをブロック」など)と、ログインしても
   // 次の画面でここに戻ってしまう。入れないようにして、直し方を出す
   if (!canSaveLogin()) {
     setFormsBusy(true);

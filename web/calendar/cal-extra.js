@@ -120,7 +120,7 @@ export function createExtras(env) {
     const row = (t) => `<div class="trow${t.done ? " done" : ""}" data-tid="${esc(t.id)}"><input type="checkbox" class="tck" data-act="todo-tick" data-id="${esc(t.id)}"${t.done ? " checked" : ""} aria-label="済み"><input class="tin" data-tin="${esc(t.id)}" maxlength="100" value="${esc(t.text)}" aria-label="内容">${t.done ? `<button class="x" data-act="todo-del" data-id="${esc(t.id)}" aria-label="消す">✕</button>` : ""}</div>`;
     return `${head("TODOメモ")}<div class="pb">${open.map(row).join("")}
       <div class="trow"><button class="btn" data-act="todo-add" aria-label="追加">＋</button><input class="tin" id="td-new" maxlength="100" placeholder="リストアイテム(入力して＋かEnter)" aria-label="新しい内容"></div>
-      ${done.length ? `<div class="tdh"><span>済み ${done.length}件</span><button class="btn" data-act="todo-clear">済みをすべて消す</button></div>${done.map(row).join("")}` : ""}
+      ${done.length ? `<div class="tdh"><span>済み ${done.length}件</span><button class="btn" data-act="todo-clear">済みを全て消す</button></div>${done.map(row).join("")}` : ""}
       <p class="msg err" id="x-msg"></p></div>`;
   }
   function openTodo() { openPanel(todoHtml()); }
@@ -548,7 +548,7 @@ export function createExtras(env) {
           return true;
         }
         case "todo-clear": {
-          if (!window.confirm("済みのメモをすべて消します。よろしいですか？")) return true;
+          if (!window.confirm("済みのメモを全て消します。よろしいですか？")) return true;
           const { error } = await supabase.from("cal_todos").delete().eq("done", true);
           if (error) return say("x-msg", errText(error)), true;
           S.todos = S.todos.filter((x) => !x.done);

@@ -23,7 +23,7 @@ async function saveSettings(values) {
   let res = settings
     ? await update()
     : await supabase.from("user_settings").insert({ user_id: session.user.id, ...values }).select(columns).single();
-  // 画面を開いたときは行が無かったが、別のタブやかんたん設定の自動保存で、もうできていたときは、更新でやり直す(R3)
+  // 画面を開いたときは行が無かったが、別のタブや簡単設定の自動保存で、もうできていたときは、更新でやり直す(R3)
   if (!settings && res.error && res.error.code === "23505") res = await update();
   if (res.error) throw res.error;
   settings = res.data;
@@ -79,7 +79,7 @@ async function main() {
     .then((config) => ($("sa-email").value = config.serviceAccountEmail))
     .catch((err) => ($("sa-email").value = "取得できませんでした: " + err.message));
   $("copy-sa").addEventListener("click", () => copyText($("sa-email").value, $("copy-sa")));
-  // かんたん設定で作ったIDは、すぐ保存する(区所などは上書きしない)
+  // 簡単設定で作ったIDは、すぐ保存する(区所などは上書きしない)
   initCalendarSetup({ saveIds: (values) => saveSettings(values) });
 
   // 時間つきで登録するあいだは、「2件で登録」「名前に時間」は使われないので押せなくする(チェックは残す)
@@ -167,12 +167,12 @@ async function main() {
         await loginLost("PINを変更しました。新しいPINで、もう一度ログインしてください。");
         return;
       }
-      // この端末は、新しいPINでのログインに入れ替える(前のログインは、ほかの端末の分と一緒に消されたため)
+      // この端末は、新しいPINでのログインに入れ替える(前のログインは、他の端末の分と一緒に消されたため)
       await startSession(result.session);
       ["pin-current", "pin-new", "pin-new2"].forEach((id) => ($(id).value = ""));
       message("pin-result", "PINを変更しました。次のログインから新しいPINを使ってください。" +
-        (result.sessionsCleared === true ? "ほかの端末でログインしていた分は、ログアウトしました。"
-          : result.sessionsCleared === false ? "(ほかの端末のログインは消せませんでした。管理者に連絡してください)" : ""), "ok");
+        (result.sessionsCleared === true ? "他の端末でログインしていた分は、ログアウトしました。"
+          : result.sessionsCleared === false ? "(他の端末のログインは消せませんでした。管理者に連絡してください)" : ""), "ok");
     } catch (err) {
       // 返事が届かなかった(時間切れ・通信の失敗)ときは、サーバーではPINが変わっていることがある。
       // 前のPINだと決めつけて入り直すと、失敗の回数が増えてロックされるので、新しいPINから試すよう案内する(S12)

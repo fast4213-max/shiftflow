@@ -1188,7 +1188,7 @@ await check("勤務入力: 登録していない変更があるとき、リン�
   page.removeAllListeners("dialog");
   const asked = [];
   page.on("dialog", (d) => { asked.push(d.message()); d.accept(); });
-  // 確認のあとで移動が止まった(Android で Claude のアプリが開き、この画面が残る)ようすにする
+  // 確認の後で移動が止まった(Android で Claude のアプリが開き、この画面が残る)ようすにする
   await page.evaluate(() => document.addEventListener("click", (ev) => { if (ev.target.closest("a[href]")) ev.preventDefault(); }, true));
   await page.click('nav.topbar a[href="settings.html"]');
   assert.deepEqual(asked, ["登録していない変更があります。移動しますか？"]);
@@ -1622,7 +1622,7 @@ await check("管理画面: 使い方リンクを足す・直す・並べ替え�
   const { page, ctx, be, errors } = await open("admin.html#notices", { userId: "a1", opts: { profile: ADMIN, guides: GUIDES }, viewport: { width: 1200, height: 900 } });
   await page.waitForSelector("#guide-list .notice-admin-row");
   assert.equal(await page.locator("#guide-list .notice-admin-row").count(), 4);
-  // URL の欄も、ほかの欄と同じ大きさ(iPhone で拡大されない16px。AD4)
+  // URL の欄も、他の欄と同じ大きさ(iPhone で拡大されない16px。AD4)
   assert.equal(await page.$eval("#guide-url", (e) => getComputedStyle(e).fontSize), "16px");
   // 誤り
   await page.click("#guide-save");
@@ -2157,7 +2157,7 @@ await check("カレンダー: 月がそのまま縦に続く。スクロール�
   const shiftCalls = () => be.st.calls.filter((c) => c.path === "/functions/v1/calendar-shifts").length;
   const t0 = today.slice(0, 7);
   assert.equal(await hdr(), `${Number(t0.slice(0, 4))}-${Number(t0.slice(5, 7))}`);
-  // 週は途切れず続く(隣の週との差が、すべて7日)
+  // 週は途切れず続く(隣の週との差が、全て7日)
   const weeks = await page.$$eval(".week", (els) => els.map((e) => e.dataset.ws));
   assert.ok(weeks.length > 100, "1年前〜来年12月まで続けて並ぶ: " + weeks.length);
   assert.ok(weeks.every((w, i) => i === 0 || (Date.parse(w) - Date.parse(weeks[i - 1])) === 7 * 86400000), "週が途切れない");
@@ -2862,7 +2862,7 @@ await check("デバッグ L9: 画像を読む方法が使えない端末(createI
   await ctx.close();
 });
 
-await check("デバッグ L10: 戻るボタンで、パネル・大きな画像を閉じる(アプリを閉じない)。✕で閉じたあとの戻るは、あとから開いたパネルを閉じない", async () => {
+await check("デバッグ L10: 戻るボタンで、パネル・大きな画像を閉じる(アプリを閉じない)。✕で閉じたあとの戻るは、後から開いたパネルを閉じない", async () => {
   const { page, ctx, be, errors } = await calOpen();
   await page.waitForSelector(".bar");
   const url = page.url();

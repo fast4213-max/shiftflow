@@ -3,7 +3,7 @@
 
 import { assertEquals } from "jsr:@std/assert@1";
 
-Deno.test("supabase/config.toml: すべての Edge Function に verify_jwt = false が書いてある", () => {
+Deno.test("supabase/config.toml: 全ての Edge Function に verify_jwt = false が書いてある", () => {
   const functionsDir = new URL("../", import.meta.url);
   const dirs = [...Deno.readDirSync(functionsDir)]
     .filter((e) => e.isDirectory && !e.name.startsWith("_") && !e.name.startsWith("."))

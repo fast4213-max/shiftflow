@@ -257,7 +257,7 @@ export function eventsToRegister(
 }
 
 // 月末の泊が変わって翌月1日の非番が変わるときに、消す翌月の記録(月の中で泊を入れ直したときの画面の動きと同じにする)。
-//   翌月1日が非番になる: 翌月1日の番号(とそのメモ)を消す。残すと、あとで月末を泊から戻したとき、消えたはずの番号が戻る。
+//   翌月1日が非番になる: 翌月1日の番号(とそのメモ)を消す。残すと、後で月末を泊から戻したとき、消えたはずの番号が戻る。
 //     その番号が泊なら翌月2日は非番でなくなるので、翌月2日の非番のために書き換えたメモ(番号の無い記録)も消す
 //   翌月1日が非番でなくなる(月末を泊から戻した・月をリセットした): 翌月1日の非番のために書き換えたメモ(番号の無い記録)を消す
 //     月末が今回はじめて泊になった(newlyOffduty)なら、番号の無い翌月1日のメモも消す(W6。画面が、新しく非番になった日のメモを消すのと同じ)。
@@ -338,7 +338,7 @@ export async function selectAllPages<T>(
 // マスタの切替で登録できない理由(buildPlan の errors)を1つの文にする。無ければ ""
 export function periodErrorText(errors: { date: string; message: string }[]): string {
   if (!errors.length) return "";
-  return errors[0].message + (errors.length > 1 ? `(ほかに${errors.length - 1}件)` : "");
+  return errors[0].message + (errors.length > 1 ? `(他に${errors.length - 1}件)` : "");
 }
 
 // staleNextMonthRecords の記録を消す(利用者の権限で消すので、本人の記録だけが対象)

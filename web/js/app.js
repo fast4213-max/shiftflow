@@ -45,7 +45,7 @@ window.shiftflowReady = true;
 const loadWait = document.getElementById("load-wait");
 if (loadWait) loadWait.classList.add("hidden");
 
-// この端末にログインを保存できるか。Safari の「すべてのCookieをブロック」がオンなどだと保存できず、
+// この端末にログインを保存できるか。Safari の「全てのCookieをブロック」がオンなどだと保存できず、
 // ログインしても次の画面でログイン画面に戻ってしまう(エラーも出ない)ので、先に確かめて知らせる
 export function canSaveLogin() {
   try {
@@ -60,7 +60,7 @@ export function canSaveLogin() {
 
 export const STORAGE_HELP =
   "この画面ではログインを保存できません。iPhoneは「設定」→「アプリ」→「Safari」(iOSによっては「設定」→「Safari」)の" +
-  "「すべてのCookieをブロック」をオフにしてから、開き直してください。プライベートブラウズのときは、通常のタブで開いてください。" +
+  "「全てのCookieをブロック」をオフにしてから、開き直してください。プライベートブラウズのときは、通常のタブで開いてください。" +
   "Android(Chrome)は、右上の「︙」→「設定」→「サイトの設定」で、このサイトのCookie(サイトのデータ)を許可してから、開き直してください。";
 
 // 社員番号・PINの欄に、形の違う値が自動で入ったので消したときの案内(bindDigitsOnly)
@@ -328,7 +328,7 @@ export function newRequestKey() {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
-// ログインが無くなった(PINの再設定・変更でほかの端末から消された・削除された)ときに、
+// ログインが無くなった(PINの再設定・変更で他の端末から消された・削除された)ときに、
 // この端末のログインを消してログイン画面へ移る。何度も呼ばれても1回だけ
 let leaving = false;
 export async function loginLost(message) {
@@ -340,7 +340,7 @@ export async function loginLost(message) {
 }
 
 // ログインが必要な画面(勤務入力・設定・管理)を開いているときに、ライブラリがログインの更新に失敗して
-// ログインを消した(ほかの端末・ほかのタブでPINを変えたなど)ら、ログイン画面へ移る
+// ログインを消した(他の端末・他のタブでPINを変えたなど)ら、ログイン画面へ移る
 let loginRequired = false;
 supabase.auth.onAuthStateChange((event) => {
   if (event === "SIGNED_OUT" && loginRequired) loginLost("ログインが切れました。もう一度ログインしてください。");
@@ -348,7 +348,7 @@ supabase.auth.onAuthStateChange((event) => {
 
 export async function logout() {
   loginRequired = false; // 自分でログアウトしたときは「切れました」を出さない
-  // この端末のログインだけを消す(S5。ほかの端末・管理画面を開いているほかの PC はログインしたまま)。
+  // この端末のログインだけを消す(S5。他の端末・管理画面を開いている他の PC はログインしたまま)。
   // supabase-js は、通信に失敗しても、この端末に保存したログインは必ず消す
   await supabase.auth.signOut({ scope: "local" }).catch(() => {});
   go("index.html");
@@ -385,7 +385,7 @@ export async function callFunction(name, body = {}, { stayOnLoss = false, timeou
       throw e;
     }
   }
-  // ログインが無くなっていた(ほかの端末でPINを変えた・再設定された・削除された)ときは、ログイン画面へ
+  // ログインが無くなっていた(他の端末でPINを変えた・再設定された・削除された)ときは、ログイン画面へ
   if (!stayOnLoss && (err.code === "unauthenticated" || err.code === "not_member")) {
     await loginLost("ログインが切れました。もう一度ログインしてください。");
   }

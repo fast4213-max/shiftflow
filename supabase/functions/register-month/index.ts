@@ -79,7 +79,7 @@ serve(async (req) => {
     if (saved.error) throw saved.error;
 
     // 月末の泊が変わって翌月1日の非番が変わったら、翌月1日・2日の記録の、前の状態のための番号やメモを消す。
-    // 残しておくと、あとで月末を泊から戻したとき(泊を1日前へ入れ直したときなど)、消えたはずの番号が戻ってしまうため
+    // 残しておくと、後で月末を泊から戻したとき(泊を1日前へ入れ直したときなど)、消えたはずの番号が戻ってしまうため
     await deleteRecords(ctx, staleNextMonthRecords({
       nextFirst,
       lastCode: codeOf(byDate[last]),
@@ -127,7 +127,7 @@ serve(async (req) => {
     // 月末が泊なら、時間つきの設定で翌月1日の非番を作らない(泊の1件が翌月1日の朝まで入る)ときも同じ。
     // 翌月1日が非番なら翌月2日は非番にならないので、翌月2日に残った非番(翌月1日が泊だったとき)も消す
     const clearNextFirst = nextFirstOffduty || events.some((e) => e.date === nextFirst);
-    // 翌月1日のアプリの予定を消す前に印を残す(消したあとで作り直しに失敗しても、やり直したときに作り直せる)
+    // 翌月1日のアプリの予定を消す前に印を残す(消した後で作り直しに失敗しても、やり直したときに作り直せる)
     if (existing.some((e) => e.date === nextFirst)) {
       const marked = await ctx.admin.from("user_settings").update({ next_first_pending: nextFirst }).eq("user_id", ctx.userId);
       if (marked.error) throw marked.error;
@@ -137,7 +137,7 @@ serve(async (req) => {
 
     await ctx.admin.from("user_settings").update({ last_registered_at: new Date().toISOString() }).eq("user_id", ctx.userId);
     // 最後まで登録できたので、今回の翌月1日の印は消す(Q8)。翌月1日に作る予定が無いとき(月末を泊から戻した)も消す。
-    // 別の月の印(ほかの月の登録が途中で止まったもの)は、その月をやり直すときに使うので消さない
+    // 別の月の印(他の月の登録が途中で止まったもの)は、その月をやり直すときに使うので消さない
     await ctx.admin.from("user_settings").update({ next_first_pending: null })
       .eq("user_id", ctx.userId).eq("next_first_pending", nextFirst);
 

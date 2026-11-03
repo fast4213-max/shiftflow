@@ -714,7 +714,7 @@ Deno.test("受信メール: 「違う人」の判断は取り込み時に保存�
   assertEquals(await flag({ from: "other@example.com", thread_id: "ff0123" }), false); // こちらが送ったスレッド
   assertEquals(await flag({ from: "Mail Delivery Subsystem <mailer-daemon@googlemail.com>", thread_id: "ff0e22", subject: "Undeliverable: お問い合わせ #0001" }), false);
   assertEquals(await flag({ from: "evil@example.com", thread_id: "ff0e23", subject: "Undeliverable: お問い合わせ #0001" }), true);
-  // アドレスを消したあとは、スレッド以外はすべて「違う人」
+  // アドレスを消したあとは、スレッド以外は全て「違う人」
   db.inquiries[0].email = null;
   assertEquals(await flag({ from: "taro@gmail.com", thread_id: "ff0e24" }), true);
 });

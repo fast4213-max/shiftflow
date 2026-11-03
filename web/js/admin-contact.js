@@ -1,5 +1,5 @@
 // 管理画面の「お問い合わせ」タブ: 一覧・やり取り・返事(画面 / メール)・送り直し・対応済み・受信メール。
-// 文字はすべて textContent で入れる(受信メールの本文などを HTML として読まない。R15)。
+// 文字は全て textContent で入れる(受信メールの本文などを HTML として読まない。R15)。
 // 予想されるバグの番号は docs/contact/DESIGN.md。
 import { friendlyText, $, callFunction, newRequestKey } from "./app.js?v=dev";
 import { CONTACT_EMAIL } from "./config.js?v=dev";
@@ -326,7 +326,7 @@ function replyForm(inq, messages, replyTo) {
       await openDetail(inq.id, { quiet: true });
       if (res.duplicate && res.message && res.message.body !== text) {
         // 前の送信(時間切れなどで結果が分からなかったもの)が届いていた。直した文は送っていない(Q6)
-        setMessage("contact-detail-message", "前に送った返事がもう届いていました。そのあとで直した文は送っていません。必要なら、もう一度書いて送ってください。", "error");
+        setMessage("contact-detail-message", "前に送った返事がもう届いていました。その後で直した文は送っていません。必要なら、もう一度書いて送ってください。", "error");
         return;
       }
       setMessage("contact-detail-message",
@@ -388,7 +388,7 @@ function renderUnmatched(mails) {
           const status = res.message && res.message.mail_status;
           await loadList({ quiet: true });
           if (res.duplicate && res.message && res.message.body !== text) {
-            setMessage("contact-list-message", "前に送った返信がもう届いていました。そのあとで直した文は送っていません。", "error");
+            setMessage("contact-list-message", "前に送った返信がもう届いていました。その後で直した文は送っていません。", "error");
             return;
           }
           setMessage("contact-list-message", status === "sent" ? "返信しました。" : "返信を送れませんでした。もう一度読み直して確認してください。", status === "sent" ? "ok" : "error");

@@ -85,7 +85,7 @@ async function load() {
   });
 }
 
-// 通信中はほかの操作を受けない(連打・並べ替えの途中の操作で、古い並びを上書きしないため)
+// 通信中は他の操作を受けない(連打・並べ替えの途中の操作で、古い並びを上書きしないため)
 async function run(fn) {
   if (busy) return;
   busy = true;
@@ -109,7 +109,7 @@ const move = (g, delta) => run(async () => {
 const toggle = (g) => run(async () => {
   const { data, error } = await supabase.from("guide_links").update({ visible: !g.visible }).eq("id", g.id).select("id");
   if (error) return setMessage(error.message, "error");
-  if (!(data && data.length)) return setMessage("リンクが見つかりません(ほかの画面で消されたかもしれません)。", "error");
+  if (!(data && data.length)) return setMessage("リンクが見つかりません(他の画面で消されたかもしれません)。", "error");
   setMessage(g.visible ? "隠しました。" : "表示しました。", "ok");
 });
 
@@ -147,7 +147,7 @@ const save = () => run(async () => {
       $("guide-form-title").textContent = "使い方リンク(ログイン画面の「解説動画・資料」)";
       $("guide-save").textContent = "追加する";
       $("guide-cancel").classList.add("hidden");
-      return setMessage("このリンクが見つかりません(ほかの画面で消されたかもしれません)。直した内容は保存していません。もう一度押すと、新しく追加します。", "error");
+      return setMessage("このリンクが見つかりません(他の画面で消されたかもしれません)。直した内容は保存していません。もう一度押すと、新しく追加します。", "error");
     }
     setMessage("直しました。", "ok");
   } else {

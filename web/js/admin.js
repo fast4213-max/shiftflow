@@ -32,7 +32,7 @@ let masterRows = null;
 let masterRowsOfficeId = null;
 let selectedPeriodId = null; // 選んでいる切替日の id。"new" は「次のマスタ」を作るところ
 let pendingRows = null;
-let pendingTarget = null; // 確認中の CSV を入れる先 { officeId, periodId }(ほかの区所・切替日に移ったら確認を消す。AB1)
+let pendingTarget = null; // 確認中の CSV を入れる先 { officeId, periodId }(他の区所・切替日に移ったら確認を消す。AB1)
 let nameTouched = false; // 「次のマスタ」で名前を手で選んだか(選んだあとは、切替日を変えても名前を変えない)
 
 function message(text, kind) {
@@ -255,7 +255,7 @@ async function resetPin(u) {
     $("pin-who").textContent = `${fullName(u)}(社員番号 ${u.employee_no})`;
     $("pin-value").textContent = result.pin;
     // その人がログインしていた端末は、ログアウトさせた(スマホを落としたときなども、その端末から使えなくなる)
-    $("pin-sessions").textContent = result.sessionsCleared === true ? "この人がログインしていた端末は、すべてログアウトしました。"
+    $("pin-sessions").textContent = result.sessionsCleared === true ? "この人がログインしていた端末は、全てログアウトしました。"
       : result.sessionsCleared === false ? "この人がログインしていた端末のログインは、消せませんでした(その端末からは、まだ使えます)。" : "";
     $("pin-sessions").className = result.sessionsCleared === false ? "message error" : "muted";
     $("pin-dialog").showModal();
@@ -554,7 +554,7 @@ function selectPeriod(id) {
   renderMasterPane();
 }
 
-// 切替日の月から名前を選ぶ(3月 → ダイヤ改正、10月 → ダイヤ修正)。ほかの月はそのまま
+// 切替日の月から名前を選ぶ(3月 → ダイヤ改正、10月 → ダイヤ修正)。他の月はそのまま
 function guessName(key) {
   const m = Number(key.slice(5, 7));
   return m === 3 ? "ダイヤ改正" : m === 10 ? "ダイヤ修正" : null;
@@ -595,7 +595,7 @@ function renderMasterPane() {
     $("period-date").min = minDate;
     nameTouched = false;
     setPeriodName("ダイヤ改正");
-    $("period-help").textContent = "切替日(新しいダイヤの初日)と名前を入れて「作る」を押してから、CSV を取り込みます。日付だけ先に作って、CSV はあとから入れてもかまいません。" +
+    $("period-help").textContent = "切替日(新しいダイヤの初日)と名前を入れて「作る」を押してから、CSV を取り込みます。日付だけ先に作って、CSV は後から入れても構いません。" +
       (stats.offices.length > 1 ? "ダイヤ改正・ダイヤ修正の日はどの区所も同じなので、ふつうは「全部の区所に同じ切替日で作る」のままにします(CSV は区所ごと)。" : "");
   } else if (p) {
     $("period-summary").textContent = periodLabel(p) + "(" + rangeText(p) + ")" +
@@ -611,13 +611,13 @@ function renderMasterPane() {
   }
   $("period-delete").hidden = isNew || !p || isBase || started;
   // 全部の区所にまとめて(ダイヤ改正・ダイヤ修正の日はどの区所も同じ)。作るときは全部の区所、
-  // 直す・消すときは、同じ切替日のマスタがあるほかの区所。いちばん古いマスタ(区所ごとに日が違う)には出さない
+  // 直す・消すときは、同じ切替日のマスタがある他の区所。いちばん古いマスタ(区所ごとに日が違う)には出さない
   const others = p ? sameDateOffices(office, p.from).length : stats.offices.length - 1;
   $("period-all-label").hidden = isBase || !p && !isNew || others === 0;
   $("period-all").checked = true;
   $("period-all-text").textContent = isNew
     ? `全部の区所(${stats.offices.length})に同じ切替日で作る`
-    : `同じ切替日のほかの区所(${others})もまとめて直す・消す`;
+    : `同じ切替日の他の区所(${others})もまとめて直す・消す`;
   $("period-csv").hidden = isNew;
   $("period-save").textContent = isNew ? "作る" : "切替日を保存";
   $("copy-prev").hidden = isNew || !p || isBase;
@@ -748,7 +748,7 @@ async function affectedNote(officeId, from) {
   return `${shortDate(from)}の前日から後の勤務を、もう保存・登録している人が ${n}人 います。その人は、その月をもう一度「登録」すると今のマスタの時間になります(お知らせで知らせると確実です)。`;
 }
 
-// 同じ切替日のマスタがある、ほかの区所
+// 同じ切替日のマスタがある、他の区所
 function sameDateOffices(office, from) {
   return stats.offices.filter((o) => o.id !== office.id && periodsOf(o).some((p) => p.from === from));
 }
@@ -798,7 +798,7 @@ $("period-delete").addEventListener("click", () => whileBusy("period-delete", as
   // もう登録した人のカレンダーは、登録し直すまで、消すマスタの時間のまま(AB12)
   const affected = p.count ? await affectedCount(all ? null : selectedOffice().id, p.from) : 0;
   if (!confirm(`「${periodLabel(p)}」(${shortDate(p.from)}〜)のマスタを消しますか？` +
-    (others.length ? `\nほかの区所(${others.join("、")})の同じ切替日のマスタも消えます。` : "") +
+    (others.length ? `\n他の区所(${others.join("、")})の同じ切替日のマスタも消えます。` : "") +
     `\nこのマスタの番号(${p.count}件)も消えます。切替日より後の日は、前のマスタで登録されるようになります。` +
     (affected ? `\n${shortDate(p.from)}の前日から後の勤務を、もう保存・登録している人が ${affected}人 います。その人は、その月を登録し直すと前のマスタの時間になります。` : ""))) return;
   const { data, error } = all
@@ -962,7 +962,7 @@ requireLogin("admin.html", { needAdmin: true })
     callFunction("app-config")
       .then((config) => ($("sa-email").value = config.serviceAccountEmail))
       .catch((err) => ($("sa-email").value = "取得できませんでした: " + err.message));
-    // お問い合わせ・お知らせ(読み込めなくても、ほかのタブは使えるようにする)
+    // お問い合わせ・お知らせ(読み込めなくても、他のタブは使えるようにする)
     try {
       initContactAdmin();
       initNoticesAdmin();

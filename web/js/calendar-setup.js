@@ -141,7 +141,7 @@ export function initCalendarSetup({ saveIds } = {}) {
 
   // 勤務用のIDがもう入っている人は、勤務用はそのままにして、休日用・非番の時間用だけを後から作れる
   // 選択は、画面を開いたときと、利用者がIDの欄を書き換えたときに出し入れする
-  // (かんたん設定で作った直後に、画面が切り替わって分かりにくくならないように)
+  // (簡単設定で作った直後に、画面が切り替わって分かりにくくならないように)
   const keepWork = () => !$("auto-work-row").classList.contains("hidden") && !!$("work-id").value.trim() && $("auto-work").value === "keep";
   const toggleWorkRow = () => $("auto-work-row").classList.toggle("hidden", !$("work-id").value.trim());
   let keepBefore = null;
