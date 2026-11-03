@@ -2953,20 +2953,23 @@ await check("デバッグ D9: 使い方ページに、shiftflowカレンダー�
 
 await check("カレンダー: 勤務・休日・非番を別々のラベルで隠せる。勤務を隠しても、非番(「〜」とその時間)・休日は消えない。今の利用者には、非番のラベルだけが足される", async () => {
   const ev = (d, title, group, calendar = "work", extra = {}) => ({ date: d, endDate: d, allDay: true, startTime: "", endTime: "", calendar, kind: "day", title, description: "", group, ...extra });
-  const shifts = [ev(today, "25", "duty"), ev(shiftIso(today, 1), "〜 9:54", "offduty"), ev(shiftIso(today, 2), "公休", "off", "holiday")];
+  const shifts = [ev(today, "25", "duty"), ev(shiftIso(today, 1), "〜", "duty", "work", { kind: "offduty" }), ev(shiftIso(today, 1), "9:54", "offduty", "work", { allDay: false, startTime: "09:54", endTime: "10:54", kind: "time" }), ev(shiftIso(today, 2), "公休", "off", "holiday")];
   const { page, ctx, be, errors } = await calOpen({}, { shifts });
   await page.waitForSelector(".bar");
   const bars = () => page.locator(".bar").allTextContents();
-  assert.deepEqual((await bars()).sort(), ["25", "〜 9:54", "公休"].sort());
+  // 「〜」と時間は2段(2本)。時間は「9:54」だけ(同じ時間を2回出さない)
+  assert.deepEqual((await bars()).sort(), ["25", "〜", "9:54", "公休"].sort());
   await page.click('#chips .chip:has-text("勤務")');
-  assert.deepEqual((await bars()).sort(), ["〜 9:54", "公休"].sort(), "勤務だけが消える");
+  assert.deepEqual((await bars()).sort(), ["9:54", "公休"].sort(), "勤務(25・〜)だけが消える。非番の時間は残る");
   await page.click('#chips .chip:has-text("勤務")');
   await page.click('#chips .chip:has-text("非番")');
-  assert.deepEqual((await bars()).sort(), ["25", "公休"].sort(), "非番だけが消える");
+  assert.deepEqual((await bars()).sort(), ["25", "〜", "公休"].sort(), "非番の時間だけが消える");
   // 非番の色は、非番のラベルの色
   await page.click('#chips .chip:has-text("非番")');
-  const color = await page.locator('.bar:has-text("〜 9:54")').evaluate((el) => getComputedStyle(el).backgroundColor);
+  const color = await page.locator('.bar:text-is("9:54")').evaluate((el) => getComputedStyle(el).backgroundColor);
   assert.equal(color, "rgb(212, 96, 122)");
+  // 「〜」は勤務の色(Google で「〜」が勤務のカレンダーに入るのと同じ)
+  assert.equal(await page.locator('.bar:text-is("〜")').evaluate((el) => getComputedStyle(el).backgroundColor), "rgb(59, 111, 212)");
   // 今の利用者(勤務・休日・その他だけ持っている)に、非番だけが足される
   be.st.cal.cal_labels = be.st.cal.cal_labels.filter((l) => l.kind !== "offduty");
   await page.reload();
@@ -2981,12 +2984,12 @@ await check("カレンダー: 勤務・休日・非番を別々のラベルで�
 
 await check("カレンダー: 非番の時間用カレンダーを使っていない人には、「非番」のボタンを出さない(非番の予定は、勤務のボタンで隠れる=今までどおり)。設定のラベルにも出ない", async () => {
   const ev = (d, title, group, calendar = "work") => ({ date: d, endDate: d, allDay: true, startTime: "", endTime: "", calendar, kind: "day", title, description: "", group });
-  const shifts = [ev(today, "25", "duty"), ev(shiftIso(today, 1), "〜 9:54", "offduty"), ev(shiftIso(today, 2), "公休", "off", "holiday")];
+  const shifts = [ev(today, "25", "duty"), ev(shiftIso(today, 1), "〜", "duty", "work", { kind: "offduty" }), ev(shiftIso(today, 1), "9:54", "offduty", "work", { allDay: false, startTime: "09:54", endTime: "10:54", kind: "time" }), ev(shiftIso(today, 2), "公休", "off", "holiday")];
   const { page, ctx, errors } = await calOpen({}, { shifts, settings: { holiday_calendar_id: "h@group.calendar.google.com", offduty_calendar_id: "" } });
   await page.waitForSelector(".bar");
   assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "その他"]);
   await page.click('#chips .chip:has-text("勤務")');
-  assert.deepEqual((await page.locator(".bar").allTextContents()), ["公休"], "非番も勤務に入るので、一緒に隠れる");
+  assert.deepEqual((await page.locator(".bar").allTextContents()), ["公休"], "非番の時間も勤務に含めて出るので、一緒に隠れる");
   await page.click('#chips .chip:has-text("勤務")');
   await page.click("#tab-settings");
   const names = await page.$$eval('#panel .lrow [data-lf="name"]', (els) => els.map((e) => e.value));
@@ -3024,7 +3027,7 @@ await check("カレンダー設定「このカレンダーに出すもの」: Go
 
 await check("カレンダー設定: アプリだけで使う人(Googleに登録しない)は、休日は出る。「非番を別のボタンにする」にチェックを入れると、非番のボタン・別の色が作られる。勤務を外すと勤務は出ない", async () => {
   const ev = (d, title, group, calendar = "work") => ({ date: d, endDate: d, allDay: true, startTime: "", endTime: "", calendar, kind: "day", title, description: "", group });
-  const shifts = [ev(today, "25", "duty"), ev(shiftIso(today, 1), "〜 9:54", "offduty"), ev(shiftIso(today, 2), "公休", "off", "holiday")];
+  const shifts = [ev(today, "25", "duty"), ev(shiftIso(today, 1), "〜", "duty", "work", { kind: "offduty" }), ev(shiftIso(today, 1), "9:54", "offduty", "work", { allDay: false, startTime: "09:54", endTime: "10:54", kind: "time" }), ev(shiftIso(today, 2), "公休", "off", "holiday")];
   const { page, ctx, be, errors } = await calOpen({}, { shifts, settings: { google_sync: false, holiday_calendar_id: "", offduty_calendar_id: "" } });
   await page.waitForSelector(".bar");
   assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "その他"]);
@@ -3038,15 +3041,16 @@ await check("カレンダー設定: アプリだけで使う人(Googleに登録�
   // 設定のラベル一覧にも、非番が出る
   assert.deepEqual(await page.$$eval('#panel .lrow [data-lf="name"]', (els) => els.map((e) => e.value)), ["勤務", "休日", "非番", "その他"]);
   await page.click('[data-act="close"]');
-  const color = await page.locator('.bar:has-text("〜 9:54")').evaluate((el) => getComputedStyle(el).backgroundColor);
+  const color = await page.locator('.bar:text-is("9:54")').evaluate((el) => getComputedStyle(el).backgroundColor);
   assert.equal(color, "rgb(212, 96, 122)");
   // 非番を外すと、勤務に含めて出る(勤務のボタンで隠れる)
   await page.click("#tab-settings");
   await page.uncheck("#cv-offduty");
   await page.waitForFunction(() => document.querySelectorAll("#chips .chip").length === 3);
   await page.click('[data-act="close"]');
+  assert.ok((await page.locator(".bar").allTextContents()).includes("9:54"));
   await page.click('#chips .chip:has-text("勤務")');
-  assert.deepEqual(await page.locator(".bar").allTextContents(), ["公休"]);
+  assert.deepEqual(await page.locator(".bar").allTextContents(), ["公休"], "非番の時間は勤務に含まれるので、一緒に隠れる");
   await page.click('#chips .chip:has-text("勤務")');
   // 勤務を外す
   await page.click("#tab-settings");
@@ -3054,6 +3058,43 @@ await check("カレンダー設定: アプリだけで使う人(Googleに登録�
   await page.waitForFunction(() => document.querySelectorAll("#chips .chip").length === 2);
   await page.click('[data-act="close"]');
   assert.deepEqual(await page.locator(".bar").allTextContents(), ["公休"], "勤務(と、勤務に含めた非番)は出ない");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+
+await check("カレンダー表記: 「名前に退勤時間を付ける」なら「〜(10:00)」の1本。「2段で出す」なら「〜」と「10:00」の2本(時間は1回だけ)。設定で決めたことが、そのまま出る", async () => {
+  const ev = (d, title, extra = {}) => ({ date: d, endDate: d, allDay: true, startTime: "", endTime: "", calendar: "work", kind: "day", title, description: "", group: "duty", ...extra });
+  // 名前に時間(サーバーが「〜(10:00)」にして返す)
+  const a = await calOpen({}, { shifts: [ev(today, "〜(10:00)", { kind: "offduty" })] });
+  await a.page.waitForSelector(".bar");
+  assert.deepEqual(await a.page.locator(".bar").allTextContents(), ["〜(10:00)"]);
+  await a.ctx.close();
+  // 2段
+  const b = await calOpen({}, { shifts: [ev(today, "〜", { kind: "offduty" }), ev(today, "10:00", { group: "offduty", kind: "time", allDay: false, startTime: "10:00", endTime: "11:00" })] });
+  await b.page.waitForSelector(".bar");
+  const texts = await b.page.locator(".bar").allTextContents();
+  assert.deepEqual(texts, ["〜", "10:00"], "2段(2本)・時間は1回だけ");
+  const boxes = await b.page.locator(".bar").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().top));
+  assert.ok(boxes[1] > boxes[0], "時間の帯は「〜」の下");
+  await b.ctx.close();
+});
+
+await check("設定: Google連携を外しても、カレンダーの表記(時間つき・2段・名前に時間)は出ていて、保存できる。Googleの設定(ID・共有)だけが隠れる", async () => {
+  const { page, ctx, be, errors } = await open("settings.html", { userId: "u1", opts: { profile: USER, settings: { google_sync: false, work_calendar_id: "", verified_at: null } } });
+  await page.waitForSelector("#office option[value='1']", { state: "attached" });
+  for (const id of ["#timed-events", "#split-day", "#split-offduty", "#title-day", "#title-offduty"]) assert.equal(await page.isVisible(id), true, id);
+  assert.equal(await page.isVisible("#work-id"), false);
+  assert.equal(await page.isVisible("#google-top"), false);
+  await page.check("#split-offduty");
+  await page.click("#save");
+  await page.waitForSelector("#result.ok");
+  const saved = be.st.calls.find((c) => c.path === "/rest/v1/user_settings" && c.method === "PATCH").body;
+  assert.equal(saved.split_offduty_events, true);
+  assert.equal(saved.google_sync, false);
+  assert.ok(!be.st.calls.some((c) => c.path === "/functions/v1/verify-calendar"));
+  // 説明は折りたためる
+  assert.ok((await page.locator("#notation-card details.more").count()) >= 3);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

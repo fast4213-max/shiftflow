@@ -22,9 +22,26 @@
       <select id="office"><option value="">読み込み中…</option></select>
     </div>
 
+    <div class="card" id="notation-card">
+      <strong>カレンダーの表記</strong>
+      <p class="muted">勤務の予定の名前や時間の出し方です。<b>アプリのカレンダー</b>と、<b>Googleカレンダーに登録するとき</b>(登録する人だけ)の両方に使われます。次に登録する分から変わります。</p>
+      <p class="muted">「2段」は、アプリのカレンダーで、番号(「〜」)の下に時間の帯をもう1本出します。Googleカレンダーにも登録する人は、同じく2件で登録します(Googleカレンダーだけで見る人向け)。「名前に時間を付ける」とは、どちらか一方で使います(名前に時間を付けると、時間の帯は出ません)。</p>
+      <label class="check"><input id="timed-events" type="checkbox"> 勤務を時間つきの予定で登録する(Googleカレンダー以外のアプリ用)</label>
+      <details class="more"><summary>くわしい説明</summary><p class="muted"><b>Googleカレンダーのアプリで見る人にはおすすめしません(月の表示では、泊が始まりの日にしか出ず、翌日の非番につながって見えません)。TimeTree など、ほかのカレンダーアプリで見る人向けです。</b>チェックを入れると、出勤の予定が終日ではなく時間つきになります。泊は<b>出勤時間から翌日の退勤時間までの1件</b>(名前は番号、メモは泊地。翌日の「〜」は入りません)、日勤は出勤から退勤まで(メモは今のまま)です。休日は今までどおり終日です。手入力の泊は、メモに「<b>10:00 大阪</b>」のように出勤時間(そのあとに泊地)、翌日を「〜」にしてメモに退勤時間を書くと1件になります(月末の手入力の泊は終日のまま)。オンのあいだは、下の「2件で登録」「名前に時間」は使われません。<b>次に登録する分から</b>変わります。</p></details>
+      <label class="check"><input id="split-day" type="checkbox"> 出勤を2段で出す(番号の下に出勤時間)</label>
+      <details class="more"><summary>くわしい説明</summary><p class="muted">チェックを入れると、出勤の日に予定が2つ入ります。上が終日の「番号」(例: <b>25</b>。メモの時間は今のまま)、下が出勤の「時間」(例: <b>10:00〜18:30</b>)です。<b>次に登録する分から</b>変わり、すでに登録した予定は変わりません。非番は下の「非番を2件で登録する」で選びます。</p></details>
+      <label class="check"><input id="split-offduty" type="checkbox"> 非番を2段で出す(「〜」の下に退勤時間)</label>
+      <details class="more"><summary>くわしい説明</summary><p class="muted">チェックを入れると、非番の日に予定が2つ入ります。上が終日の「〜」(メモに退勤時間)、下が退勤の「時間」(例: <b>9:02</b>)です。手入力の「〜」「非番」なども、メモに退勤時間を書けば2つになります。<b>次に登録する分から</b>変わります。</p></details>
+      <label class="check"><input id="title-day" type="checkbox"> 出勤の予定の名前に出勤時間を付ける</label>
+      <details class="more"><summary>くわしい説明</summary><p class="muted">チェックを入れると、泊・日勤の予定の名前が、番号のあとに出勤時間の付いた形になります(例: <b>1(10:00)</b>。日勤も出勤時間だけ)。メモは今のままです。メモを時間で始まらない言葉に書き換えた日は、番号だけです。<b>次に登録する分から</b>変わります。</p></details>
+      <label class="check"><input id="title-offduty" type="checkbox"> 非番の予定の名前に退勤時間を付ける</label>
+      <details class="more"><summary>くわしい説明</summary><p class="muted">チェックを入れると、非番の予定の名前が「〜」のあとに退勤時間の付いた形になります(例: <b>〜(9:00)</b>)。メモは今のままです。手入力の「〜」「非番」なども、メモに退勤時間を書けば付きます。<b>次に登録する分から</b>変わります。</p></details>
+    </div>
+
     <div class="card">
       <label class="check"><input id="google-sync" type="checkbox"> <strong>Googleカレンダーにも登録する</strong></label>
       <p class="muted">チェックを入れると、勤務入力の「登録」で、保存と同時にGoogleカレンダーにも勤務を入れます(今までと同じ)。<b>外すと、Googleカレンダーには何も入れず、保存だけ</b>になります(カレンダーIDも接続テストも要りません)。入れたIDは消えないので、あとでチェックを入れ直せばそのまま使えます。</p>
+      <p class="muted"><b>Googleカレンダーへの登録は、家族などほかのカレンダーに同期して使うなら必要です。</b>このアプリのカレンダー(上のメニューの「カレンダー」)だけで使うなら、チェックは要りません。チェックを入れると、下にGoogleの設定が出てきます。</p>
     </div>
 
     <div id="google-top">
@@ -78,7 +95,6 @@
       </p>
     </div>
 
-    </div>
 
     <div class="card">
       <strong>3. カレンダーIDを入力して接続テスト</strong>
@@ -88,21 +104,17 @@
       <input id="work-id" class="mono" maxlength="200" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="xxxx@group.calendar.google.com">
       <label for="holiday-id">休日用カレンダーID(なくてもよい)</label>
       <input id="holiday-id" class="mono" maxlength="200" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="使わなければ空のまま">
-      <p class="muted">休日用を空にすると、「休日」の番号(公休・年休など)はカレンダーに登録されません(勤務・非番だけ登録します)。休みも勤務用のカレンダーに入れたいときは、ここに<b>勤務用と同じID</b>を入れてください。</p>
-      <label class="check"><input id="timed-events" type="checkbox"> 勤務を時間つきの予定で登録する(Googleカレンダー以外のアプリ用)</label>
-      <p class="muted"><b>Googleカレンダーのアプリで見る人にはおすすめしません(月の表示では、泊が始まりの日にしか出ず、翌日の非番につながって見えません)。TimeTree など、ほかのカレンダーアプリで見る人向けです。</b>チェックを入れると、出勤の予定が終日ではなく時間つきになります。泊は<b>出勤時間から翌日の退勤時間までの1件</b>(名前は番号、メモは泊地。翌日の「〜」は入りません)、日勤は出勤から退勤まで(メモは今のまま)です。休日は今までどおり終日です。手入力の泊は、メモに「<b>10:00 大阪</b>」のように出勤時間(そのあとに泊地)、翌日を「〜」にしてメモに退勤時間を書くと1件になります(月末の手入力の泊は終日のまま)。オンのあいだは、下の「2件で登録」「名前に時間」は使われません。<b>次に登録する分から</b>変わります。</p>
-      <label class="check"><input id="split-day" type="checkbox"> 出勤を2件で登録する(Googleカレンダーだけで見る人向け)</label>
-      <p class="muted">チェックを入れると、出勤の日に予定が2つ入ります。上が終日の「番号」(例: <b>25</b>。メモの時間は今のまま)、下が出勤の「時間」(例: <b>10:00〜18:30</b>)です。<b>次に登録する分から</b>変わり、すでに登録した予定は変わりません。非番は下の「非番を2件で登録する」で選びます。</p>
-      <label class="check"><input id="split-offduty" type="checkbox"> 非番を2件で登録する(Googleカレンダーだけで見る人向け)</label>
-      <p class="muted">チェックを入れると、非番の日に予定が2つ入ります。上が終日の「〜」(メモに退勤時間)、下が退勤の「時間」(例: <b>9:02</b>)です。手入力の「〜」「非番」なども、メモに退勤時間を書けば2つになります。<b>次に登録する分から</b>変わります。</p>
+      <details class="more"><summary>休日用を空にすると?</summary><p class="muted">休日用を空にすると、「休日」の番号(公休・年休など)はカレンダーに登録されません(勤務・非番だけ登録します)。休みも勤務用のカレンダーに入れたいときは、ここに<b>勤務用と同じID</b>を入れてください。</p></details>
       <label for="offduty-id">非番の時間用カレンダーID(なくてもよい)</label>
       <input id="offduty-id" class="mono" maxlength="200" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="使わなければ空のまま">
-      <p class="muted">「非番を2件で登録する」の、下の「時間」の予定だけを入れるカレンダーです。色を変えたい人だけ、もう1つカレンダーを作って入れます。空なら勤務用に入ります(色は勤務と同じ)。IDを入れているあいだは、チェックを外していても接続テストをします。使うのをやめるときは、IDを空にして保存し、ブラウザの「PC表示」のGoogleカレンダー(スマホのアプリからは消せません)でそのカレンダーを削除します(勤務用・休日用と同じIDにしていたときは削除しません)。</p>
-      <label class="check"><input id="title-day" type="checkbox"> 出勤の予定の名前に出勤時間を付ける</label>
-      <p class="muted">チェックを入れると、泊・日勤の予定の名前が、番号のあとに出勤時間の付いた形になります(例: <b>1(10:00)</b>。日勤も出勤時間だけ)。メモは今のままです。メモを時間で始まらない言葉に書き換えた日は、番号だけです。<b>次に登録する分から</b>変わります。</p>
-      <label class="check"><input id="title-offduty" type="checkbox"> 非番の予定の名前に退勤時間を付ける</label>
-      <p class="muted">チェックを入れると、非番の予定の名前が「〜」のあとに退勤時間の付いた形になります(例: <b>〜(9:00)</b>)。メモは今のままです。手入力の「〜」「非番」なども、メモに退勤時間を書けば付きます。<b>次に登録する分から</b>変わります。</p>
+      <details class="more"><summary>くわしい説明</summary><p class="muted">「非番を2件で登録する」の、下の「時間」の予定だけを入れるカレンダーです。色を変えたい人だけ、もう1つカレンダーを作って入れます。空なら勤務用に入ります(色は勤務と同じ)。IDを入れているあいだは、チェックを外していても接続テストをします。使うのをやめるときは、IDを空にして保存し、ブラウザの「PC表示」のGoogleカレンダー(スマホのアプリからは消せません)でそのカレンダーを削除します(勤務用・休日用と同じIDにしていたときは削除しません)。</p></details>
       </div>
+    </div>
+    </div>
+
+    <div class="card">
+      <strong>保存</strong>
+      <p class="muted">上の設定(区所・カレンダーの表記・Googleカレンダーの設定)を、まとめて保存します。Googleカレンダーにも登録する人は、保存のあとに接続テストをします。</p>
       <button id="save" class="primary block" type="button">保存して接続テスト</button>
       <p id="result" class="message" aria-live="polite"></p>
       <p id="go-input" class="hidden"><a href="input.html">勤務入力へ進む →</a></p>

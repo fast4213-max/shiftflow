@@ -194,3 +194,11 @@ input[type="search"] { font: inherit; font-size: 16px; padding: 8px; border: 1px
 .guide-link { display: flex; align-items: center; gap: 10px; padding: 12px 14px; margin-bottom: 8px; background: #fff; border: 1px solid var(--accent); border-radius: 8px; text-decoration: none; font-weight: bold; overflow-wrap: anywhere; }
 .guide-icon { flex: none; width: 1.6em; text-align: center; }
 .tab-hidden { display: none; }
+
+/* 長い説明を折りたたむ */
+details.more { margin: 2px 0 8px; }
+details.more > summary { cursor: pointer; color: var(--accent); font-size: 0.85rem; list-style: none; padding: 2px 0; }
+details.more > summary::before { content: "▸ "; }
+details.more[open] > summary::before { content: "▾ "; }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > p { margin-top: 4px; }

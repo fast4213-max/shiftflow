@@ -33,14 +33,17 @@ Deno.test("buildShiftView: 名前に時間を付ける設定なら、Google に�
   );
 });
 
-Deno.test("buildShiftView: 出勤・非番を2件にする設定でも、アプリ内では1本にまとめる(名前のあとに時間。二重に見えないように)", () => {
+Deno.test("buildShiftView: 出勤・非番を2件にする設定なら、2段(2本)で出す。「〜」「番号」は勤務・非番の時間は非番のラベル(Google の分け方と同じ)", () => {
   const out = view({ "2026-10-05": { code: "25", memo: "" }, "2026-10-11": { code: "5", memo: "" } }, { splitDayEvents: true, splitOffdutyEvents: true });
-  assertEquals(out.map((r) => [r[0], r[3], r[4]]), [
-    ["2026-10-05", "25 10:15〜19:02", ""],
-    ["2026-10-11", "5 10:00", ""],
-    ["2026-10-12", "〜 9:00", ""],
+  assertEquals(out.map((r) => [r[0], r[3], r[4], r[5]]), [
+    ["2026-10-05", "25", "", ""],
+    ["2026-10-05", "10:15〜19:02", "10:15", "19:02"],
+    ["2026-10-11", "5", "", ""],
+    ["2026-10-11", "10:00", "10:00", "11:00"],
+    ["2026-10-12", "〜", "", ""],
+    ["2026-10-12", "9:00", "09:00", "10:00"],
   ]);
-  // 名前に時間がもう付いている(「名前に時間」の設定)ときは、続けない
+  // 名前に時間がもう付いている(「名前に時間」の設定)ときは、時間の帯は作らない(同じ時間が2回出ない)
   const both = view({ "2026-10-11": { code: "5", memo: "" } }, { splitDayEvents: true, splitOffdutyEvents: true, titleDayTime: true, titleOffdutyTime: true });
   assertEquals(both.map((r) => r[3]), ["5(10:00)", "〜(9:00)"]);
 });
@@ -118,23 +121,19 @@ Deno.test("monthsBetween: 範囲にかかる月を、古い順に(年をまた�
 const groups = (records: Record<string, { code: string; memo: string }>, settings: Record<string, boolean> = {}) =>
   buildShiftView({ months: [{ year: 2026, month: 10 }], records, master, holidays: [], settings }).map((e) => [e.date, e.title, e.group]);
 
-Deno.test("buildShiftView: 勤務・休日・非番のラベル(泊の翌日の「〜」と、手で入れた非番は「非番」)", () => {
+Deno.test("buildShiftView: ラベル(group): 番号・「〜」は勤務、休日は休日。非番のラベルは、非番の「時間」の帯だけ(2件にする設定のとき)", () => {
   assertEquals(
-    groups({ "2026-10-05": { code: "25", memo: "" }, "2026-10-11": { code: "5", memo: "" }, "2026-10-14": { code: "公休", memo: "" }, "2026-10-20": { code: "非番", memo: "" }, "2026-10-21": { code: "明", memo: "" } }),
+    groups({ "2026-10-05": { code: "25", memo: "" }, "2026-10-11": { code: "5", memo: "" }, "2026-10-14": { code: "公休", memo: "" }, "2026-10-20": { code: "非番", memo: "" } }),
     [
       ["2026-10-05", "25", "duty"],
       ["2026-10-11", "5", "duty"],
-      ["2026-10-12", "〜", "offduty"],
+      ["2026-10-12", "〜", "duty"],
       ["2026-10-14", "公休", "off"],
-      ["2026-10-20", "非番", "offduty"],
-      ["2026-10-21", "明", "offduty"],
+      ["2026-10-20", "非番", "duty"],
     ],
   );
-});
-
-Deno.test("buildShiftView: 非番を2件にする設定で1本にまとめても、非番のラベルのまま。休日は休日のまま", () => {
-  const out = groups({ "2026-10-11": { code: "5", memo: "" } }, { splitDayEvents: true, splitOffdutyEvents: true });
-  assertEquals(out, [["2026-10-11", "5 10:00", "duty"], ["2026-10-12", "〜 9:00", "offduty"]]);
+  const split = groups({ "2026-10-11": { code: "5", memo: "" } }, { splitDayEvents: true, splitOffdutyEvents: true });
+  assertEquals(split, [["2026-10-11", "5", "duty"], ["2026-10-11", "10:00", "duty"], ["2026-10-12", "〜", "duty"], ["2026-10-12", "9:00", "offduty"]]);
 });
 
 Deno.test("toViewEvents: 休日の予定(休日用のカレンダー)は休日のラベル", () => {

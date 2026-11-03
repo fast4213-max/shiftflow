@@ -130,7 +130,7 @@ async function loadShifts(y, m) {
   // server の group が無いとき(古い版)は、休日かそれ以外かだけ
   const events = (res.shifts || []).map((e, i) => ({
     src: "shift", id: `s:${e.date}:${i}`, title: e.title, start: e.date, end: e.endDate, allDay: e.allDay,
-    startTime: e.startTime, endTime: e.endTime, group: e.group || (e.calendar === "holiday" ? "off" : "duty"), memo: e.description || "", repeat: "none",
+    startTime: e.startTime, endTime: e.endTime, kind: e.kind || "", group: e.group || (e.calendar === "holiday" ? "off" : "duty"), memo: e.description || "", repeat: "none",
   }));
   S.shifts.set(key, { events });
 }
@@ -269,7 +269,8 @@ function weekHtml(ws, events, maxLanes) {
     const e = b.event;
     const col = colorOf(e.labelId);
     const cls = ["bar", b.cutLeft ? "cl" : "", b.cutRight ? "cr" : ""].filter(Boolean).join(" ");
-    const text = titleOf(e) + (e.allDay || !e.startTime ? "" : ` ${e.startTime.replace(/^0/, "")}`);
+    // 「時間」の帯(出勤・退勤の時間。名前が時間そのもの)は、名前だけ。時間を2回出さない
+    const text = titleOf(e) + (e.allDay || !e.startTime || e.kind === "time" ? "" : ` ${e.startTime.replace(/^0/, "")}`);
     return `<button class="${cls}" data-uid="${esc(e.id)}" style="grid-column:${b.c1 + 1}/${b.c2 + 2};grid-row:${b.lane + 1};--c:${esc(col)};--t:${textOn(col)}">${esc(text)}</button>`;
   }).join("");
   const dates = [0, 1, 2, 3, 4, 5, 6].map((c) => addDays(ws, c));
@@ -630,8 +631,8 @@ function settingsHtml() {
     <div class="card" id="calview"><h3>このカレンダーに出すもの</h3>
       <label class="tg"><input type="checkbox" data-cv="cal_show_duty" id="cv-duty"${S.cfg.duty ? " checked" : ""}> 勤務</label>
       <label class="tg"><input type="checkbox" data-cv="cal_show_off" id="cv-off"${S.cfg.off ? " checked" : ""}> 休日</label>
-      <label class="tg"><input type="checkbox" data-cv="cal_offduty_label" id="cv-offduty"${S.cfg.offduty ? " checked" : ""}> 非番を別のボタンにする</label>
-      <p class="sub">チェックを外したものは、このカレンダーに出ません(ボタンも出ません)。Googleカレンダーに登録している人で、休日用のカレンダーを作っていない人は、休日が外れた状態から始まります。非番は、チェックを入れると、「〜」とその時間が別のボタン・別の色になります(外すと、勤務に含めて出します)。</p>
+      <label class="tg"><input type="checkbox" data-cv="cal_offduty_label" id="cv-offduty"${S.cfg.offduty ? " checked" : ""}> 非番の時間を別のボタンにする</label>
+      <p class="sub">チェックを外したものは、このカレンダーに出ません(ボタンも出ません)。Googleカレンダーに登録している人で、休日用のカレンダーを作っていない人は、休日が外れた状態から始まります。非番は、「非番を2段で出す」設定のとき、「〜」の下に出る退勤時間の帯が、別のボタン・別の色になります(外すと、勤務に含めて出します)。</p>
       <p class="msg err" id="cv-msg"></p></div>
     <div class="card"><h3>ラベル</h3><p class="sub">名前と色、並び順を決めます。自分で作れるのは10個までです。勤務・休日・非番のラベルは、勤務の予定の色です(非番は、「〜」とその時間。設定で非番の時間用カレンダーを使っている人だけに出ます)。</p>
       ${labelRows}

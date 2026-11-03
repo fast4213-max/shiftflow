@@ -35,24 +35,18 @@ const hhmm = (min: number): string => `${String(Math.floor(min / 60) % 24).padSt
 // 名前の終わりが「(10:00)」のような時間か(名前に時間を付ける設定のとき)
 const TITLE_TIME_END = /[(（]\s*[0-9０-９]{1,2}\s*[:：]\s*[0-9０-９]{2}\s*[)）]$/;
 
-// 出勤・非番を2件で登録する設定のとき、Google には「番号」と「時間」の2件が入る。
-// アプリ内のカレンダーでは、同じ日に2本並ぶと二重に見えるので、1本にまとめる(名前のあとに時間を続ける。例: 「〜 9:54」「25 10:15〜19:02」)。
-// 名前に時間がもう付いている(「〜(9:54)」)ときは、続けない
+// 出勤・非番を2件で登録する設定のとき、Google には「番号(〜)」と「時間」の2件が入る。アプリ内のカレンダーも、同じ2段(2本の帯)で出す。
+//   「〜」「番号」は勤務のラベル・時間(非番の退勤時間)は非番のラベル。Google で、非番の時間用カレンダーに入るのと同じ分け方
+//   (非番のボタンを作らない人は、時間も勤務に含めて出る。client が決める)
+// 名前に時間がもう付いている(「〜(9:54)」)ときは、時間の帯は作らない(同じ時間が2回出ないように)
 export function groupOf(e: PlannedEvent): ViewEvent["group"] {
-  if (e.calendar === "holiday") return "off";
-  // 非番: 泊の翌日の「〜」(自動)と、手で入れた非番(「〜」「非番」「明」など)
-  if (e.kind === "offduty" || (e.kind === "day" && isOffdutyTitle(e.title))) return "offduty";
-  return "duty";
+  return e.calendar === "holiday" ? "off" : "duty";
 }
+const isOffdutyEvent = (e: PlannedEvent) => e.kind === "offduty" || (e.kind === "day" && isOffdutyTitle(e.title));
 
 export function toViewEvents(e: PlannedEvent): ViewEvent[] {
   const out: ViewEvent[] = [];
   const calendar = e.calendar as ViewEvent["calendar"];
-  if (e.second) {
-    // まとめる前の名前で、どのラベルかを決める(まとめた名前は「〜 9:54」のように変わるため)
-    const title = TITLE_TIME_END.test(e.title) ? e.title : `${e.title} ${e.second.title}`.trim();
-    return toViewEvents({ ...e, title, second: undefined }).map((v) => ({ ...v, group: groupOf(e) }));
-  }
   const group = groupOf(e);
   if (e.timed) {
     out.push({
@@ -69,6 +63,21 @@ export function toViewEvents(e: PlannedEvent): ViewEvent[] {
     });
   } else {
     out.push({ group, date: e.date, endDate: e.date, allDay: true, startTime: "", endTime: "", calendar, kind: e.kind, title: e.title, description: e.description });
+  }
+  if (e.second && !TITLE_TIME_END.test(e.title)) {
+    const s = e.second;
+    out.push({
+      group: isOffdutyEvent(e) ? "offduty" : "duty",
+      date: e.date,
+      endDate: addDays(e.date, Math.floor(s.endMin / 1440)),
+      allDay: false,
+      startTime: hhmm(s.startMin),
+      endTime: hhmm(s.endMin),
+      calendar: (s.calendar || "work") as ViewEvent["calendar"],
+      kind: "time",
+      title: s.title,
+      description: s.description,
+    });
   }
   return out;
 }

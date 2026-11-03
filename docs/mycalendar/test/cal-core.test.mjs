@@ -116,6 +116,8 @@ test("カレンダーに出すもの: 自動(null)は Google の設定から決�
   assert.deepEqual(resolveCalView({ google_sync: true, holiday_calendar_id: "h@x", offduty_calendar_id: "o@x" }), { duty: true, off: true, offduty: true });
   // Google に登録しない(アプリだけ): 休日は出す・非番は自分で入れるまで別にしない
   assert.deepEqual(resolveCalView({ google_sync: false, holiday_calendar_id: "", offduty_calendar_id: "" }), { duty: true, off: true, offduty: false });
+  // 非番を2段で出す設定の人は、非番の時間を別のボタンにする(Google に登録しない人も)
+  assert.deepEqual(resolveCalView({ google_sync: false, holiday_calendar_id: "", offduty_calendar_id: "", split_offduty_events: true }), { duty: true, off: true, offduty: true });
   // 設定の行がまだ無い人も、アプリだけの人と同じ
   assert.deepEqual(resolveCalView(null), { duty: true, off: true, offduty: false });
   // 自分で決めた値が先

@@ -195,7 +195,7 @@ export function oldestDate(today) {
 
 // カレンダーに出すもの(勤務・休日・非番)。設定(user_settings)の cal_show_* は null なら「自動」:
 //   休日: Google に登録している人で、休日用カレンダーが無い人は出さない(その人の Google には休日が入らないため)。Google に登録しない人・IDがある人は出す
-//   非番: 非番の時間用カレンダーがある人だけ、別のボタンにする(無い人は、非番も勤務に含めて出す)。アプリだけで使う人は、チェックを入れると別のボタンになる
+//   非番の時間(「〜」の下に出る退勤時間の帯)を別のボタンにするか: 非番の時間用カレンダーがある人・「非番を2段で出す」設定の人は別のボタン(無い人は、時間も勤務に含めて出す)。アプリだけで使う人は、チェックで決める
 // st: user_settings の行(無ければ null = まだ何も設定していない人)
 export function resolveCalView(st) {
   const s = st || {};
@@ -204,6 +204,6 @@ export function resolveCalView(st) {
   return {
     duty: s.cal_show_duty ?? true,
     off: s.cal_show_off ?? !(googleOn && !has(s.holiday_calendar_id)),
-    offduty: s.cal_offduty_label ?? has(s.offduty_calendar_id),
+    offduty: s.cal_offduty_label ?? (has(s.offduty_calendar_id) || !!s.split_offduty_events),
   };
 }
