@@ -25,7 +25,7 @@ shiftflow の「いま」と「決めたこと」を短く持つファイル。�
 
 ## 0. まず読むところ(2026-11-03)
 
-- **いま**: 全部の機能が本番に出ていて、テストは全部通っている(Deno 225件・計算14件・画面128項目・GAS 1項目・DB assert)。shiftflowカレンダー(アプリ内カレンダー)も本番に出ている
+- **いま**: 全部の機能が本番に出ていて、テストは全部通っている(Deno 225件・計算14件・画面131項目・GAS 1項目・DB assert)。shiftflowカレンダー(アプリ内カレンダー)も本番に出ている
 - **本人の判断待ち**: カレンダーの実機チェック(CHECKLIST 8)
 - **様子を見ているもの**: 「登録・リセットが遅くなった気がする」(10-15)。調べた範囲では、その日の変更は原因ではない(5章)。遅いままなら、かかった秒数を聞いて調べ直す
 - **次の migration の名前**: `20261103000004` より大きい番号にする(小さいと本番への反映が止まる。2章「マイグレーション」)
@@ -39,7 +39,7 @@ shiftflow の「いま」と「決めたこと」を短く持つファイル。�
 - 自動デプロイ: main に push → GitHub Actions(Test → Deploy Supabase / GitHub Pages)。テストが赤いと反映されない。`supabase/` も変えたときは、Pages は Deploy Supabase を待つ
 - `web/js/plan.js` と `supabase/functions/_shared/plan.js` は同じ内容に保つ(テストで確認)
 - ブランチ: 作業は main に直接(クラウドの作業セッションでは、指定されたブランチ[`claude/…`・`ccr-…`]に push してから main へ)
-- テスト: Deno 225件・lint・型チェック / PostgreSQL で migration と権限(GitHub は 17、手元の `db_setup.sh` は 16)/ Chromium で画面128項目(`docs/contact/test/e2e.mjs`)/ GAS の偽物で12項目
+- テスト: Deno 225件・lint・型チェック / PostgreSQL で migration と権限(GitHub は 17、手元の `db_setup.sh` は 16)/ Chromium で画面131項目(`docs/contact/test/e2e.mjs`)/ GAS の偽物で12項目
 
 機能ごとの状態(すべて本番に反映済み)
 
