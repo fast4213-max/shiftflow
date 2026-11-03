@@ -33,13 +33,16 @@ Deno.test("buildShiftView: 名前に時間を付ける設定なら、Google に�
   );
 });
 
-Deno.test("buildShiftView: 出勤・非番を2件にする設定なら、時間の予定が1件ずつ付く(分単位)", () => {
-  const out = view({ "2026-10-05": { code: "25", memo: "" } }, { splitDayEvents: true });
-  assertEquals(out, [
-    ["2026-10-05", "2026-10-05", "work", "25", "", ""],
-    // 2件目は、Google に入るのと同じ(題名は出勤〜退勤の時間・時間は出勤から退勤まで)
-    ["2026-10-05", "2026-10-05", "work", "10:15〜19:02", "10:15", "19:02"],
+Deno.test("buildShiftView: 出勤・非番を2件にする設定でも、アプリ内では1本にまとめる(名前のあとに時間。二重に見えないように)", () => {
+  const out = view({ "2026-10-05": { code: "25", memo: "" }, "2026-10-11": { code: "5", memo: "" } }, { splitDayEvents: true, splitOffdutyEvents: true });
+  assertEquals(out.map((r) => [r[0], r[3], r[4]]), [
+    ["2026-10-05", "25 10:15〜19:02", ""],
+    ["2026-10-11", "5 10:00", ""],
+    ["2026-10-12", "〜 9:00", ""],
   ]);
+  // 名前に時間がもう付いている(「名前に時間」の設定)ときは、続けない
+  const both = view({ "2026-10-11": { code: "5", memo: "" } }, { splitDayEvents: true, splitOffdutyEvents: true, titleDayTime: true, titleOffdutyTime: true });
+  assertEquals(both.map((r) => r[3]), ["5(10:00)", "〜(9:00)"]);
 });
 
 Deno.test("buildShiftView: 時間つきの設定なら、泊は出勤から翌日の退勤までの1件(日をまたぐ)・日勤は出勤〜退勤", () => {

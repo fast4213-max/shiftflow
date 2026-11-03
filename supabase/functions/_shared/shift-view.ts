@@ -30,9 +30,19 @@ export type RecordMap = Record<string, { code?: string; memo?: string } | undefi
 const hhmm = (min: number): string => `${String(Math.floor(min / 60) % 24).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
 
 // 計画された予定 1件 → 画面の予定(時間の予定が付いているときは、そのぶんも)
+// 名前の終わりが「(10:00)」のような時間か(名前に時間を付ける設定のとき)
+const TITLE_TIME_END = /[(（]\s*[0-9０-９]{1,2}\s*[:：]\s*[0-9０-９]{2}\s*[)）]$/;
+
+// 出勤・非番を2件で登録する設定のとき、Google には「番号」と「時間」の2件が入る。
+// アプリ内のカレンダーでは、同じ日に2本並ぶと二重に見えるので、1本にまとめる(名前のあとに時間を続ける。例: 「〜 9:54」「25 10:15〜19:02」)。
+// 名前に時間がもう付いている(「〜(9:54)」)ときは、続けない
 export function toViewEvents(e: PlannedEvent): ViewEvent[] {
   const out: ViewEvent[] = [];
   const calendar = e.calendar as ViewEvent["calendar"];
+  if (e.second) {
+    const title = TITLE_TIME_END.test(e.title) ? e.title : `${e.title} ${e.second.title}`.trim();
+    return toViewEvents({ ...e, title, second: undefined });
+  }
   if (e.timed) {
     out.push({
       date: e.date,
@@ -47,20 +57,6 @@ export function toViewEvents(e: PlannedEvent): ViewEvent[] {
     });
   } else {
     out.push({ date: e.date, endDate: e.date, allDay: true, startTime: "", endTime: "", calendar, kind: e.kind, title: e.title, description: e.description });
-  }
-  if (e.second) {
-    const s = e.second;
-    out.push({
-      date: e.date,
-      endDate: addDays(e.date, Math.floor(s.endMin / 1440)),
-      allDay: false,
-      startTime: hhmm(s.startMin),
-      endTime: hhmm(s.endMin),
-      calendar: (s.calendar || "work") as ViewEvent["calendar"],
-      kind: "time",
-      title: s.title,
-      description: s.description,
-    });
   }
   return out;
 }

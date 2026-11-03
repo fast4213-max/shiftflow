@@ -169,8 +169,9 @@ function renderChips() {
 
 function render() {
   const g = gridRange(S.y, S.m);
-  $("ty").textContent = `${S.y}年`;
+  $("ty").textContent = `${S.y}`;
   $("tm").textContent = `${S.m}月`;
+  $("today-d").textContent = String(Number(S.today.slice(8, 10)));
   const lim = monthLimits(S.today);
   $("prev").disabled = monthIndex(S.y, S.m) <= monthIndex(lim.min.y, lim.min.m);
   $("next").disabled = monthIndex(S.y, S.m) >= monthIndex(lim.max.y, lim.max.m);
@@ -197,17 +198,20 @@ function weekHtml(ws, events, maxLanes) {
     const hol = S.holidays.get(d);
     const cls = ["cell", c === 0 ? "sun" : c === 6 ? "sat" : "", hol ? "hol" : "", inMonth ? "" : "out", d === S.today ? "tdy" : "", Number(d.slice(5, 7)) % 2 === 0 ? "alt" : ""].filter(Boolean).join(" ");
     const wd = WEEKDAYS[c];
-    cells += `<div class="${cls}" data-date="${d}" role="button" tabindex="0" aria-label="${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日(${wd})${hol ? " " + esc(hol) : ""}"><span class="dn">${Number(d.slice(8, 10))}</span>${over[c] ? `<span class="more">+${over[c]}</span>` : ""}</div>`;
+    // 日付の横に祝日の名前(赤い小さな字)。例: 「3 文化の日」
+    cells += `<div class="${cls}" data-date="${d}" role="button" tabindex="0" aria-label="${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日(${wd})${hol ? " " + esc(hol) : ""}"><span class="dtop"><span class="dn">${Number(d.slice(8, 10))}</span>${hol ? `<span class="hn">${esc(hol)}</span>` : ""}</span>${over[c] ? `<span class="more">+${over[c]}</span>` : ""}</div>`;
   }
   const barHtml = bars.map((b) => {
     const e = b.event;
     const col = colorOf(e.labelId);
-    const cls = ["bar", b.cutLeft ? "cl" : "", b.cutRight ? "cr" : "", e.allDay ? "" : "timed"].filter(Boolean).join(" ");
+    const cls = ["bar", b.cutLeft ? "cl" : "", b.cutRight ? "cr" : ""].filter(Boolean).join(" ");
     const text = titleOf(e) + (e.allDay || !e.startTime ? "" : ` ${e.startTime.replace(/^0/, "")}`);
     return `<button class="${cls}" data-uid="${esc(e.id)}" style="grid-column:${b.c1 + 1}/${b.c2 + 2};grid-row:${b.lane + 1};--c:${esc(col)};--t:${textOn(col)}">${esc(text)}</button>`;
   }).join("");
   const dates = [0, 1, 2, 3, 4, 5, 6].map((c) => addDays(ws, c));
-  return `<div class="week" data-ws="${ws}"><div class="cells">${cells}</div><div class="bars">${barHtml}</div>${extras.stampsLayer(dates)}</div>`;
+  // 月の数字(その月の12日がある週の背景に、大きくうすく)
+  const wm = dates.includes(dateKey(S.y, S.m, 12)) ? `<div class="wmk" aria-hidden="true">${S.m}</div>` : "";
+  return `<div class="week" data-ws="${ws}"><div class="cells">${cells}</div>${wm}<div class="bars">${barHtml}</div>${extras.stampsLayer(dates)}</div>`;
 }
 
 // ---------- パネル(日の詳細・予定・追加と編集・設定) ----------

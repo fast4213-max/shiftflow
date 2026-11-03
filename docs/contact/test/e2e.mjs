@@ -1938,7 +1938,7 @@ await check("幅320px: 管理画面の区所の行(↑ ↓ 名前変更 削除)�
 // ---------- shiftflowカレンダー ----------
 const CAL_SHIFTS = [
   { date: today, endDate: today, allDay: true, startTime: "", endTime: "", calendar: "work", kind: "day", title: "25", description: "10:15〜19:02" },
-  { date: today, endDate: today, allDay: false, startTime: "10:15", endTime: "19:02", calendar: "work", kind: "time", title: "10:15〜19:02", description: "" },
+  { date: today, endDate: today, allDay: false, startTime: "10:15", endTime: "19:02", calendar: "work", kind: "day", title: "研修", description: "" },
 ];
 // 確認(confirm)は、OK にして、聞かれた文を asked に入れる(既存のテストと同じ)
 const calOpen = (extra = {}, opts = {}) => open("calendar/index.html", {
@@ -1955,8 +1955,10 @@ await check("カレンダー: 開くと最初のラベル(勤務・休日・そ�
   assert.equal(await page.locator(`.cell.tdy[data-date="${today}"]`).count(), 1);
   const bars = await page.locator(".bar").allTextContents();
   assert.ok(bars.includes("25"), bars.join());
-  assert.ok(bars.some((t) => t.startsWith("10:15〜19:02") && t.endsWith("10:15")), bars.join());
-  assert.equal(await page.locator(".bar.timed").count(), 1);
+  // 時間の予定は、1本(「研修 10:15」)。名前と時間が二重に並ばない
+  assert.equal(bars.filter((t) => t.includes("10:15")).length, 1, bars.join());
+  assert.ok(bars.includes("研修 10:15"), bars.join());
+  assert.ok(!bars.some((t) => /(\d+:\d+).*\1/.test(t)), "同じ時間が2回出ない: " + bars.join());
   assert.ok(be.st.calls.some((c) => c.path === "/functions/v1/calendar-shifts" && /^\d{4}-\d\d-\d\d$/.test(c.body.from) && c.body.from <= today && c.body.to >= today));
   assert.deepEqual(errors, []);
   await page.screenshot({ path: OUT + "calendar-month.png" });
@@ -2109,6 +2111,12 @@ await check("カレンダー: 勤務の予定をタップすると、勤務入�
   await page.click(`.cell[data-date="${today}"]`, { position: { x: 4, y: 4 } });
   assert.ok((await page.textContent("#panel")).includes("テストの日"));
   assert.equal(await page.locator(`.cell.hol[data-date="${today}"]`).count(), 1);
+  await page.click('[data-act="close"]');
+  // 祝日の名前は、日付の横に(赤い小さな字)
+  assert.equal((await page.textContent(`.cell.hol[data-date="${today}"] .hn`)).trim(), "テストの日");
+  // 月の数字(背景)・年月は「2026」と「11月」を上下に
+  assert.equal(await page.locator(".wmk").count(), 1);
+  assert.equal((await page.textContent(".wmk")).trim(), String(Number(today.slice(5, 7))));
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -2143,7 +2151,7 @@ await check("カレンダー: 月を移ると、その月の範囲で勤務の�
   await page.click("#today");
   for (let i = 0; i < 40 && !(await page.isDisabled("#next")); i++) await page.click("#next");
   assert.equal(await page.isDisabled("#next"), true);
-  const [, y, m] = (await page.evaluate(() => [document.getElementById("ty").textContent, document.getElementById("tm").textContent])).join(" ").match(/(\d+)年 (\d+)月/) || [];
+  const [y, m] = await page.evaluate(() => [document.getElementById("ty").textContent, document.getElementById("tm").textContent.replace("月", "")]);
   assert.equal(`${y}-${m}`, `${Number(today.slice(0, 4)) + 1}-12`);
   assert.deepEqual(errors, []);
   await ctx.close();
