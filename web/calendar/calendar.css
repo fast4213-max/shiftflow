@@ -88,7 +88,7 @@ button:disabled { opacity: .35; cursor: default; }
 .wmk { position: absolute; left: 50%; top: 100%; transform: translate(-50%, -50%); font-size: var(--wmf); font-weight: 900; line-height: 1; letter-spacing: -.02em; color: var(--wm); pointer-events: none; z-index: 1; font-variant-numeric: tabular-nums; }
 /* 予定の帯: 四角に近い・白い太字・はみ出した文字は切る */
 .bars { position: absolute; left: 0; right: 0; top: var(--bart); display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-rows: var(--bar); row-gap: var(--bgap); pointer-events: none; z-index: 2; }
-.bar { pointer-events: auto; display: block; height: var(--bar); margin: 0 1.5px; padding: 0 3px; border-radius: 1.5px; font-size: var(--barf); font-weight: 700; line-height: var(--bar); letter-spacing: -.01em; text-align: center; overflow: hidden; text-overflow: clip; white-space: nowrap; background: var(--c); color: var(--t); min-width: 0; }
+.bar { pointer-events: auto; display: flex; align-items: center; height: var(--bar); margin: 0 1.5px; padding: 0 3px; border-radius: 1.5px; font-size: var(--barf); font-weight: 700; line-height: 1; letter-spacing: -.01em; text-align: left; overflow: hidden; text-overflow: clip; white-space: nowrap; background: var(--c); color: var(--t); min-width: 0; }
 .bar.cl { margin-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .bar.cr { margin-right: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
 
@@ -164,14 +164,14 @@ textarea.in { min-height: 90px; resize: vertical; }
 .stc { position: relative; container-type: inline-size; }
 .stamp { position: absolute; transform: translate(-50%, -50%) rotate(var(--r, 0deg)); width: calc(var(--s) * 100cqw); aspect-ratio: 1; display: flex; align-items: center; justify-content: center; pointer-events: auto; touch-action: none; font-size: calc(var(--s) * 78cqw); line-height: 1; user-select: none; -webkit-user-select: none; cursor: grab; }
 .stamp img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
-.stamp .tx { font-size: .36em; font-weight: 700; padding: .12em .3em; color: var(--fgc); background: var(--bgc); white-space: nowrap; max-width: 100%; overflow: hidden; line-height: 1.15; }
+.stamp .tx { font-size: .36em; font-weight: 700; color: var(--fgc); background: var(--bgc); white-space: nowrap; max-width: 100%; overflow: hidden; line-height: 1; display: inline-flex; align-items: center; justify-content: center; padding: .25em .3em; }
 .stamp .tx.r-round { border-radius: 999px; } .stamp .tx.r-square { border-radius: 3px; } .stamp .tx.r-bubble { border-radius: 10px 10px 10px 2px; }
 .stamp.sel { outline: 2px dashed var(--accent); outline-offset: 2px; }
 .stamp.ghost { position: fixed; z-index: 40; opacity: .85; pointer-events: none; }
 .cell.drop { box-shadow: inset 0 0 0 2px var(--accent); }
 .tray { display: flex; gap: 8px; align-items: center; overflow-x: auto; padding: 8px 12px; background: var(--head); border-top: 1px solid var(--line); }
 .tray .tk { flex: none; width: 46px; height: 46px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); display: flex; align-items: center; justify-content: center; font-size: 26px; position: relative; }
-.tray .tk .tx { font-size: 11px; font-weight: 700; padding: 2px 6px; color: var(--fgc); background: var(--bgc); max-width: 42px; overflow: hidden; white-space: nowrap; }
+.tray .tk .tx { display: inline-flex; align-items: center; justify-content: center; line-height: 1; font-size: 11px; font-weight: 700; padding: 4px 6px; color: var(--fgc); background: var(--bgc); max-width: 42px; overflow: hidden; white-space: nowrap; }
 .tray .tk .tx.r-round { border-radius: 999px; } .tray .tk .tx.r-bubble { border-radius: 8px 8px 8px 2px; }
 .tray .tk img { width: 34px; height: 34px; object-fit: contain; }
 .tray .tk.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
@@ -210,7 +210,7 @@ textarea.in { min-height: 90px; resize: vertical; }
 .pimg { width: 96px; height: 72px; object-fit: cover; border-radius: 6px; cursor: zoom-in; background: var(--alt); }
 
 /* 文字スタンプの札(プレビュー・管理の一覧・トレー・置いたスタンプで共通)。文字色・背景色・形は、スタンプごとの指定 */
-.tx { display: inline-block; font-size: 14px; font-weight: 700; line-height: 1.2; padding: .15em .6em; white-space: nowrap; text-align: center; color: var(--fgc); background: var(--bgc); }
+.tx { display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; line-height: 1; padding: .3em .6em; white-space: nowrap; text-align: center; color: var(--fgc); background: var(--bgc); }
 .tx.r-round { border-radius: 999px; } .tx.r-square { border-radius: 4px; } .tx.r-bubble { border-radius: 10px 10px 10px 2px; }
 /* 作る・直す画面のプレビュー: 箱の真ん中に置く(文字が長くても、箱が広がる) */
 #d-prev { min-width: 72px; width: auto; padding: 0 14px; }
