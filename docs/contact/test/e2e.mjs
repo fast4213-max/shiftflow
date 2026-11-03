@@ -557,6 +557,7 @@ await check("勤務入力: Googleに登録しない人は「登録」を隠し�
   await page.click("#save");
   await page.waitForFunction(() => document.getElementById("status").textContent.includes("保存しました"));
   assert.ok(!(await page.textContent("#status")).includes("カレンダーにはまだ入っていません"));
+  assert.ok((await page.textContent("#reset-note")).includes("Googleカレンダーの予定は消しません"));
   const saves = be.st.calls.filter((c) => c.path === "/functions/v1/register-month");
   assert.equal(saves.length, 1);
   assert.equal(saves[0].body.saveOnly, true);
@@ -568,6 +569,10 @@ await check("勤務入力: Googleに登録する今までの人は、「登録�
   const { page, ctx, errors } = await open("input.html", { userId: "u1", opts: { profile: USER } });
   await page.waitForSelector("#save:not([disabled])");
   assert.equal(await page.isVisible("#register"), true);
+  assert.ok((await page.textContent("#reset-note")).includes("Googleカレンダーから削除"));
+  await page.click("#save");
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("保存しました"));
+  assert.ok((await page.textContent("#status")).includes("アプリのカレンダーに出ます)。Googleカレンダーにはまだ入っていません"));
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -871,7 +876,7 @@ await check("マスタの切替: 登録できない日があっても「保存�
   await pickCode(page, 19, "1");
   await page.click("#save");
   await page.waitForFunction(() => document.getElementById("status").textContent.startsWith("保存しました"));
-  assert.ok((await page.textContent("#status")).includes("カレンダーにはまだ入っていません。今は登録できません: 10/22: まだ登録されていません。"));
+  assert.ok((await page.textContent("#status")).includes("Googleカレンダーにはまだ入っていません。今は登録できません: 10/22: まだ登録されていません。"));
   assert.ok(be.st.calls.some((c) => c.path === "/functions/v1/register-month" && c.body.saveOnly === true));
   assert.deepEqual(errors, []);
   await ctx.close();

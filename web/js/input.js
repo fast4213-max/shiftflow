@@ -44,6 +44,11 @@ function isFirstMonth() {
   return state.year * 12 + state.month <= now.year * 12 + now.month;
 }
 
+// マスタがまだ無い日の言い方。Google に登録する人は「登録できません」、保存だけの人は「時間が出ません」
+function notYet() {
+  return state.googleSync ? "登録できません" : "時間が出ません";
+}
+
 function setStatus(text, isError) {
   $("status").textContent = friendlyText(text);
   $("status").className = isError ? "error" : "";
@@ -140,7 +145,9 @@ async function loadMonth(id) {
   $("reset").disabled = false;
   const hasMaster = state.master.periods.some((p) => p.rows.length);
   if (!hasMaster) setStatus("この区所の勤務の番号の一覧(マスタ)が空です。管理者に登録を頼んでください。", true);
-  else if (matched.length) setStatus("一覧の番号に合わせました: " + matched.join("、") + "。まだ保存・登録していません。確かめて「登録」か「保存」を押してください。");
+  else if (matched.length) setStatus("一覧の番号に合わせました: " + matched.join("、") + (state.googleSync
+    ? "。まだ保存・登録していません。確かめて「登録」か「保存」を押してください。"
+    : "。まだ保存していません。確かめて「保存」を押してください。"));
   else setStatus("");
 }
 
@@ -374,7 +381,7 @@ function renderPeriodNote() {
     const when = p.from === nextFirst ? "翌月1日" : Number(p.from.slice(8)) + "日";
     add(when + "から「" + periodLabel(p) + "」のマスタになります" + (p.rows.length
       ? "(前の日の泊の、非番の退勤時間も新しいマスタから入ります)。"
-      : "。まだ管理者がマスタを入れていないので、" + shortDate(p.from) + "から後の日と、前の日の泊は登録できません(保存はできます)。"), false);
+      : "。まだ管理者がマスタを入れていないので、" + shortDate(p.from) + "から後の日と、前の日の泊は" + notYet() + "(保存はできます)。"), false);
   });
   // 新しいマスタで無くなった番号を入れてある日(手入力になって時間が入らない。行は黄色)
   const dropped = [];
@@ -385,7 +392,7 @@ function renderPeriodNote() {
     if (!state.offduty.has(key) && !(state.entries[key] || {}).memo && droppedCode(key, code)) dropped.push(d + "日の「" + code + "」");
   }
   if (dropped.length) {
-    add("新しいマスタに無い番号があります: " + dropped.join("、") + "。手入力として登録されるので、メモに時間を入れるか、番号を選び直してください。", false);
+    add("新しいマスタに無い番号があります: " + dropped.join("、") + "。手入力として扱われるので、メモに時間を入れるか、番号を選び直してください。", false);
   }
   const errors = periodErrors();
   // 前の月の月末の泊のエラーは、メモを入れる1日の行に付ける(AB8)。
@@ -405,7 +412,7 @@ function renderPeriodNote() {
   });
   missing.forEach(({ period, days }) => {
     const range = days.length > 1 ? shortDate(days[0]) + "〜" + shortDate(days[days.length - 1]) + " の" + days.length + "日" : shortDate(days[0]);
-    add(range + ": 「" + periodLabel(period) + "」(" + shortDate(period.from) + "〜)のマスタがまだ登録されていません。管理者がマスタを入れるまで、番号のある日は登録できません(保存はできます)。", true);
+    add(range + ": 「" + periodLabel(period) + "」(" + shortDate(period.from) + "〜)のマスタがまだ登録されていません。管理者がマスタを入れるまで、番号のある日は" + notYet() + "(保存はできます)。", true);
   });
   [...new Set(errors.filter((e) => e.kind !== "missing").map((e) => e.message))].forEach((m) => add(m, true));
   note.hidden = !note.childElementCount;
@@ -494,7 +501,7 @@ function openPicker(title, key, current, callback) {
   const period = state.master.periodOn(key);
   $("picker-note").hidden = !state.master.missingOn(key);
   $("picker-note").textContent = state.master.missingOn(key)
-    ? shortDate(period.from) + "からの「" + periodLabel(period) + "」のマスタが、まだ登録されていません(管理者が入れるまで、この日は登録できません)。"
+    ? shortDate(period.from) + "からの「" + periodLabel(period) + "」のマスタが、まだ登録されていません(管理者が入れるまで、この日は" + notYet() + ")。"
     : "";
   [["picker-duty", (m) => m.kind !== "休日"], ["picker-off", (m) => m.kind === "休日"]].forEach(([id, match]) => {
     const grid = $(id);
@@ -603,7 +610,7 @@ $("register").addEventListener("click", async () => {
     ];
     setStatus(err.message + (untouched.includes(err.code)
       ? ""
-      : "(入力は保存されています。カレンダーの予定が途中までになっていることがあるので、もう一度「登録」を押してください)"), true);
+      : "(入力は保存されています。Googleカレンダーの予定が途中までになっていることがあるので、もう一度「登録」を押してください)"), true);
   } finally {
     state.registering = false;
     button.disabled = false;
@@ -648,7 +655,7 @@ $("save").addEventListener("click", async () => {
     }
     // マスタの切替で登録できない日があっても、保存はできる(登録はマスタが入ってから)
     setStatus((state.googleSync
-      ? "保存しました。カレンダーにはまだ入っていません。" +
+      ? "保存しました(アプリのカレンダーに出ます)。Googleカレンダーにはまだ入っていません。" +
         (result && result.periodError ? "今は登録できません: " + result.periodError : "入れるときは「登録」を押してください。")
       : "保存しました。" + (result && result.periodError ? "(マスタがまだ入っていない日は、時間が出ません: " + result.periodError + ")" : "")) +
       (editedMeanwhile ? "保存中に変えたところは、まだ保存していません。" : ""));
@@ -685,7 +692,7 @@ document.addEventListener("visibilitychange", async () => {
   if (state.dirty) {
     // 取り込んだばかりの画面(この画面が新しい内容)では言わない。取込の案内を消さないように(M2)
     if (!state.imported.size) {
-      setStatus("この画面には、登録していない変更があります。他の画面で保存・登録していたときは、この画面の内容は古いままです(月を移動し直すと読み直します)。");
+      setStatus("この画面には、" + (state.googleSync ? "登録" : "保存") + "していない変更があります。他の画面で" + (state.googleSync ? "保存・登録" : "保存") + "していたときは、この画面の内容は古いままです(月を移動し直すと読み直します)。");
     }
     return;
   }
@@ -729,7 +736,8 @@ async function applyImport(text) {
   }
   const label = year + "年" + month + "月";
   const sameMonth = year === state.year && month === state.month;
-  const lose = state.dirty ? (sameMonth ? "\n登録していない変更は消えます。" : "\n今の月の登録していない変更は消えます。") : "";
+  const unsaved = (state.googleSync ? "登録" : "保存") + "していない変更は消えます。";
+  const lose = state.dirty ? (sameMonth ? "\n" + unsaved : "\n今の月の" + unsaved) : "";
   if (!confirm(label + "に、写真取込の内容(" + days.size + "日分)を入れます。" + (who ? "\n読んだ行の名前: " + who + "(自分の名前か確かめてください)" : "") + "\nこの月の今の入力は置き換わります(まだ保存・登録はしません)。" + lose + "\nよろしいですか？")) {
     setStatus("写真取込をやめました。");
     return;
@@ -766,10 +774,12 @@ async function applyImport(text) {
   const unknown = [...new Set(Object.entries(state.entries).map(([key, e]) => [key, e.code.trim()])
     .filter(([key, c]) => c && !masterAt(key)[c] && !/^[〜~\-ー—]$/.test(c)).map(([, c]) => c))];
   const offUnknown = unknown.filter((c) => /休/.test(c) && !/[出勤]/.test(c));
-  setStatus("写真取込: " + (who ? "「" + who + "」の行の" : "") + days.size + "日分を入れました。確かめて「登録」(カレンダーに入れる)か「保存」(入力だけ残す)を押してください。" + unsureNote +
+  setStatus("写真取込: " + (who ? "「" + who + "」の行の" : "") + days.size + "日分を入れました。" + (state.googleSync
+    ? "確かめて「登録」(Googleカレンダーにも入れる)か「保存」(入力だけ残す。アプリのカレンダーには出ます)を押してください。"
+    : "確かめて「保存」を押してください(アプリのカレンダーに出ます)。") + unsureNote +
     (unknown.length ? "一覧にない番号: " + unknown.join("、") + "(手入力として入りました)。" : "") +
     (needTime ? "時間の無い日が" + needTime + "日あります(黄色)。分かればメモに時間を入れてください。" : "") +
-    (offUnknown.length ? "休みの番号(" + offUnknown.join("、") + ")が一覧に無いので、登録すると勤務用カレンダーに入ります。管理者に一覧への追加を頼んでください。" : ""));
+    (offUnknown.length ? "休みの番号(" + offUnknown.join("、") + ")が一覧に無いので、" + (state.googleSync ? "登録すると勤務用カレンダーに入ります" : "勤務の予定として出ます") + "。管理者に一覧への追加を頼んでください。" : ""));
 }
 
 if (PHOTO_IMPORT_URL) {
