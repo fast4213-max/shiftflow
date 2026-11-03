@@ -61,6 +61,9 @@ export function createExtras(env) {
   const urls = new Map(); // path → { url, exp }
   const SIGN_SECONDS = 3600;
   const freshUrl = (p) => { const u = urls.get(p); return u && u.exp - Date.now() > 5 * 60 * 1000 ? u.url : ""; };
+  // 保存の途中で、もう一度押されても無視する(連打・Enter の繰り返しで、二重に保存されないように)
+  const busy = new Set();
+  const once = (key, fn) => async (...a) => { if (busy.has(key)) return; busy.add(key); try { return await fn(...a); } finally { busy.delete(key); } };
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
   const errText = (e) => env.friendlyText(e && e.message ? e.message : String(e));
   const say = (id, text, ok = false) => { const el = $(id); if (el) { el.textContent = text || ""; el.className = "msg " + (ok ? "ok" : "err"); } };
@@ -128,7 +131,7 @@ export function createExtras(env) {
       <p class="msg err" id="x-msg"></p></div>`;
   }
   function openTodo() { openPanel(todoHtml()); }
-  async function todoAdd() {
+  const todoAdd = once("todoAdd", async function todoAdd() {
     const input = $("td-new");
     const text = (input.value || "").trim();
     if (!text) return;
@@ -139,7 +142,7 @@ export function createExtras(env) {
     S.todos.push(data);
     setPanel(todoHtml());
     $("td-new").focus();
-  }
+  });
 
   // ====================== 重要メモ ======================
   function impListHtml() {
@@ -157,7 +160,7 @@ export function createExtras(env) {
       <p class="msg err" id="x-msg"></p>
       <div class="btns"><button class="btn pri" data-act="imp-save">保存</button><button class="btn" data-act="imp-back">やめる</button>${m ? '<button class="btn dng" data-act="imp-del">このメモを消す</button>' : ""}</div></div>`);
   }
-  async function impSave() {
+  const impSave = once("impSave", async function impSave() {
     const title = $("im-t").value.trim();
     if (!title) return say("x-msg", "題名を入れてください。");
     const body = $("im-b").value;
@@ -174,7 +177,7 @@ export function createExtras(env) {
       S.importants.push(data);
     }
     setPanel(impListHtml());
-  }
+  });
   async function impDel() {
     if (!window.confirm("このメモを消します。よろしいですか？")) return;
     const { error } = await supabase.from("cal_importants").delete().eq("id", impDraft.id);
@@ -486,7 +489,7 @@ export function createExtras(env) {
     p.style.setProperty("--s", String(size * cw / pw));
     stage.style.height = Math.min(Math.max(size * cw + 24, 96), 360) + "px";
   }
-  async function saveDef() {
+  const saveDef = once("saveDef", async function saveDef() {
     const row = { kind: dd.kind, emoji: dd.kind === "emoji" ? dd.emoji.trim() : "", text: dd.kind === "text" ? dd.text.trim() : "", text_color: dd.text_color, bg_color: dd.bg_color, shape: dd.shape, default_size: Number(dd.default_size) };
     if (dd.kind === "emoji" && !row.emoji) return say("x-msg", "絵文字を入れてください。");
     if (dd.kind === "text" && !row.text) return say("x-msg", "文字を入れてください。");
@@ -518,7 +521,7 @@ export function createExtras(env) {
       if (newPath) await removeFiles([newPath]);
       say("x-msg", errText(e));
     }
-  }
+  });
   async function moveDef(id, delta) {
     const i = S.stampDefs.findIndex((d) => d.id === id);
     const j = i + delta;

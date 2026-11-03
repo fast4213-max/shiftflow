@@ -45,7 +45,7 @@ window.shiftflowReady = true;
 const loadWait = document.getElementById("load-wait");
 if (loadWait) loadWait.classList.add("hidden");
 
-// この端末にログインを保存できるか。Safari の「全てのCookieをブロック」がオンなどだと保存できず、
+// この端末にログインを保存できるか。Safari の「すべてのCookieをブロック」がオンなどだと保存できず、
 // ログインしても次の画面でログイン画面に戻ってしまう(エラーも出ない)ので、先に確かめて知らせる
 export function canSaveLogin() {
   try {
@@ -60,7 +60,7 @@ export function canSaveLogin() {
 
 export const STORAGE_HELP =
   "この画面ではログインを保存できません。iPhoneは「設定」→「アプリ」→「Safari」(iOSによっては「設定」→「Safari」)の" +
-  "「全てのCookieをブロック」をオフにしてから、開き直してください。プライベートブラウズのときは、通常のタブで開いてください。" +
+  "「すべてのCookieをブロック」をオフにしてから、開き直してください。プライベートブラウズのときは、通常のタブで開いてください。" +
   "Android(Chrome)は、右上の「︙」→「設定」→「サイトの設定」で、このサイトのCookie(サイトのデータ)を許可してから、開き直してください。";
 
 // 社員番号・PINの欄に、形の違う値が自動で入ったので消したときの案内(bindDigitsOnly)

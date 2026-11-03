@@ -3202,6 +3202,59 @@ await check("カレンダー(スタンプ): スタンプをタップして編集
   await ctx.close();
 });
 
+await check("デバッグ 25回目(1): 読み直しに失敗しても、勤務の帯は消えない(描き直しても残る)。通信が戻れば読み直せる", async () => {
+  const { page, ctx, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  const before = await page.locator(".bar").count();
+  assert.ok(before > 0);
+  await page.route("**/functions/v1/calendar-shifts", (r) => r.abort());
+  await page.evaluate(() => { const vs = (v) => Object.defineProperty(document, "visibilityState", { configurable: true, get: () => v }); window.__vs = vs; vs("hidden"); document.dispatchEvent(new Event("visibilitychange")); });
+  await page.waitForTimeout(2200);
+  await page.evaluate(() => { window.__vs("visible"); document.dispatchEvent(new Event("visibilitychange")); });
+  await page.waitForSelector("#banner:not([hidden])");
+  await page.click("#chips .chip >> nth=3"); // 描き直しが走る
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator(".bar").count(), before, "失敗しても、今の帯は残る");
+  await ctx.close();
+});
+
+await check("デバッグ 25回目(3): 予定を保存できたあとに読み直しが失敗しても、保存画面は固まらず、保存できたと知らせる", async () => {
+  const { page, ctx, be } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-new");
+  await page.fill("#f-title", "歯医者");
+  await page.route("**/rest/v1/cal_labels*", (r) => r.abort()); // 保存のあとの読み直しだけ失敗させる
+  await page.click("#f-save");
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  assert.equal(be.st.cal.cal_events.length, 1, "予定は保存されている");
+  const banner = await page.locator("#banner").innerText();
+  assert.ok(banner.includes("予定は保存しました"), banner);
+  await ctx.close();
+});
+
+await check("デバッグ 25回目(5): TODOの追加・重要メモの保存は、同時に2回起きても1件だけ", async () => {
+  const { page, ctx, be } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-todo");
+  await page.fill("#td-new", "牛乳");
+  await page.evaluate(() => { const i = document.getElementById("td-new"); for (let k = 0; k < 2; k++) i.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })); });
+  await page.waitForTimeout(500);
+  assert.equal(be.st.cal.cal_todos.length, 1, "TODOが2件になっていない");
+  await ctx.close();
+});
+
+await check("デバッグ 25回目(4): 起動で勤務の予定を読む通信は3回まで(続く月はまとめて読む)。前後の月も出る", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.waitForTimeout(800);
+  const calls = be.st.calls.filter((c) => c.path === "/functions/v1/calendar-shifts");
+  assert.ok(calls.length >= 1 && calls.length <= 3, "通信の数: " + calls.length);
+  // どの通信も、サーバーが読める範囲(月の画面で5か月まで)に収まる
+  for (const c of calls) assert.ok((new Date(c.body.to) - new Date(c.body.from)) / 86400000 <= 160, `範囲が広すぎる ${c.body.from}〜${c.body.to}`);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await browser.close();
 server.kill();
 console.log(failures.length ? `\n${failures.length} NG` : "\nall ok");

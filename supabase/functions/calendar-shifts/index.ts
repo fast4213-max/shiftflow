@@ -30,17 +30,19 @@ serve(async (req) => {
   const holFrom = addDays(first, -1);
   const holTo = addDays(last, 2);
 
-  // 祝日(曜日の色と、平日・休日で泊の時間を選ぶため)
-  await ensureHolidayYears(ctx.admin, holidayYearsFor(holFrom, holTo));
-  const holRes = await ctx.db.from("holidays").select("date, name").gte("date", holFrom).lte("date", holTo).order("date");
-  if (holRes.error) throw holRes.error;
-  const holidays = (holRes.data || []) as { date: string; name: string }[];
-
-  const settingsRes = await ctx.db
+  // 祝日(曜日の色と、平日・休日で泊の時間を選ぶため)と設定は、同時に読む(待ち時間を短くする)
+  const holP = (async () => {
+    await ensureHolidayYears(ctx.admin, holidayYearsFor(holFrom, holTo));
+    return await ctx.db.from("holidays").select("date, name").gte("date", holFrom).lte("date", holTo).order("date");
+  })();
+  const settingsP = ctx.db
     .from("user_settings")
     .select("office_id, split_day_events, split_offduty_events, title_day_time, title_offduty_time, timed_events")
     .eq("user_id", ctx.userId)
     .maybeSingle();
+  const [holRes, settingsRes] = await Promise.all([holP, settingsP]);
+  if (holRes.error) throw holRes.error;
+  const holidays = (holRes.data || []) as { date: string; name: string }[];
   if (settingsRes.error) throw settingsRes.error;
   const s = settingsRes.data;
   // 区所が未設定なら、勤務の予定は出せない(祝日だけ返す)

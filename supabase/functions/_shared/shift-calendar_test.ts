@@ -240,7 +240,7 @@ Deno.test("書き込み権限がないと、共有設定を確認するメッセ
     AppError,
   );
   assert(err.message.includes("勤務用カレンダーに書き込めません"));
-  assert(err.message.includes("全ての予定の詳細の変更や表示ができます"));
+  assert(err.message.includes("すべての予定の詳細の変更や表示ができます"));
 });
 
 Deno.test("1件失敗したら残りは作らず、作っている途中の分が終わってからエラーにする", async () => {

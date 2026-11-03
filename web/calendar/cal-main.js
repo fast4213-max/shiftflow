@@ -119,51 +119,68 @@ async function loadPhotos() {
   for (const [k, list] of S.photos) { const rest = list.filter((r) => !gone.has(r.id)); if (rest.length) S.photos.set(k, rest); else S.photos.delete(k); }
 }
 
-// 勤務の予定(月の画面の範囲)。同じ月は読み直さない(勤務入力から戻ったときは、cache を空にして読み直す)
-async function loadShifts(y, m) {
-  const key = `${y}-${m}`;
-  const g = gridRange(y, m);
-  const res = await callFunction("calendar-shifts", { from: g.from, to: g.to }, { timeoutMs: 40000 });
+// 勤務の予定。続いている月は、1回の通信でまとめて読む(月ごとに読むと、通信の数だけ待たされる)。
+// months: 続いている月の並び({y, m}。3か月まで。サーバーが読める範囲は、月の画面の前後の週を含めて5か月まで)
+async function loadShiftsRange(months) {
+  const first = months[0], last = months[months.length - 1];
+  const res = await callFunction("calendar-shifts", { from: gridRange(first.y, first.m).from, to: gridRange(last.y, last.m).to }, { timeoutMs: 40000 });
   for (const h of res.holidays || []) S.holidays.set(h.date, h.name);
   S.needOffice = !!res.needOffice;
   // どのラベルになるかは、画面に出すとき(eventsBetween)に決める(設定を変えても、読み直さなくてよいように)。
   // server の group が無いとき(古い版)は、休日かそれ以外かだけ
   const events = (res.shifts || []).map((e, i) => ({
-    src: "shift", id: `s:${e.date}:${i}`, title: e.title, start: e.date, end: e.endDate, allDay: e.allDay,
+    src: "shift", id: `s:${first.y}-${first.m}:${e.date}:${i}`, title: e.title, start: e.date, end: e.endDate, allDay: e.allDay,
     startTime: e.startTime, endTime: e.endTime, kind: e.kind || "", group: e.group || (e.calendar === "holiday" ? "off" : "duty"), memo: e.description || "", repeat: "none",
   }));
-  S.shifts.set(key, { events });
+  // 予定は最初の月に入れ、あとの月は「読んだ」印だけ(同じ予定を何度も数えないように)
+  months.forEach((t, i) => S.shifts.set(`${t.y}-${t.m}`, { events: i === 0 ? events : [] }));
 }
 
 async function reloadAll({ keepShifts = false } = {}) {
-  if (!keepShifts) S.shifts.clear();
-  // 設定で非番の時間用カレンダーを足した・外したあとに、反映する(読めなければ、今のまま)
-  try { const st = await loadSettings(S.session); S.settingsRow = st; S.cfg = resolveCalView(st); } catch (_) { /* 今のまま */ }
-  await Promise.all([loadLabels(), loadOwn(), extras.load()]);
-  await loadPhotos().catch(() => {});
-  await ensureAround();
+  // 勤務の予定は、新しく読めてから入れ替える(読めなかったときに、今の予定を空にしてしまわないように)
+  const oldShifts = S.shifts;
+  if (!keepShifts) S.shifts = new Map();
+  try {
+    // 設定で非番の時間用カレンダーを足した・外したあとに、反映する(読めなければ、今のまま)
+    try { const st = await loadSettings(S.session); S.settingsRow = st; S.cfg = resolveCalView(st); } catch (_) { /* 今のまま */ }
+    await Promise.all([loadLabels(), loadOwn(), extras.load()]);
+    await loadPhotos().catch(() => {});
+    await ensureAround();
+  } catch (e) {
+    S.shifts = oldShifts;
+    throw e;
+  }
   S.notice = ""; // 読み直しが成功したので、前の失敗の案内は消す(残ったままにならないように)
   render();
 }
 
-// 今の月の前後2か月ぶんの勤務の予定を読む(まだ読んでいない月だけ)。読めたら true
+// 今の月の前後2か月ぶんの勤務の予定を読む(まだ読んでいない月だけ)。続いている月は、1回の通信でまとめて読む。読めたら true
 const loadingMonths = new Set();
 async function ensureAround() {
   const lim = monthLimits(S.today);
-  let loaded = false;
-  const jobs = [];
+  const lo = monthIndex(lim.min.y, lim.min.m), hi = monthIndex(lim.max.y, lim.max.m);
+  const need = [];
   for (let k = -2; k <= 2; k++) {
     const t = addMonths(S.y, S.m, k);
     const idx = monthIndex(t.y, t.m);
-    const key = `${t.y}-${t.m}`;
-    if (idx < monthIndex(lim.min.y, lim.min.m) || idx > monthIndex(lim.max.y, lim.max.m) || S.shifts.has(key) || loadingMonths.has(key)) continue;
-    loadingMonths.add(key);
-    jobs.push(loadShifts(t.y, t.m).then(() => { loaded = true; }).finally(() => loadingMonths.delete(key)));
+    if (idx < lo || idx > hi || S.shifts.has(`${t.y}-${t.m}`) || loadingMonths.has(`${t.y}-${t.m}`)) continue;
+    need.push(t);
   }
+  // 続いている月ごとにまとめる(1回に3か月まで)
+  const runs = [];
+  for (const t of need) {
+    const run = runs[runs.length - 1];
+    if (run && run.length < 3 && monthIndex(t.y, t.m) === monthIndex(run[run.length - 1].y, run[run.length - 1].m) + 1) run.push(t); else runs.push([t]);
+  }
+  const jobs = runs.map((run) => {
+    const keys = run.map((t) => `${t.y}-${t.m}`);
+    keys.forEach((k) => loadingMonths.add(k));
+    return loadShiftsRange(run).finally(() => keys.forEach((k) => loadingMonths.delete(k)));
+  });
   const results = await Promise.allSettled(jobs);
   const failed = results.find((r) => r.status === "rejected");
   if (failed) throw failed.reason;
-  return loaded;
+  return results.length > 0;
 }
 
 // ---------- 画面に出す予定 ----------
@@ -561,11 +578,14 @@ async function saveDraft() {
     // 写真の付け外し(予定は保存できているので、写真だけ失敗したときは、予定は残して知らせる)
     const fails = d.keep.length + d.added.length + d.removed.length ? await persistPhotos(eventId, d) : [];
     draft = null;
-    await reloadAll({ keepShifts: true });
+    let reloadErr = null;
+    try { await reloadAll({ keepShifts: true }); } catch (e) { reloadErr = e; }
     closePanel();
-    if (fails.length) setNotice(`予定は保存しました。写真${fails.length}件は保存できませんでした(${esc(fails[0])})。予定を開いて、もう一度付けてください。`);
+    if (reloadErr) setNotice(`予定は保存しました。ただ、画面を読み直せませんでした(${esc(friendlyText(reloadErr.message || String(reloadErr)))})。電波の良いところで、画面を開き直してください。`);
+    else if (fails.length) setNotice(`予定は保存しました。写真${fails.length}件は保存できませんでした(${esc(fails[0])})。予定を開いて、もう一度付けてください。`);
   } catch (e) {
-    renderForm(friendlyText(e.message || String(e)));
+    if (draft) renderForm(friendlyText(e.message || String(e)));
+    else fail(e);
   }
 }
 
@@ -871,7 +891,12 @@ function bind() {
     if (!away || S.panel) return;
     try { await reloadAll(); } catch (e) { fail(e); }
   });
-  window.addEventListener("resize", () => render());
+  // 画面の大きさが変わったとき。幅が変わったときだけ、続けて起きる間引いて1回だけ描き直す(スマホはアドレスバーの出入り・キーボードで何度も起きる。高さだけの変化では、描き直さなくてよい)
+  let lastW = window.innerWidth, resizeTimer = 0;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { if (window.innerWidth !== lastW) { lastW = window.innerWidth; render(); } }, 150);
+  });
 }
 
 async function main() {
@@ -894,15 +919,20 @@ async function main() {
   S.userId = session.user.id;
   extras = createExtras({ S, $, esc, supabase, openPanel, setPanel, closePanel, openViewer, head, render, fail, friendlyText, selectAllPages, userId: session.user.id });
   bind();
-  await Promise.all([loadLabels(), loadOwn(), extras.load()]);
-  await loadPhotos().catch(() => {});
+  // 速く出すため、読み込みは一緒に始める。勤務の予定は、まず見える範囲(今の月と前の月)だけ1回で読み、残りは出したあとに読む
+  let firstErr = null;
+  const prev = addMonths(S.y, S.m, -1);
+  const firstShifts = loadShiftsRange([prev, { y: S.y, m: S.m }]).catch((e) => { firstErr = e; });
+  await Promise.all([loadLabels(), loadOwn(), extras.load(), loadPhotos().catch(() => {}), firstShifts]);
   $("boot").hidden = true;
   render();
   scrollToDate(S.today, 1); // 今日の週が、上から2段目に来る位置から
   const v = visibleMonth();
   S.y = v.y; S.m = v.m;
   updateHeader();
-  try { await ensureAround(); render(); } catch (e) { fail(e); }
+  if (firstErr) fail(firstErr);
+  // 前後の月は、出したあとに読む(読めたら描き直す)
+  ensureAround().then((loaded) => { if (loaded) render(); }).catch((e) => fail(e));
 }
 
 main().catch((e) => {

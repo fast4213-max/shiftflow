@@ -322,7 +322,7 @@ export function calendarAccessError(err: unknown, label: string): AppError {
   if (err instanceof GoogleError && [400, 403, 404].includes(err.status) && !isRateLimited(err.status, err.reason)) {
     return new AppError(
       400,
-      `${label}に書き込めません。共有設定(権限を「全ての予定の詳細の変更や表示ができます」にして共有しているか)とカレンダーIDを確認してください。`,
+      `${label}に書き込めません。共有設定(権限を「すべての予定の詳細の変更や表示ができます」にして共有しているか)とカレンダーIDを確認してください。`,
       "calendar_access",
     );
   }
