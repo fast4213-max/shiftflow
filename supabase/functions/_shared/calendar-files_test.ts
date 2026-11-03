@@ -2,7 +2,7 @@ import { assertEquals, assertRejects } from "jsr:@std/assert@1";
 import { removeUserFiles } from "./calendar-files.ts";
 
 // 偽の Storage: フォルダごとのファイル名の一覧
-function fake(files: string[], opts: { listError?: boolean; removeError?: boolean } = {}) {
+function fake(files: string[], opts: { listError?: boolean; removeError?: boolean; missingBucket?: boolean } = {}) {
   const left = [...files];
   const removed: string[] = [];
   return {
@@ -13,7 +13,7 @@ function fake(files: string[], opts: { listError?: boolean; removeError?: boolea
           if (bucket !== "calendar") throw new Error("バケットが違う: " + bucket);
           return {
             list: (_path: string, o: { limit: number; offset: number }) =>
-              Promise.resolve(opts.listError ? { data: null, error: { message: "list failed" } } : { data: left.slice(o.offset, o.offset + o.limit).map((name) => ({ name })), error: null }),
+              Promise.resolve(opts.missingBucket ? { data: null, error: { message: "Bucket not found", statusCode: "404" } } : opts.listError ? { data: null, error: { message: "list failed" } } : { data: left.slice(o.offset, o.offset + o.limit).map((name) => ({ name })), error: null }),
             remove: (paths: string[]) => {
               if (opts.removeError) return Promise.resolve({ error: { message: "remove failed" } });
               for (const p of paths) { removed.push(p); left.splice(left.indexOf(p.split("/")[1]), 1); }
@@ -43,4 +43,9 @@ Deno.test("removeUserFiles: ファイルが無ければ何も消さない", asyn
 Deno.test("removeUserFiles: 一覧が読めない・消せないときは例外(利用者を消す前に止める)", async () => {
   await assertRejects(() => removeUserFiles(fake(["a.jpg"], { listError: true }).admin, "u1"), Error, "一覧を読めませんでした");
   await assertRejects(() => removeUserFiles(fake(["a.jpg"], { removeError: true }).admin, "u1"), Error, "消せませんでした");
+});
+
+Deno.test("removeUserFiles: バケットがまだ無いとき(Bucket not found・404)は、消すものが無いので0件で進む(利用者の削除を止めない)", async () => {
+  const s = fake([], { missingBucket: true });
+  assertEquals(await removeUserFiles(s.admin, "u1"), 0);
 });

@@ -2864,6 +2864,53 @@ await check("デバッグ L10: 戻るボタンで、パネル・大きな画像�
   await ctx.close();
 });
 
+
+await check("デバッグ D1: 失敗の案内は、閉じるボタンで消せる。次に読み直しが成功したら、自動で消える", async () => {
+  const { page, ctx, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  const wake = async () => {
+    await page.evaluate(() => { Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true }); document.dispatchEvent(new Event("visibilitychange")); });
+    await page.waitForTimeout(2200);
+    await page.evaluate(() => { Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true }); document.dispatchEvent(new Event("visibilitychange")); });
+  };
+  await page.route("**/functions/v1/calendar-shifts", (r) => r.fulfill({ status: 500, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ error: "一時的な失敗(テスト)" }) }));
+  await wake();
+  await page.waitForSelector("#banner:not([hidden])");
+  assert.ok((await page.textContent("#banner")).includes("一時的な失敗"));
+  // 閉じるボタン
+  await page.click('#banner [data-act="dismiss-notice"]');
+  assert.equal(await page.isVisible("#banner"), false);
+  // 失敗 → 成功: 自動で消える
+  await wake();
+  await page.waitForSelector("#banner:not([hidden])");
+  await page.unroute("**/functions/v1/calendar-shifts");
+  await wake();
+  await page.waitForFunction(() => document.getElementById("banner").hidden, null, { timeout: 5000 });
+  assert.deepEqual(errors.filter((e) => !e.includes("500")), []);
+  await ctx.close();
+});
+
+await check("デバッグ D4: スタンプのトレーに、動かし方の案内が出る(選ぶ前・選んだあと)", async () => {
+  const { page, ctx, be } = await calOpen();
+  await page.waitForSelector(".bar");
+  be.st.cal.cal_stamp_defs = [{ id: "D1", user_id: "u1", kind: "emoji", emoji: "🎂", image_path: "", text: "", text_color: "#ffffff", bg_color: "#5b4bd6", shape: "round", default_size: 0.5, sort: 1, created_at: "2026-11-01T00:00:00Z" }];
+  await page.reload();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-stamp");
+  assert.ok((await page.textContent("#tray")).includes("ドラッグで移動"));
+  await page.click("#tray .tk");
+  assert.ok((await page.textContent("#tray")).includes("選びを外す"));
+  await ctx.close();
+});
+
+await check("デバッグ D9: 使い方ページに、shiftflowカレンダーの説明がある(目次からも行ける)", async () => {
+  const { page, ctx } = await open("help.html", { opts: {} });
+  await page.waitForSelector("#calendar-app");
+  assert.ok((await page.textContent("#calendar-app")).includes("過去1年"));
+  assert.equal(await page.locator('.toc a[href="#calendar-app"]').count(), 1);
+  await ctx.close();
+});
+
 await browser.close();
 server.kill();
 console.log(failures.length ? `\n${failures.length} NG` : "\nall ok");

@@ -7,11 +7,11 @@ const GALLERY_BYTES = 400 * 1024;
 
 // 画像を縮小して Blob にする(長い辺 maxSide まで。向きを直し、描き直すので位置情報は消える)
 // 画像を読む。端末によって、createImageBitmap の指定(向きの扱い)や形式(iPhone の HEIC など)が通らないことがあるので、
-// ①向きを直して読む → ②指定なしで読む → ③ <img> で読む(向きはブラウザが直す)の順に試す(L9)
+// ①向きを直して読む → ② <img> で読む(向きはブラウザが直す)の順に試す(L9)。
+// 向きの指定なしで createImageBitmap を呼ぶ方法は使わない: 端末によっては向きの情報を無視して、写真が横向きになるため(D6)
 async function decodeImage(file) {
   if (typeof createImageBitmap === "function") {
     try { return await createImageBitmap(file, { imageOrientation: "from-image" }); } catch (_) { /* 次の方法へ */ }
-    try { return await createImageBitmap(file); } catch (_) { /* 次の方法へ */ }
   }
   const url = URL.createObjectURL(file);
   try {
@@ -258,7 +258,7 @@ export function createExtras(env) {
 
   function trayHtml() {
     const items = S.stampDefs.map((d) => `<button class="tk${mode.def === d.id ? " on" : ""}" data-act="st-pick" data-id="${esc(d.id)}" aria-label="スタンプ">${defInner(d)}</button>`).join("");
-    const msg = !S.stampDefs.length ? '<span class="tmsg">スタンプを作りましょう →</span>' : mode.def ? '<span class="tmsg">置きたい日をタップ</span>' : '<span class="tmsg">スタンプを選ぶ</span>';
+    const msg = !S.stampDefs.length ? '<span class="tmsg">スタンプを作りましょう →</span>' : mode.def ? '<span class="tmsg">置きたい日をタップ(置いたスタンプを動かすときは、選びを外す)</span>' : '<span class="tmsg">スタンプを選ぶ(置いたスタンプは、タップで編集・ドラッグで移動)</span>';
     return `${items}<button class="btn tadd" data-act="df-new">＋ 作る</button><button class="btn tadd" data-act="df-list">管理</button>${msg}<button class="btn tadd" data-act="st-off">閉じる</button>`;
   }
   function renderTray() {

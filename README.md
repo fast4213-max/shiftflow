@@ -51,6 +51,7 @@ web/                        画面(GitHub Pages で配信)
   terms.html                利用上の注意とプライバシー(未ログインでも読める)
   contact.html              お問い合わせ(未ログインでも使える)
   notices.html              お知らせ(ログイン後)
+  calendar/                 shiftflowカレンダー(アプリ内のカレンダー。index.html・cal-main.js[画面]・cal-extra.js[TODO・重要メモ・画像・スタンプ]・cal-core.js[計算]・専用の manifest とアイコン)。設計は docs/mycalendar/DESIGN.md
   js/config.js              Supabase の URL と公開キー、OAuth クライアント ID(★自分の値を書く)
   js/plan.js                予定の組み立て(supabase/functions/_shared/plan.js と同じ内容)
 supabase/
@@ -66,6 +67,7 @@ supabase/
     register-month/         月の入力を保存してカレンダーに登録
     delete-month/           月のアプリの予定だけ削除し、その月の入力内容も消す(手で入れた予定は消さない)
     sync-holidays/          祝日を取得して保存
+    calendar-shifts/        shiftflowカレンダー用: 勤務の記録を、勤務入力の設定どおりに予定へ組み立てて返す(読み取りだけ。Google には触らない)
     contact/                お問い合わせの送信・返事を見る
     admin-contact/          お問い合わせの一覧・返事(管理者だけ)
     mail-inbound/           GAS からの受信メールの取り込み・古いものの削除(合言葉で確かめる)

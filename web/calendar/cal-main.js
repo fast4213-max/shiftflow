@@ -42,7 +42,7 @@ function storageSet(key, value) { try { window.localStorage.setItem(key, value);
 function showBanner() {
   const parts = [];
   if (S.needOffice) parts.push('勤務の予定を出すには、<a href="../settings.html">設定</a>で区所を選んでください。');
-  if (S.notice) parts.push(S.notice);
+  if (S.notice) parts.push(`${S.notice} <button class="bx" data-act="dismiss-notice" aria-label="この案内を閉じる">✕</button>`);
   const b = $("banner");
   b.hidden = !parts.length;
   b.innerHTML = parts.join("<br>");
@@ -129,6 +129,7 @@ async function reloadAll({ keepShifts = false } = {}) {
   await Promise.all([loadLabels(), loadOwn(), extras.load()]);
   await loadPhotos().catch(() => {});
   await ensureShifts();
+  S.notice = ""; // 読み直しが成功したので、前の失敗の案内は消す(残ったままにならないように)
   render();
 }
 
@@ -672,6 +673,7 @@ function bind() {
   extras.bindDrag();
   $("scrim").addEventListener("click", closePanel);
 
+  $("banner").addEventListener("click", (ev) => { if (ev.target.closest('[data-act="dismiss-notice"]')) setNotice(""); });
   $("chips").addEventListener("click", (ev) => {
     const b = ev.target.closest("[data-chip]");
     if (!b) return;
