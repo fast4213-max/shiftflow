@@ -3320,6 +3320,46 @@ await check("カレンダー設定: 〇をつける日を選ぶ(予定を見な�
   await ctx.close();
 });
 
+await check("使い方ページ: 最初は「1. アプリのカレンダーを使う設定」と「2. 勤務を入力する」だけが開く。全体の流れ・新規登録の節は無い。目次を押すと、その節が開く", async () => {
+  const { page, ctx, errors } = await open("help.html", { opts: {} });
+  await page.waitForSelector("#app-setup");
+  const opened = await page.evaluate(() => [...document.querySelectorAll("details.fold")].filter((d) => d.open).map((d) => d.id));
+  assert.deepEqual(opened.sort(), ["app-setup", "use"].sort());
+  assert.equal(await page.locator("#intro, #signup").count(), 0);
+  assert.ok((await page.textContent("#app-setup")).includes("区所を選ぶ"));
+  // 目次: Googleカレンダー → スマホ
+  await page.click('.toc a[href="#google"]');
+  await page.waitForFunction(() => document.getElementById("google").open);
+  await page.click('.toc a[href="#google-pc"]');
+  await page.waitForFunction(() => document.getElementById("google-pc").open && document.getElementById("google").open);
+  assert.equal(await page.locator("#google-pc").isVisible(), true);
+  // スマホ・パソコンの2つに分かれている
+  assert.equal(await page.locator("#google > .foldbody > details.fold.sub").count() >= 2, true);
+  assert.ok((await page.textContent("#google-phone")).includes("簡単設定"));
+  assert.ok((await page.textContent("#google-pc")).includes("calendar.google.com"));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("使い方ページ: 設定ページからの古いリンク(#share・#test)と、消した節のリンク(#signup・#settings)が、正しい節を開く。全部開く/閉じる。幅320pxではみ出さない", async () => {
+  for (const [hash, want] of [["share", ["google", "google-phone"]], ["test", ["google", "google-info"]], ["signup", ["app-setup"]], ["settings", ["google", "google-phone"]], ["id", ["google", "google-pc"]], ["photo", ["use", "photo"]]]) {
+    const { page, ctx, errors } = await open("help.html#" + hash, { opts: {}, viewport: { width: 320, height: 700 } });
+    await page.waitForSelector("#app-setup");
+    await page.waitForFunction((w) => w.every((id) => document.getElementById(id).open), want);
+    assert.deepEqual(errors, [], hash);
+    await ctx.close();
+  }
+  const { page, ctx } = await open("help.html", { opts: {}, viewport: { width: 320, height: 700 } });
+  await page.waitForSelector("#app-setup");
+  await page.click("#fold-all");
+  assert.equal(await page.evaluate(() => [...document.querySelectorAll("details.fold")].every((d) => d.open)), true);
+  assert.equal(await page.textContent("#fold-all"), "全部閉じる");
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "全部開いて、横にはみ出す");
+  await page.click("#fold-all");
+  assert.equal(await page.evaluate(() => [...document.querySelectorAll("details.fold")].some((d) => d.open)), false);
+  await ctx.close();
+});
+
 await browser.close();
 server.kill();
 console.log(failures.length ? `\n${failures.length} NG` : "\nall ok");

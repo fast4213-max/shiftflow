@@ -39,3 +39,21 @@
 .mock .pill { background: #7b9cf2; color: #fff; border-radius: 4px; font-size: 8pt; padding: 0 6px; margin-top: 3px; }
 .help .cols { display: flex; flex-direction: column; gap: 4px; }
 @media (min-width: 640px) { .help .cols { flex-direction: row; gap: 16px; align-items: flex-start; } .help .cols > * { flex: 1; min-width: 0; } }
+
+/* 折りたたみの節(使い方) */
+.help details.fold { padding: 0; margin: 12px 0; background: #fff; border: 1px solid var(--line); border-radius: 10px; scroll-margin-top: 8px; }
+.help details.fold[open] { padding-bottom: 0; }
+.help details.fold > summary { font-size: 1.1rem; font-weight: 700; padding: 14px 16px; cursor: pointer; list-style: none; }
+.help details.fold > summary::-webkit-details-marker { display: none; }
+.help details.fold > summary::before { content: "▸ "; color: var(--accent, #1a73e8); }
+.help details.fold[open] > summary::before { content: "▾ "; }
+.help details.fold > .foldbody { padding: 0 16px 14px; }
+.help details.fold > .foldbody > :first-child { margin-top: 0; }
+.help details.fold.sub { margin: 10px 0; background: #fafbfc; }
+.help details.fold.sub > summary { font-size: 0.98rem; padding: 11px 14px; }
+.help details.fold.sub > .foldbody { padding: 0 14px 12px; }
+.help .foldbody h3 { font-size: 1rem; margin: 18px 0 6px; }
+.help .foldbody h4 { font-size: 0.95rem; margin: 14px 0 4px; }
+.help .toc a.sub { padding-left: 1.4em; font-size: 0.92rem; }
+.help .toc .linkbtn { justify-self: start; margin-top: 6px; background: none; border: 0; color: var(--accent, #1a73e8); font: inherit; cursor: pointer; padding: 4px 0; }
+@media print { .help .toc .linkbtn { display: none; } }
