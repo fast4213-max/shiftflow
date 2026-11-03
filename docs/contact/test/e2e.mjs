@@ -2115,8 +2115,8 @@ await check("カレンダー: 勤務の予定をタップすると、勤務入�
   // 祝日の名前は、日付の横に(赤い小さな字)
   assert.equal((await page.textContent(`.cell.hol[data-date="${today}"] .hn`)).trim(), "テストの日");
   // 月の数字(背景)・年月は「2026」と「11月」を上下に
-  assert.equal(await page.locator(".wmk").count(), 1);
-  assert.equal((await page.textContent(".wmk")).trim(), String(Number(today.slice(5, 7))));
+  const ym0 = today.slice(0, 7);
+  assert.equal((await page.textContent(`.week:has(.cell[data-date="${ym0}-12"]) .wmk`)).trim(), String(Number(today.slice(5, 7))));
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -2137,22 +2137,45 @@ await check("カレンダー: タイトル・メモに入れた HTML は文字�
   await ctx.close();
 });
 
-await check("カレンダー: 月を移ると、その月の範囲で勤務の予定を読む。過去は12か月前まで・先は来年12月まで", async () => {
+await check("カレンダー: 月がそのまま縦に続く。スクロールで年月の表示が変わり、近づいた月の勤務の予定を読む。◀▶・今日で動く。過去は12か月前まで・先は来年12月まで", async () => {
   const { page, ctx, be, errors } = await calOpen();
   await page.waitForSelector(".bar");
-  const callsBefore = be.st.calls.filter((c) => c.path === "/functions/v1/calendar-shifts").length;
-  await page.click("#next");
-  await page.waitForFunction((n) => true, 0);
-  await page.waitForTimeout(300);
-  assert.equal(be.st.calls.filter((c) => c.path === "/functions/v1/calendar-shifts").length, callsBefore + 1);
+  const hdr = () => page.evaluate(() => `${document.getElementById("ty").textContent}-${document.getElementById("tm").textContent.replace("月", "")}`);
+  const shiftCalls = () => be.st.calls.filter((c) => c.path === "/functions/v1/calendar-shifts").length;
+  const t0 = today.slice(0, 7);
+  assert.equal(await hdr(), `${Number(t0.slice(0, 4))}-${Number(t0.slice(5, 7))}`);
+  // 週は途切れず続く(隣の週との差が、すべて7日)
+  const weeks = await page.$$eval(".week", (els) => els.map((e) => e.dataset.ws));
+  assert.ok(weeks.length > 100, "1年前〜来年12月まで続けて並ぶ: " + weeks.length);
+  assert.ok(weeks.every((w, i) => i === 0 || (Date.parse(w) - Date.parse(weeks[i - 1])) === 7 * 86400000), "週が途切れない");
+  // 上のほうは、前の月が続いている(今日の週は、上から2段目)
+  const top = await page.evaluate(() => { const cal = document.getElementById("cal"); return cal.scrollTop; });
+  assert.ok(top > 0, "今日の位置から始まる");
+  // 指のスクロール(縦に動かす)で、月の表示が変わる
+  const before = shiftCalls();
+  const scrollBy = (n) => page.evaluate((n) => { const cal = document.getElementById("cal"); cal.scrollTop += n * parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--rh")); }, n);
+  const h0 = await hdr();
+  await scrollBy(6);
+  await page.waitForFunction((h) => { const x = `${document.getElementById("ty").textContent}-${document.getElementById("tm").textContent.replace("月", "")}`; return x !== h; }, h0);
+  await scrollBy(14); // 3〜4か月先まで
+  await page.waitForTimeout(500);
+  assert.ok(shiftCalls() > before, "近づいた月の勤務の予定を読む");
+  // ◀ で1か月ずつ戻る
   await page.click("#today");
-  for (let i = 0; i < 12; i++) await page.click("#prev");
+  await page.waitForFunction((h) => `${document.getElementById("ty").textContent}-${document.getElementById("tm").textContent.replace("月", "")}` === h, `${Number(t0.slice(0, 4))}-${Number(t0.slice(5, 7))}`);
+  let y = Number(t0.slice(0, 4)), m = Number(t0.slice(5, 7));
+  for (let i = 0; i < 12; i++) {
+    m--; if (m < 1) { m = 12; y--; }
+    await page.click("#prev");
+    await page.waitForFunction((h) => `${document.getElementById("ty").textContent}-${document.getElementById("tm").textContent.replace("月", "")}` === h, `${y}-${m}`);
+  }
   assert.equal(await page.isDisabled("#prev"), true, "12か月前より前へは行けない");
+  // 先は来年12月まで
   await page.click("#today");
-  for (let i = 0; i < 40 && !(await page.isDisabled("#next")); i++) await page.click("#next");
-  assert.equal(await page.isDisabled("#next"), true);
-  const [y, m] = await page.evaluate(() => [document.getElementById("ty").textContent, document.getElementById("tm").textContent.replace("月", "")]);
-  assert.equal(`${y}-${m}`, `${Number(today.slice(0, 4)) + 1}-12`);
+  await page.waitForFunction((h) => `${document.getElementById("ty").textContent}-${document.getElementById("tm").textContent.replace("月", "")}` === h, `${Number(t0.slice(0, 4))}-${Number(t0.slice(5, 7))}`);
+  await page.evaluate(() => { const cal = document.getElementById("cal"); cal.scrollTop = cal.scrollHeight; });
+  await page.waitForFunction(() => document.getElementById("next").disabled);
+  assert.equal(await hdr(), `${Number(t0.slice(0, 4)) + 1}-12`);
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -2376,7 +2399,7 @@ await check("カレンダー(スタンプ): 絵文字・文字のスタンプを
   assert.ok(be.st.cal.cal_stamps[0].x >= 0.12 && be.st.cal.cal_stamps[0].x <= 0.88, "タップした場所(マスの左上)に近い位置: " + be.st.cal.cal_stamps[0].x);
   assert.equal((await page.locator(".stamp").first().textContent()).trim(), "🎂");
   // 何も選ばずにマスをタップ(置いたスタンプを避けた場所) → スタンプの画面が閉じる(日の詳細は開かない)
-  await page.click(`.cell[data-date="${today}"]`, { position: { x: 44, y: 95 } });
+  await page.click(`.cell[data-date="${today}"]`, { position: { x: 44, y: 78 } });
   assert.equal(await page.isVisible("#tray"), false);
   assert.equal(await page.isVisible("#panel"), false);
   // タップで選ぶ → 大きさ・回転(保存)・メモ
@@ -2395,7 +2418,7 @@ await check("カレンダー(スタンプ): 絵文字・文字のスタンプを
   assert.equal(await page.locator("#panel u").count(), 0);
   // メモは日の詳細には出ない
   await page.click('[data-act="close"]');
-  await page.click(`.cell[data-date="${today}"]`, { position: { x: 44, y: 95 } });
+  await page.click(`.cell[data-date="${today}"]`, { position: { x: 44, y: 78 } });
   assert.ok(!(await page.textContent("#panel")).includes("ケーキ予約"));
   await page.click('[data-act="close"]');
   // 消す
@@ -2695,11 +2718,12 @@ await check("デバッグ M2: 日本語入力の変換を確定する Enter(isCo
   await ctx.close();
 });
 
-await check("デバッグ M3: 月を移ったときに勤務の予定が読めなかったら、案内が出て残る。次の月の移動で消える。区所の案内と並べて出せる", async () => {
+await check("デバッグ M3: 月を移ったときに勤務の予定が読めなかったら、案内が出て残る。月を移ると消える", async () => {
   const { page, ctx, errors } = await calOpen();
   await page.waitForSelector(".bar");
   await page.route("**/functions/v1/calendar-shifts", (r) => r.fulfill({ status: 500, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify({ error: "勤務の予定を読めませんでした(テスト)。" }) }));
-  await page.click("#next");
+  // まだ読んでいない遠い月(5か月先)までスクロール
+  await page.evaluate(() => { const cal = document.getElementById("cal"); cal.scrollTop += 22 * parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--rh")); });
   await page.waitForSelector("#banner:not([hidden])");
   await page.waitForTimeout(600);
   assert.ok((await page.textContent("#banner")).includes("読めませんでした"), "描き直しでも消えない");
@@ -2708,8 +2732,8 @@ await check("デバッグ M3: 月を移ったときに勤務の予定が読め�
   assert.equal(await page.isVisible("#banner"), true);
   await page.unroute("**/functions/v1/calendar-shifts");
   await page.click("#prev");
-  await page.waitForTimeout(500);
-  assert.equal(await page.isVisible("#banner"), false, "次の移動で、前の失敗の案内は消える");
+  await page.waitForTimeout(700);
+  assert.equal(await page.isVisible("#banner"), false, "月が変わると、前の失敗の案内は消える");
   assert.deepEqual(errors.filter((e) => !e.includes("500")), []);
   await ctx.close();
 });
@@ -2918,6 +2942,7 @@ await check("デバッグ D9: 使い方ページに、shiftflowカレンダー�
   assert.equal(await page.locator('.toc a[href="#calendar-app"]').count(), 1);
   await ctx.close();
 });
+
 
 await browser.close();
 server.kill();

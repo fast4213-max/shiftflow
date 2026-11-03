@@ -4,7 +4,7 @@
 import { callFunction, currentSession, friendlyText, go, loadProfile, loadSettings, selectAllPages, supabase } from "../js/app.js?v=dev";
 import { createExtras, shrinkForEvent } from "./cal-extra.js?v=dev";
 import {
-  addDays, addMonths, compareForDay, dateKey, expandEvent, gridRange, layoutWeek, monthIndex, monthLimits, oldestDate, photosClosed, textOn, todayJst, weekday, whenText, WEEKDAYS,
+  addDays, addMonths, compareForDay, dateKey, diffDays, expandEvent, gridRange, layoutWeek, monthIndex, monthLimits, oldestDate, photosClosed, textOn, todayJst, weekday, whenText, WEEKDAYS,
   yearsText,
 } from "./cal-core.js?v=dev";
 
@@ -128,14 +128,29 @@ async function reloadAll({ keepShifts = false } = {}) {
   if (!keepShifts) S.shifts.clear();
   await Promise.all([loadLabels(), loadOwn(), extras.load()]);
   await loadPhotos().catch(() => {});
-  await ensureShifts();
+  await ensureAround();
   S.notice = ""; // 読み直しが成功したので、前の失敗の案内は消す(残ったままにならないように)
   render();
 }
 
-async function ensureShifts() {
-  const key = `${S.y}-${S.m}`;
-  if (!S.shifts.has(key)) await loadShifts(S.y, S.m);
+// 今の月の前後2か月ぶんの勤務の予定を読む(まだ読んでいない月だけ)。読めたら true
+const loadingMonths = new Set();
+async function ensureAround() {
+  const lim = monthLimits(S.today);
+  let loaded = false;
+  const jobs = [];
+  for (let k = -2; k <= 2; k++) {
+    const t = addMonths(S.y, S.m, k);
+    const idx = monthIndex(t.y, t.m);
+    const key = `${t.y}-${t.m}`;
+    if (idx < monthIndex(lim.min.y, lim.min.m) || idx > monthIndex(lim.max.y, lim.max.m) || S.shifts.has(key) || loadingMonths.has(key)) continue;
+    loadingMonths.add(key);
+    jobs.push(loadShifts(t.y, t.m).then(() => { loaded = true; }).finally(() => loadingMonths.delete(key)));
+  }
+  const results = await Promise.allSettled(jobs);
+  const failed = results.find((r) => r.status === "rejected");
+  if (failed) throw failed.reason;
+  return loaded;
 }
 
 // ---------- 画面に出す予定 ----------
@@ -167,26 +182,59 @@ function renderChips() {
     `<button class="chip${S.hidden.has(l.id) ? " off" : ""}" data-chip="${esc(l.id)}" style="--c:${esc(l.color)}" aria-pressed="${S.hidden.has(l.id) ? "false" : "true"}"><i></i>${esc(l.name)}</button>`).join("");
 }
 
-function render() {
-  const g = gridRange(S.y, S.m);
+// ---------- 月の画面(週が途切れず、縦に続く) ----------
+
+const rowHeight = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--rh")) || 96;
+// 見られる範囲(12か月前の月の最初の週 〜 来年12月の最後の週)
+function listRange() {
+  const l = monthLimits(S.today);
+  return { from: gridRange(l.min.y, l.min.m).from, to: gridRange(l.max.y, l.max.m).to };
+}
+
+function updateHeader() {
   $("ty").textContent = `${S.y}`;
   $("tm").textContent = `${S.m}月`;
   $("today-d").textContent = String(Number(S.today.slice(8, 10)));
   const lim = monthLimits(S.today);
   $("prev").disabled = monthIndex(S.y, S.m) <= monthIndex(lim.min.y, lim.min.m);
   $("next").disabled = monthIndex(S.y, S.m) >= monthIndex(lim.max.y, lim.max.m);
+}
+
+// 描き直す。スクロールの位置は変えない(週の高さは一定なので、同じ週が同じ場所に来る)
+function render() {
+  const r = listRange();
+  updateHeader();
   renderChips();
   showBanner();
-
-  const events = eventsBetween(g.from, g.to);
+  const events = eventsBetween(r.from, r.to);
   S.byUid = new Map(events.map((e) => [e.id, e]));
   const weeks = [];
-  for (let ws = g.from; ws <= g.to; ws = addDays(ws, 7)) weeks.push(ws);
-  const rowH = Math.max(60, ($("cal").clientHeight || 480) / weeks.length);
-  const laneH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--lane")) || 15;
-  const maxLanes = Math.max(1, Math.floor((rowH - 24) / laneH));
+  for (let ws = r.from; ws <= r.to; ws = addDays(ws, 7)) weeks.push(ws);
+  const laneH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--lane")) || 17;
+  const maxLanes = Math.max(1, Math.floor((rowHeight() - 27) / laneH));
+  const cal = $("cal");
+  const keep = cal.scrollTop;
   $("weeks").innerHTML = weeks.map((ws) => weekHtml(ws, events, maxLanes)).join("");
+  cal.scrollTop = keep;
   extras.hydrate($("weeks"));
+}
+
+// 日付の週を、上から rowsAbove 段目に置く
+function scrollToDate(d, rowsAbove = 0, smooth = false) {
+  const r = listRange();
+  const ws = addDays(d, -weekday(d));
+  const idx = Math.round(diffDays(r.from, ws) / 7);
+  $("cal").scrollTo({ top: Math.max(0, (idx - rowsAbove) * rowHeight()), behavior: smooth ? "smooth" : "auto" });
+}
+// 今、見ている月(画面の上から1週ちょっと下の週の、まん中の日の月)
+function visibleMonth() {
+  const cal = $("cal");
+  // いちばん下まで来たら、最後の月(それより先へは進めないので、上の週の月のままにならないように)
+  if (cal.scrollTop + cal.clientHeight >= cal.scrollHeight - 2) { const l = monthLimits(S.today).max; return { y: l.y, m: l.m }; }
+  const rh = rowHeight();
+  const idx = Math.max(0, Math.floor(($("cal").scrollTop + rh * 1.2) / rh));
+  const d = addDays(listRange().from, idx * 7 + 3);
+  return { y: Number(d.slice(0, 4)), m: Number(d.slice(5, 7)) };
 }
 
 function weekHtml(ws, events, maxLanes) {
@@ -194,9 +242,8 @@ function weekHtml(ws, events, maxLanes) {
   let cells = "";
   for (let c = 0; c < 7; c++) {
     const d = addDays(ws, c);
-    const inMonth = Number(d.slice(5, 7)) === S.m && Number(d.slice(0, 4)) === S.y;
     const hol = S.holidays.get(d);
-    const cls = ["cell", c === 0 ? "sun" : c === 6 ? "sat" : "", hol ? "hol" : "", inMonth ? "" : "out", d === S.today ? "tdy" : "", Number(d.slice(5, 7)) % 2 === 0 ? "alt" : ""].filter(Boolean).join(" ");
+    const cls = ["cell", c === 0 ? "sun" : c === 6 ? "sat" : "", hol ? "hol" : "", d === S.today ? "tdy" : "", Number(d.slice(5, 7)) % 2 === 0 ? "alt" : ""].filter(Boolean).join(" ");
     const wd = WEEKDAYS[c];
     // 日付の横に祝日の名前(赤い小さな字)。例: 「3 文化の日」
     cells += `<div class="${cls}" data-date="${d}" role="button" tabindex="0" aria-label="${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日(${wd})${hol ? " " + esc(hol) : ""}"><span class="dtop"><span class="dn">${Number(d.slice(8, 10))}</span>${hol ? `<span class="hn">${esc(hol)}</span>` : ""}</span>${over[c] ? `<span class="more">+${over[c]}</span>` : ""}</div>`;
@@ -210,7 +257,8 @@ function weekHtml(ws, events, maxLanes) {
   }).join("");
   const dates = [0, 1, 2, 3, 4, 5, 6].map((c) => addDays(ws, c));
   // 月の数字(その月の12日がある週の背景に、大きくうすく)
-  const wm = dates.includes(dateKey(S.y, S.m, 12)) ? `<div class="wmk" aria-hidden="true">${S.m}</div>` : "";
+  const d12 = dates.find((d) => d.slice(8, 10) === "12");
+  const wm = d12 ? `<div class="wmk" aria-hidden="true">${Number(d12.slice(5, 7))}</div>` : "";
   return `<div class="week" data-ws="${ws}"><div class="cells">${cells}</div>${wm}<div class="bars">${barHtml}</div>${extras.stampsLayer(dates)}</div>`;
 }
 
@@ -644,23 +692,38 @@ async function labelFieldChanged(el) {
 
 // ---------- 月の移動 ----------
 
-async function gotoMonth(y, m) {
+// 月の移動(◀ ▶ のボタン): その月の最初の週が上に来るまで、なめらかに動く。月の表示と読み込みは、スクロールの動きに合わせて追いかける
+function goMonth(y, m) {
   const lim = monthLimits(S.today);
   const idx = monthIndex(y, m);
   if (idx < monthIndex(lim.min.y, lim.min.m) || idx > monthIndex(lim.max.y, lim.max.m)) return;
-  S.y = y; S.m = m;
-  S.notice = ""; // 前の月の失敗の案内は消す(この月の失敗は、下で出し直す)
-  render(); // 先に枠を出し、勤務の予定は読めたら足す
-  try { await ensureShifts(); } catch (e) { if (S.y === y && S.m === m) fail(e); return; }
-  if (S.y === y && S.m === m) render();
+  scrollToDate(dateKey(y, m, 1), 0, true);
+}
+
+let scrollQueued = false;
+function onScroll() {
+  if (scrollQueued) return;
+  scrollQueued = true;
+  requestAnimationFrame(() => {
+    scrollQueued = false;
+    const v = visibleMonth();
+    if (v.y === S.y && v.m === S.m) return;
+    S.y = v.y; S.m = v.m;
+    S.notice = ""; // 前の月の失敗の案内は消す(この月の失敗は、下で出し直す)
+    updateHeader();
+    showBanner();
+    const y = S.y, m = S.m;
+    ensureAround().then((loaded) => { if (loaded && S.y === y && S.m === m) render(); }).catch((e) => { if (S.y === y && S.m === m) fail(e); });
+  });
 }
 
 // ---------- 起動 ----------
 
 function bind() {
-  $("prev").addEventListener("click", () => { const n = addMonths(S.y, S.m, -1); gotoMonth(n.y, n.m); });
-  $("next").addEventListener("click", () => { const n = addMonths(S.y, S.m, 1); gotoMonth(n.y, n.m); });
-  const toToday = () => { closePanel(); const t = S.today; gotoMonth(Number(t.slice(0, 4)), Number(t.slice(5, 7))); };
+  $("prev").addEventListener("click", () => { const n = addMonths(S.y, S.m, -1); goMonth(n.y, n.m); });
+  $("next").addEventListener("click", () => { const n = addMonths(S.y, S.m, 1); goMonth(n.y, n.m); });
+  const toToday = () => { closePanel(); scrollToDate(S.today, 1, true); };
+  $("cal").addEventListener("scroll", onScroll, { passive: true });
   $("today").addEventListener("click", toToday);
   $("tab-today").addEventListener("click", toToday);
   $("tab-new").addEventListener("click", () => {
@@ -707,14 +770,6 @@ function bind() {
     if ((ev.key === "Enter" || ev.key === " ") && ev.target.dataset && ev.target.dataset.date) { ev.preventDefault(); openDay(ev.target.dataset.date); }
   });
 
-  // 横にスワイプして月を移る
-  let sx = 0, sy = 0;
-  $("cal").addEventListener("touchstart", (ev) => { sx = ev.touches[0].clientX; sy = ev.touches[0].clientY; }, { passive: true });
-  $("cal").addEventListener("touchend", (ev) => {
-    const t = ev.changedTouches[0];
-    const dx = t.clientX - sx, dy = t.clientY - sy;
-    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.6) { const n = addMonths(S.y, S.m, dx < 0 ? 1 : -1); gotoMonth(n.y, n.m); }
-  }, { passive: true });
   document.addEventListener("keydown", (ev) => {
     if (ev.key !== "Escape") return;
     if (!$("viewer").hidden) closeViewer(); else if (S.panel) closePanel();
@@ -788,7 +843,11 @@ async function main() {
   await loadPhotos().catch(() => {});
   $("boot").hidden = true;
   render();
-  try { await ensureShifts(); render(); } catch (e) { fail(e); }
+  scrollToDate(S.today, 1); // 今日の週が、上から2段目に来る位置から
+  const v = visibleMonth();
+  S.y = v.y; S.m = v.m;
+  updateHeader();
+  try { await ensureAround(); render(); } catch (e) { fail(e); }
 }
 
 main().catch((e) => {
