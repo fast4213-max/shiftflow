@@ -3155,6 +3155,33 @@ await check("カレンダー(スタンプを作る): 大きさのスライダー
   await ctx.close();
 });
 
+await check("カレンダー(スタンプ): 画像のスタンプは、描き直し(タップ・編集を閉じる)で一瞬空になって点滅しない", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  be.st.cal.cal_stamp_defs = [{ id: "D2", user_id: "u1", kind: "image", emoji: "", image_path: "u1/s.png", text: "", text_color: "#ffffff", bg_color: "#5b4bd6", shape: "round", default_size: 0.4, sort: 1, created_at: "2026-10-02T00:00:00Z" }];
+  await page.reload();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-stamp");
+  await page.click("#tray .tk");
+  const box = await page.locator(`.cell[data-date="${today}"]`).boundingBox();
+  await page.mouse.click(box.x + box.width * 0.4, box.y + box.height * 0.7);
+  await page.waitForFunction(() => document.querySelector("#weeks .stamp img")?.getAttribute("src"));
+  // ここから先の描き直しで、src の無い画像が1度でも現れたら NG
+  await page.evaluate(() => {
+    window.__blank = 0;
+    new MutationObserver(() => { if ([...document.querySelectorAll("#weeks .stamp img")].some((i) => !i.getAttribute("src"))) window.__blank++; }).observe(document.getElementById("weeks"), { childList: true, subtree: true });
+  });
+  const sb = await page.locator(".stamp").first().boundingBox();
+  await page.mouse.click(sb.x + sb.width / 2, sb.y + sb.height / 2);
+  await page.waitForSelector("#st-size");
+  await page.click('[data-act="close"]');
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => window.__blank), 0, "画像が空になった回数");
+  assert.equal(await page.locator("#weeks .stamp").count(), 1);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await browser.close();
 server.kill();
 console.log(failures.length ? `\n${failures.length} NG` : "\nall ok");

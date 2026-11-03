@@ -98,6 +98,7 @@ export function createExtras(env) {
 
   // ---------- 読み込み ----------
   async function load() {
+    const startedAt = Date.now();
     const [t, i, g, d, s] = await Promise.all([
       supabase.from("cal_todos").select("*").order("sort").order("created_at"),
       supabase.from("cal_importants").select("*").order("sort").order("created_at"),
@@ -110,7 +111,10 @@ export function createExtras(env) {
     S.importants = i.data || [];
     S.gallery = g.data || [];
     S.stampDefs = d.data || [];
-    S.stamps = s.data || [];
+    // 読み込んでいるあいだに置いたスタンプは、古い読み込みの結果で消さない
+    const fetched = s.data || [];
+    const late = S.stamps.filter((x) => x._t && x._t >= startedAt && !fetched.some((y) => y.id === x.id));
+    S.stamps = fetched.concat(late);
   }
 
   // ====================== TODOメモ ======================
@@ -241,7 +245,8 @@ export function createExtras(env) {
   const txStyle = (d) => `--fgc:${esc(d.text_color)};--bgc:${esc(d.bg_color)}`;
   function defInner(d) {
     if (d.kind === "emoji") return esc(d.emoji);
-    if (d.kind === "image") return `<img data-path="${esc(d.image_path)}" alt="">`;
+    // 画像は、URL をもう持っていれば最初から付ける(描き直すたびに、一瞬空になって点滅しないように)
+    if (d.kind === "image") { const u = freshUrl(d.image_path); return `<img data-path="${esc(d.image_path)}" alt="" decoding="sync"${u ? ` src="${esc(u)}"` : ""}>`; }
     return `<span class="tx r-${esc(d.shape)}" style="${txStyle(d)}">${esc(d.text)}</span>`;
   }
   function stampEl(st) {
@@ -276,15 +281,21 @@ export function createExtras(env) {
   }
 
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  let placing = false;
   async function placeStamp(date, pos) {
     const d = defOf(mode.def);
-    if (!d) return;
+    if (!d || placing) return; // 置いている途中の連打は無視(同じ場所に2つ置かれないように)
+    placing = true;
+    try { await placeStampNow(d, date, pos); } finally { placing = false; }
+  }
+  async function placeStampNow(d, date, pos) {
     // タップした場所に置く(マスの中の位置。指定が無いときは真ん中の少し下)
     const x = pos ? clamp(pos.x, 0.12, 0.88) : 0.5;
     const y = pos ? clamp(pos.y, 0.2, 0.88) : 0.58;
     const row = { date, stamp_def_id: d.id, x, y, size: d.default_size, rotation: 0 };
     const { data, error } = await supabase.from("cal_stamps").insert(row).select().single();
     if (error) { env.fail(error); return; }
+    data._t = Date.now();
     S.stamps.push(data);
     mode.def = null;
     renderTray();
