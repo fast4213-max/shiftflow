@@ -2096,53 +2096,16 @@ await check("カレンダー: 日を長押し(0.5秒)すると、その日の予
   await ctx.close();
 });
 
-await check("カレンダー: 設定の一番下でホーム画面のアイコンを選べる。選ぶと apple-touch-icon・manifest(icons)・タブのアイコンが選んだものになり、開き直しても残る", async () => {
-  const { page, ctx, errors } = await calOpen();
-  await page.waitForSelector(".bar");
-  const state = () => page.evaluate(async () => {
-    const href = (rel) => document.head.querySelector(`link[rel="${rel}"]`).href;
-    const m = href("manifest");
-    const json = m.startsWith("blob:") ? await (await fetch(m)).json() : null;
-    return { touch: href("apple-touch-icon"), icon: href("icon"), manifest: m.startsWith("blob:") ? "blob" : m, icons: json && json.icons.map((i) => i.src + "|" + i.purpose), start: json && json.start_url, id: json && json.id };
-  });
-  const before = await state();
-  assert.ok(before.touch.endsWith("icons/apple-touch-icon.png") && before.manifest.endsWith("manifest.webmanifest"), "選ぶ前は、いまのアイコンのまま: " + JSON.stringify(before));
-  await page.click("#tab-settings");
-  await page.waitForSelector("#icon-pick");
-  assert.equal(await page.locator('#icon-pick [name="appicon"]').count(), 4);
-  assert.equal(await page.locator('#icon-pick [name="appicon"]:checked').getAttribute("value"), "default");
-  assert.ok((await page.textContent("#icon-note")).includes("ホーム画面に追加"));
-  await page.locator('#icon-pick label:has([value="green"])').click();
-  const after = await state();
-  assert.ok(after.touch.endsWith("icons/v/green-180.png"), after.touch);
-  assert.ok(after.icon.endsWith("icons/v/green-192.png"), after.icon);
-  assert.equal(after.manifest, "blob");
-  assert.ok(after.icons.some((i) => i.endsWith("icons/v/green-192.png|any")) && after.icons.some((i) => i.endsWith("icons/v/green-512.png|maskable")), after.icons.join());
-  assert.ok(after.icons.every((i) => i.startsWith("http")), "manifest の中のアイコンは全部 URL で書く: " + after.icons.join());
-  assert.ok(after.start.startsWith("http") && after.id.startsWith("http"), "start_url・id も URL: " + after.start);
-  // 開き直しても残る(開いた直後に反映される)
-  await page.reload();
-  await page.waitForSelector(".bar");
-  const again = await state();
-  assert.ok(again.touch.endsWith("icons/v/green-180.png") && again.manifest === "blob", JSON.stringify(again));
-  await page.click("#tab-settings");
-  assert.equal(await page.locator('#icon-pick [name="appicon"]:checked').getAttribute("value"), "green");
-  // いまのアイコンに戻せる
-  await page.locator('#icon-pick label:has([value="default"])').click();
-  assert.ok((await state()).touch.endsWith("icons/apple-touch-icon.png"));
-  assert.deepEqual(errors, []);
-  await page.screenshot({ path: OUT + "calendar-icon-pick.png" });
-  await ctx.close();
-});
-
-await check("カレンダー: 管理画面で足したアイコンが選択肢の後ろに並び、選ぶと公開の URL が apple-touch-icon・manifest・タブに入る。開き直しても残り、管理画面で消されたら今のアイコンに戻る。前の版が覚えた id だけの値も読める", async () => {
+await check("カレンダー: 管理画面で足したアイコンが「いまの(電車)」の後ろに並び、選ぶと公開の URL が apple-touch-icon・manifest・タブに入る。開き直しても残り、管理画面で消されたら今のアイコンに戻る。試作のときに覚えた青・緑・オレンジは今のアイコンのまま", async () => {
   const { page, ctx, be, errors } = await calOpen({}, { appIcons: [{ name: "桜" }, { name: "隠し", visible: false }] });
   await page.waitForSelector(".bar");
   await page.waitForTimeout(300);
   await page.click("#tab-settings");
   await page.waitForSelector("#icon-pick");
-  await page.waitForFunction(() => document.querySelectorAll('#icon-pick [name="appicon"]').length === 5);
-  assert.deepEqual(await page.locator("#icon-pick .ic span").allTextContents(), ["いまの(電車)", "青", "緑", "オレンジ", "桜"]);
+  await page.waitForFunction(() => document.querySelectorAll('#icon-pick [name="appicon"]').length === 2);
+  assert.deepEqual(await page.locator("#icon-pick .ic span").allTextContents(), ["いまの(電車)", "桜"]);
+  assert.equal(await page.locator('#icon-pick [name="appicon"]:checked').getAttribute("value"), "default");
+  assert.ok((await page.textContent("#icon-note")).includes("ホーム画面に追加"));
   await page.locator('#icon-pick label:has([value="r1"])').click();
   const href = (rel) => page.evaluate((r) => document.head.querySelector(`link[rel="${r}"]`).href, rel);
   assert.ok((await href("apple-touch-icon")).includes("/storage/v1/object/public/app-icons/1/180.png"), await href("apple-touch-icon"));
@@ -2154,7 +2117,7 @@ await check("カレンダー: 管理画面で足したアイコンが選択肢�
   await page.waitForSelector(".bar");
   assert.ok((await href("apple-touch-icon")).includes("/public/app-icons/1/180.png"));
   await page.click("#tab-settings");
-  await page.waitForFunction(() => document.querySelectorAll('#icon-pick [name="appicon"]').length === 5);
+  await page.waitForFunction(() => document.querySelectorAll('#icon-pick [name="appicon"]').length === 2);
   assert.equal(await page.locator('#icon-pick [name="appicon"]:checked').getAttribute("value"), "r1");
   // 管理画面で消された(読めなくなった)ら、開き直したときに今のアイコンに戻る
   be.st.appIcons.length = 0;
@@ -2163,24 +2126,26 @@ await check("カレンダー: 管理画面で足したアイコンが選択肢�
   await page.waitForTimeout(500);
   assert.ok((await href("apple-touch-icon")).endsWith("icons/apple-touch-icon.png"), await href("apple-touch-icon"));
   assert.equal(await page.evaluate(() => localStorage.getItem("shiftflow.cal.icon")), null);
-  // 前の版は id だけ("green")を覚えていた。それも読める
-  await page.evaluate(() => localStorage.setItem("shiftflow.cal.icon", "green"));
-  await page.reload();
-  await page.waitForSelector(".bar");
-  assert.ok((await href("apple-touch-icon")).endsWith("icons/v/green-180.png"));
+  // 試作のときに覚えた「青・緑・オレンジ」(画像はもう無い)は、今のアイコンのまま(id だけの形も、URL つきの形も)
+  for (const old of ["green", JSON.stringify({ id: "green", name: "緑", small: "icons/v/green-192.png", touch: "icons/v/green-180.png", any192: "icons/v/green-192.png", any512: "icons/v/green-512.png", maskable: "icons/v/green-512.png" })]) {
+    await page.evaluate((v) => localStorage.setItem("shiftflow.cal.icon", v), old);
+    await page.reload();
+    await page.waitForSelector(".bar");
+    assert.ok((await href("apple-touch-icon")).endsWith("icons/apple-touch-icon.png"), "試作の値で画像が消えている: " + (await href("apple-touch-icon")));
+  }
   assert.deepEqual(errors, []);
   await ctx.close();
 });
 
 await check("管理画面(設定): ホーム画面のアイコンを足す(画像は512・192・180の正方形PNGで入る)・名前を直す・並べ替える・隠す・消す(画像も消える)。画像の途中で失敗したら追加しない", async () => {
-  const png = new URL("../../../web/calendar/icons/v/blue-512.png", import.meta.url).pathname;
+  const png = new URL("../../../web/calendar/icons/icon-512.png", import.meta.url).pathname;
   const { page, ctx, be, errors } = await open("admin.html#settings", { userId: "a1", opts: { profile: ADMIN, appIcons: [{ name: "一つ目" }] }, viewport: { width: 1200, height: 900 }, beforeLoad: async (p) => { p.removeAllListeners("dialog"); p.on("dialog", (d) => d.accept().catch(() => {})); } });
   await page.waitForSelector("#icon-list .notice-admin-row");
   assert.equal(await page.locator("#icon-list .notice-admin-row").count(), 1);
   // 足す
   await page.fill("#icon-name", "桜");
   await page.setInputFiles("#icon-file", png);
-  await page.waitForSelector("#icon-preview:not([hidden])");
+  await page.waitForSelector("#icon-crop:not([hidden])");
   await page.click("#icon-save");
   await page.waitForFunction(() => document.querySelectorAll("#icon-list .notice-admin-row").length === 2);
   const post = be.st.calls.find((c) => c.path === "/rest/v1/app_icons" && c.method === "POST").body;
@@ -2220,7 +2185,7 @@ await check("管理画面(設定): ホーム画面のアイコンを足す(画�
   await b.page.waitForSelector("#icon-save");
   await b.page.fill("#icon-name", "失敗");
   await b.page.setInputFiles("#icon-file", png);
-  await b.page.waitForSelector("#icon-preview:not([hidden])");
+  await b.page.waitForSelector("#icon-crop:not([hidden])");
   await b.page.click("#icon-save");
   await b.page.waitForFunction(() => document.getElementById("icon-message").className.includes("error"));
   assert.match(await b.page.textContent("#icon-message"), /追加していません/);
@@ -2234,6 +2199,61 @@ await check("管理画面(設定): ホーム画面のアイコンを足す(画�
   await c.page.waitForFunction(() => document.getElementById("icon-message").className.includes("error"));
   assert.match(await c.page.textContent("#icon-message"), /小さすぎます/);
   await c.ctx.close();
+});
+
+await check("管理画面(設定): アイコンにする範囲を、画像のドラッグ・大きさのスライダー・矢印キーで決められる(画像の外にははみ出さない)。できあがりと丸く切られたときのプレビューが出て、決めた範囲で3つの大きさの画像が入る", async () => {
+  const png = new URL("../../../web/calendar/icons/icon-512.png", import.meta.url).pathname; // 512×512
+  const { page, ctx, be, errors } = await open("admin.html#settings", { userId: "a1", opts: { profile: ADMIN, appIcons: [] }, viewport: { width: 1200, height: 1000 } });
+  await page.waitForSelector("#icon-file");
+  assert.equal(await page.locator("#icon-crop").isHidden(), true, "画像を選ぶ前は出ない");
+  await page.setInputFiles("#icon-file", png);
+  await page.waitForSelector("#icon-crop:not([hidden])");
+  const crop = async () => (await page.getAttribute("#icon-crop-view", "data-crop")).split(",").map(Number);
+  assert.deepEqual(await crop(), [0, 0, 512], "はじめは、短い辺がちょうど入る(真ん中)");
+  assert.equal(await page.getAttribute("#icon-zoom", "max"), "266", "窓の中が192px未満になるほど大きくはできない(512÷192)");
+  const setZoom = (z) => page.evaluate((v) => { const el = document.getElementById("icon-zoom"); el.value = String(v); el.dispatchEvent(new Event("input", { bubbles: true })); }, z);
+  // 大きさ 200%: 窓の真ん中は動かない
+  await setZoom(200);
+  assert.deepEqual(await crop(), [128, 128, 256]);
+  // ドラッグ(右へ 50px): 画像が右へ動き、見える範囲は左へ
+  await page.locator("#icon-crop-view").scrollIntoViewIfNeeded(); // 画面の外では、マウスの操作が届かない
+  const box = await page.locator("#icon-crop-view").boundingBox();
+  const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 50, cy, { steps: 5 });
+  await page.mouse.up();
+  const [sx1, sy1, side1] = await crop();
+  assert.ok(sx1 < 128 - 20 && sx1 > 128 - 80 && sy1 === 128 && side1 === 256, "ドラッグで範囲が動く: " + [sx1, sy1, side1]);
+  // 画像の外には出ない(大きく動かしても、端で止まる)
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 2000, cy + 2000, { steps: 4 });
+  await page.mouse.up();
+  assert.deepEqual(await crop(), [0, 0, 256], "左上の端で止まる");
+  // 矢印キー: 見える範囲が右へ動く
+  await page.focus("#icon-crop-view");
+  await page.keyboard.press("ArrowRight");
+  assert.ok((await crop())[0] > 0, "矢印キーで動く");
+  // 大きさを 100% に戻すと、全体に戻る
+  await setZoom(100);
+  assert.deepEqual(await crop(), [0, 0, 512]);
+  // プレビューが2つ(できあがり・丸く切られたとき)出ていて、描かれている
+  for (const id of ["icon-preview", "icon-preview-round"]) {
+    assert.equal(await page.locator("#" + id).isVisible(), true);
+    const painted = await page.evaluate((i) => { const d = document.getElementById(i).getContext("2d").getImageData(48, 48, 1, 1).data; return d[3] > 0; }, id);
+    assert.ok(painted, id + " が空");
+  }
+  // 決めた範囲で保存 → 3つの大きさの画像が入る
+  await setZoom(200);
+  await page.fill("#icon-name", "切り取り");
+  await page.click("#icon-save");
+  await page.waitForFunction(() => document.getElementById("icon-message").textContent.includes("追加しました"));
+  assert.deepEqual(be.st.iconUploads.map((u) => u.path).sort(), ["100/180.png", "100/192.png", "100/512.png"]);
+  assert.equal(await page.locator("#icon-crop").isHidden(), true, "追加したら、切り取りは閉じる");
+  assert.deepEqual(errors, []);
+  await page.screenshot({ path: OUT + "admin-icon-crop.png" });
+  await ctx.close();
 });
 
 await check("カレンダー: 時間つきなのに開始時刻が無い・終了が開始より前・終了日が前は、保存せずに知らせる。日をまたぐ予定は終了日を次の日にすれば通る", async () => {

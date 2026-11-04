@@ -139,3 +139,11 @@ table.master tr.changed td { background: #fff6d6; }
 #users-head .sort-btn::after { content: attr(data-mark); position: absolute; left: 100%; padding-left: 3px; }
 /* 社員番号・氏名・日時などは折り返さない(狭い画面は、表が横にスクロールする)。操作のボタンの列だけ折り返してよい */
 #users-head th, #users td:not(:last-child) { white-space: nowrap; }
+
+/* アイコンの切り取り(画像の上に四角の窓。ドラッグで動かす) */
+#icon-crop-view { display: block; width: 100%; max-width: 260px; height: auto; aspect-ratio: 1; border: 1px solid var(--line); border-radius: 8px; background: #fff; touch-action: none; cursor: grab; }
+#icon-crop-view:active { cursor: grabbing; }
+#icon-zoom { width: 100%; max-width: 260px; }
+.icon-previews { align-items: center; gap: 10px; }
+#icon-preview, #icon-preview-round { width: 64px; height: 64px; border: 1px solid var(--line); border-radius: 12px; }
+#icon-preview-round { border-radius: 50%; }

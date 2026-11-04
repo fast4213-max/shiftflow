@@ -4,18 +4,16 @@
 // そのあとで「ホーム画面に追加」してもらう。すでに追加してある人は、いったん消して追加し直す。
 //   iPhone: apple-touch-icon の画像がそのまま使われる
 //   Android(Chrome): その時点の manifest の icons が使われる(Android で確認済み 2026-11-04)。manifest は選んだアイコン入りのものをその場で作って差し替える
-// 選べるアイコン: はじめから入っているもの(コードの中。icons/)と、管理画面で足したもの(DB の app_icons・Storage の app-icons)。
+// 選べるアイコン: はじめから入っているもの(今の電車だけ。コードの中の icons/)と、管理画面で足したもの(DB の app_icons・Storage の app-icons)。
 // 選んだものは、この端末に覚える。URL ごと覚えるので、開いた直後(通信の前)に反映できる。
 
 const KEY = "shiftflow.cal.icon";
 const BUCKET = "app-icons";
 
 const builtin = (id, name, f) => ({ id, name, small: f.small, touch: f.touch, any192: f.any192, any512: f.any512, maskable: f.maskable });
-const v = (id) => ({ small: `icons/v/${id}-192.png`, touch: `icons/v/${id}-180.png`, any192: `icons/v/${id}-192.png`, any512: `icons/v/${id}-512.png`, maskable: `icons/v/${id}-512.png` });
-// 先頭は今のアイコン(manifest.webmanifest・index.html に書いてあるもの)
+// はじめから入っているのは、今のアイコン(電車)だけ(manifest.webmanifest・index.html に書いてあるもの)。ほかは管理画面で足す
 export const BUILTIN = [
   builtin("default", "いまの(電車)", { small: "icons/icon-192.png", touch: "icons/apple-touch-icon.png", any192: "icons/icon-192.png", any512: "icons/icon-512.png", maskable: "icons/icon-maskable-512.png" }),
-  builtin("blue", "青", v("blue")), builtin("green", "緑", v("green")), builtin("orange", "オレンジ", v("orange")),
 ];
 let remote = []; // 管理画面で足したもの(読めたら入る)
 
@@ -27,9 +25,10 @@ function write(v2) { try { if (v2 === null) window.localStorage.removeItem(KEY);
 function saved() {
   const raw = read();
   if (!raw) return null;
+  const ok = (o) => o && (o.id === "default" || /^r\d+$/.test(o.id)); // 試作のときの「青・緑・オレンジ」を覚えていても、今のアイコンのまま(画像はもう無い)
   try {
     const o = JSON.parse(raw);
-    if (o && typeof o === "object" && o.id && o.touch && o.small) return o;
+    if (o && typeof o === "object" && o.touch && o.small) return ok(o) ? o : null;
   } catch (_) { /* id だけの古い形 */ }
   return BUILTIN.find((x) => x.id === raw) || null;
 }

@@ -256,15 +256,26 @@
       </div>
       <div class="panel" id="icons-panel">
         <h2 id="icon-form-title">カレンダーのホーム画面のアイコン</h2>
-        <p class="muted">利用者が、カレンダーの設定の一番下で選べるアイコンです。「いまの(電車)・青・緑・オレンジ」は、はじめから入っています(ここには出ません)。ここで足したものが、その後ろに並びます。</p>
+        <p class="muted">利用者が、カレンダーの設定の一番下で選べるアイコンです。「いまの(電車)」は、はじめから入っています(ここには出ません)。ここで足したものが、その後ろに並びます。</p>
         <div id="icon-list"></div>
         <label for="icon-name">名前(20文字まで)</label>
         <input id="icon-name" maxlength="20" autocomplete="off" placeholder="例: 桜">
         <div id="icon-file-row">
           <label for="icon-file">画像(PNG・JPEG・WebP)</label>
           <input id="icon-file" type="file" accept="image/png,image/jpeg,image/webp">
-          <p class="muted">正方形でなくても、真ん中を正方形に切り取ります。512px 以上の画像がきれいです(192px 未満は使えません)。スマホで丸や角丸に切られることがあるので、大事な絵は真ん中に置いてください。</p>
-          <canvas id="icon-preview" width="96" height="96" hidden aria-label="アイコンの見え方"></canvas>
+          <p class="muted">512px 以上の画像がきれいです(192px 未満は使えません)。画像を選ぶと、アイコンにする範囲を決められます。</p>
+          <div id="icon-crop" hidden>
+            <p class="muted">四角の中が、アイコンになる範囲です。<b>画像をドラッグ</b>して位置を、<b>スライダー</b>で大きさを決めてください(矢印キーでも動かせます)。スマホによっては、アイコンが丸く切られます。点線の円の外側が隠れることがあるので、大事な絵は円の中に入れてください。</p>
+            <canvas id="icon-crop-view" width="520" height="520" tabindex="0" aria-label="アイコンにする範囲(ドラッグで動かす)"></canvas>
+            <label for="icon-zoom">大きさ</label>
+            <input id="icon-zoom" type="range" min="100" max="400" step="1" value="100">
+            <div class="row icon-previews">
+              <span class="muted">できあがり:</span>
+              <canvas id="icon-preview" width="96" height="96" aria-label="アイコンの見え方"></canvas>
+              <canvas id="icon-preview-round" width="96" height="96" aria-label="丸く切られたときの見え方"></canvas>
+              <span class="muted">(右は、丸く切られたとき)</span>
+            </div>
+          </div>
         </div>
         <div class="row">
           <button id="icon-save" class="primary">追加する</button>
