@@ -3376,6 +3376,16 @@ await check("管理画面: 「カレンダー」の列は、Google連携 済・G
   assert.equal(byName["保存だけ 太郎"], "アプリ内カレンダー");
   assert.equal(byName["接続済 太郎"], "Google連携 済");
   assert.equal(byName["区所なし 太郎"], "—", "区所を選んでいない人は、アプリ内カレンダーではなく —");
+  // 全列が左右中央揃え。見出しの文字と中身の文字の中心が、同じ列の中でそろっている(並べ替えの見出しだけ右にずれていた)
+  const aligns = await page.evaluate(() => [...document.querySelectorAll("#users-head th, #users tr:first-child td")].map((c) => getComputedStyle(c).textAlign));
+  assert.ok(aligns.every((a) => a === "center"), "利用者一覧が中央揃えでない: " + aligns);
+  const centers = await page.evaluate(() => {
+    const mid = (el) => { const r = document.createRange(); r.selectNodeContents(el); const b = r.getBoundingClientRect(); return b.left + b.width / 2; };
+    const heads = [...document.querySelectorAll("#users-head th")];
+    const cells = [...document.querySelectorAll("#users tr:first-child td")];
+    return heads.map((h, i) => (h.querySelector(".sort-btn") ? Math.abs(mid(h.querySelector(".sort-btn")) - mid(cells[i])) : 0));
+  });
+  assert.ok(centers.every((d) => d < 6), "見出しと中身の中心がずれている: " + centers);
   assert.equal(await page.textContent("#kpi-google"), "2");
   assert.equal(await page.textContent("#kpi-google-sub"), "接続テスト済み 1人(50%)");
   assert.equal(await page.textContent("#kpi-app"), "1");

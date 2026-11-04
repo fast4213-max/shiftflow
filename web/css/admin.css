@@ -131,3 +131,7 @@ table.master tr.changed td { background: #fff6d6; }
 /* 利用者一覧の見出し(押すと並べ替え) */
 .sort-btn { font: inherit; font-weight: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
 .sort-btn::after { content: " " attr(data-mark); color: var(--accent); }
+/* 利用者一覧は、見出しも中身も全列を左右中央揃えにする。
+   見出しのボタンは、表のボタン用の余白(table.list button)で右にずれていたので、余白を無くして中身と揃える */
+#users-head th, #users td { text-align: center; }
+#users-head .sort-btn { padding: 0; margin: 0; text-align: center; }
