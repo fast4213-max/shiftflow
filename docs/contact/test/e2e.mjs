@@ -112,6 +112,7 @@ function backend(opts = {}) {
       }
       // アイコンの置き場(公開): 入れる・消す・公開の URL で読む(1ドットの画像)
       if (rest.startsWith("public/app-icons/") && req.method() === "GET") {
+        if ((opts.iconMissing || []).includes(Number(rest.split("/")[2]))) return route.fulfill({ status: 404, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: "{}" });
         return route.fulfill({ status: 200, contentType: "image/png", headers: { "access-control-allow-origin": "*" }, body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64") });
       }
       if (rest.startsWith("app-icons") && req.method() === "DELETE") {
@@ -2133,6 +2134,23 @@ await check("カレンダー: 管理画面で足したアイコンが「いま�
     await page.waitForSelector(".bar");
     assert.ok((await href("apple-touch-icon")).endsWith("icons/apple-touch-icon.png"), "試作の値で画像が消えている: " + (await href("apple-touch-icon")));
   }
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("カレンダー: 画像が入っていないアイコン(追加が途中で止まって行だけ残ったもの)は、選ぶ一覧に出さない。覚えてある選びは、画像が読めないだけでは戻さない", async () => {
+  const { page, ctx, errors } = await calOpen({}, { appIcons: [{ name: "桜" }, { name: "壊れた" }, { name: "梅" }], iconMissing: [2] });
+  await page.waitForSelector(".bar");
+  await page.waitForTimeout(300);
+  await page.click("#tab-settings");
+  await page.waitForFunction(() => document.querySelectorAll('#icon-pick [name="appicon"]').length === 3);
+  assert.deepEqual(await page.locator("#icon-pick .ic span").allTextContents(), ["いまの(電車)", "桜", "梅"]);
+  // 画像が読めないアイコンを覚えていても、選びは消さない(通信の不調かもしれない)
+  await page.evaluate(() => localStorage.setItem("shiftflow.cal.icon", JSON.stringify({ id: "r2", name: "壊れた", small: "x/192.png", touch: "x/180.png", any192: "x/192.png", any512: "x/512.png", maskable: "x/512.png" })));
+  await page.reload();
+  await page.waitForSelector(".bar");
+  await page.waitForTimeout(500);
+  assert.notEqual(await page.evaluate(() => localStorage.getItem("shiftflow.cal.icon")), null);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

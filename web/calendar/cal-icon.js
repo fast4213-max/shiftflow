@@ -73,6 +73,17 @@ export function choose(id) {
   apply(ic);
 }
 
+// 画像が読めるか。読み込みに失敗したら false。8秒たっても分からないときは true(遅いだけで外さない)
+function imageExists(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const timer = setTimeout(() => resolve(true), 8000);
+    img.onload = () => { clearTimeout(timer); resolve(true); };
+    img.onerror = () => { clearTimeout(timer); resolve(false); };
+    img.src = url;
+  });
+}
+
 // 管理画面で足したアイコンを読む(読めなくても、はじめから入っているものは使える)。
 // 覚えてあるのが、管理画面で消された(隠された)アイコンなら、今のアイコンに戻す(消えた画像を指さないように)
 export async function loadRemote(supabase, esc, onLoaded) {
@@ -83,8 +94,13 @@ export async function loadRemote(supabase, esc, onLoaded) {
     remote = data.map((r) => builtin("r" + r.id, r.name, {
       small: pub(`${r.id}/192.png`), touch: pub(`${r.id}/180.png`), any192: pub(`${r.id}/192.png`), any512: pub(`${r.id}/512.png`), maskable: pub(`${r.id}/512.png`),
     }));
+    // 覚えてあるのが管理画面で消された(隠された)アイコンなら、今のアイコンに戻す。画像が読めないだけ(通信の不調)では戻さない
     const s = saved();
     if (s && /^r\d+$/.test(s.id) && !remote.some((x) => x.id === s.id)) { write(null); apply(BUILTIN[0]); }
+    // 画像が入っていないアイコン(管理画面の追加が途中で止まって行だけ残ったもの)は、選ぶ一覧に出さない。
+    // 画像が無い(404 など読み込みの失敗)と分かったものだけ外す。時間がかかるだけのものは外さない
+    const alive = await Promise.all(remote.map((x) => imageExists(x.small)));
+    remote = remote.filter((x, i) => alive[i]);
     // 設定が開いていたら、一覧だけ差し替える
     const card = document.getElementById("icon-pick");
     if (card) card.outerHTML = sectionHtml(esc);

@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # test.yml と同じ内容。通ったときだけ deploy に進む
+  # test.yml の deno と calendar-core と同じ内容(DB のテストは Deploy Supabase が通ってから進むので、ここでは待つだけ)。通ったときだけ deploy に進む
   # (web/js/plan.js などだけを変えて、テストが赤いのに画面だけ公開されるのを防ぐ)
   test:
     runs-on: ubuntu-latest
@@ -33,6 +33,11 @@ jobs:
       - run: deno check */index.ts
         working-directory: supabase/functions
       - run: deno test --allow-read --allow-env supabase/functions
+      # shiftflowカレンダーの計算(web/calendar/cal-core.js)。これが赤いまま画面だけ公開されないように
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node --test docs/mycalendar/test/cal-core.test.mjs
 
   deploy:
     needs: test

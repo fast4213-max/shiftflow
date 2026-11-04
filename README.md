@@ -77,7 +77,7 @@ docs/DESIGN.md              設計
 docs/contact/               お問い合わせ・お知らせの設計・セットアップ・GAS のコード(gas/Code.gs)・テスト
 docs/proposal/              改善提案書(A4 1枚の PDF と、作るスクリプト)
 docs/sheets/                セキュリティシート・管理者の手引き・使い方(A4 1枚ずつの PDF と、作るスクリプト)。提出用は、ここと docs/proposal の4つ
-WORKLOG.md                  作業ログ(要約と現在の状態)。デバッグの記録は docs/DEBUG-LOG.md(最初に全回の一覧表。1〜10回目は docs/DEBUG-LOG-archive.md・11〜17回目は -archive-2・18〜22回目は -archive-3・23回目は -archive-4・24回目は -archive-5)、古い履歴は docs/WORKLOG-archive*.md
+WORKLOG.md                  作業ログ(要約と現在の状態)。デバッグの記録は docs/DEBUG-LOG.md(最初に全回の一覧表。1〜10回目は docs/DEBUG-LOG-archive.md・11〜17回目は -archive-2・18〜22回目は -archive-3・23回目は -archive-4・24回目は -archive-5・25回目は -archive-6)、古い履歴は docs/WORKLOG-archive*.md
 ```
 
 ---
