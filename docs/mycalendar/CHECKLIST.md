@@ -137,6 +137,8 @@ create policy calendar_delete_own on storage.objects for delete to authenticated
 - [ ] 本番で確かめる(migration を反映したあと): Storage に公開のバケット `app-icons` と権限3つ(`app_icons_select_admin`・`app_icons_insert_admin`・`app_icons_delete_admin`)ができているか。できていなければ、下の「アイコンの置き場を手で作る SQL」を実行
 - [ ] 実機で確かめる: 管理画面で足したアイコン(画像は Supabase の URL。端末から読めるか)を、Android・iPhone の「ホーム画面に追加」で選べるか
 
+- [x] アイコンの切り取り・初期アイコン(2026-11-04・ご依頼): 管理画面で、画像を枠の中でドラッグして位置・スライダーで大きさ・矢印キーで微調整し、アイコンにする範囲を決める(点線の円=丸く切られても残る範囲の目安・できあがりと丸く切られたときのプレビュー・窓は画像の外に出ない・窓の中が192px未満にはならない)。はじめから入っているアイコンは「いまの(電車)」だけにした(試作の青・緑・オレンジは外した)。**切り取りの操作は実機で確認した(ご本人)**
+
 ## アイコンの置き場を手で作る SQL(migration で作れなかったときだけ)
 本番に反映したあと、migration のログに「Storage の app-icons バケット・権限を作れませんでした」と出たとき、またはダッシュボードの Storage に `app-icons` が無いときに、SQL エディタで実行する。
 
