@@ -131,3 +131,27 @@ create policy calendar_delete_own on storage.objects for delete to authenticated
 - [x] 実機で確かめた(2026-11-04): 本番の管理画面で、保存だけの人が出る(いまは「アプリ内」と表示)
 - [x] 管理画面の見直し(2026-11-04・ご依頼): 概要を「Google連携」「アプリ内カレンダー」の2枚に・「直近7日の新規登録」を外す・「30日以内に登録・保存した人」は合算。利用者の「接続」→「カレンダー」(Google連携 済/未・アプリ内・—)、「最終登録」→「最終登録・保存」、全列中央揃え。migration `20261104000000`。28回目のデバッグ(AJ1〜AJ7)
 - [x] 日の長押しで予定の追加(2026-11-04・ご依頼): 日のマスを0.5秒押すと追加フォームが開く(開始日・終了日はその日)。短いタップは日の一覧のまま。動いたら取りやめ。実機(スマホ)でも試した
+- [x] ホーム画面のアイコンを選ぶ(試作 2026-11-04・ご依頼): 設定の一番下で、青・緑・オレンジ・いまの(電車)から選ぶ。選んだアイコンを apple-touch-icon・タブのアイコン・manifest(その場で作る)に反映し、そのあと「ホーム画面に追加」してもらう。`web/calendar/cal-icon.js`。**Android(Chrome)で、選んだ緑のアイコンのままホーム画面に入ることを実機で確認した(2026-11-04)**
+- [ ] 実機で確かめる: **iPhone**(Safari の「ホーム画面に追加」の確認画面に、選んだアイコンが出るか。追加後のホーム画面でも)
+- [x] ホーム画面のアイコンの管理画面(2026-11-04・ご依頼。本番の形): 管理画面の「設定」タブの「カレンダーのホーム画面のアイコン」で、アイコンを足す・名前を直す・並べ替える・隠す・消す(最大20件)。画像は、管理画面が真ん中を正方形に切って 512・192・180px の PNG にして Storage の公開バケット `app-icons`(`<id>/180・192・512.png`)に入れる。一覧は表 `app_icons`(管理者だけ書ける・利用者は表示中だけ読める)。カレンダー側は、はじめから入っているもの(電車・青・緑・オレンジ)の後ろに足したものを並べる。選んだものは URL ごと端末に覚え、管理画面で消された(隠された)ら今のアイコンに戻す。migration `20261104000001_app_icons.sql`。画面テスト・DB assert を追加
+- [ ] 本番で確かめる(migration を反映したあと): Storage に公開のバケット `app-icons` と権限3つ(`app_icons_select_admin`・`app_icons_insert_admin`・`app_icons_delete_admin`)ができているか。できていなければ、下の「アイコンの置き場を手で作る SQL」を実行
+- [ ] 実機で確かめる: 管理画面で足したアイコンを、Android の「ホーム画面に追加」で選べるか(画像は Supabase の URL。端末から読めるか)
+
+## アイコンの置き場を手で作る SQL(migration で作れなかったときだけ)
+本番に反映したあと、migration のログに「Storage の app-icons バケット・権限を作れませんでした」と出たとき、またはダッシュボードの Storage に `app-icons` が無いときに、SQL エディタで実行する。
+
+```sql
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('app-icons', 'app-icons', true, 1048576, array['image/png'])
+on conflict (id) do update set public = true, file_size_limit = 1048576, allowed_mime_types = array['image/png'];
+
+drop policy if exists app_icons_select_admin on storage.objects;
+drop policy if exists app_icons_insert_admin on storage.objects;
+drop policy if exists app_icons_delete_admin on storage.objects;
+create policy app_icons_select_admin on storage.objects for select to authenticated
+  using (bucket_id = 'app-icons' and public.is_admin());
+create policy app_icons_insert_admin on storage.objects for insert to authenticated
+  with check (bucket_id = 'app-icons' and public.is_admin());
+create policy app_icons_delete_admin on storage.objects for delete to authenticated
+  using (bucket_id = 'app-icons' and public.is_admin());
+```

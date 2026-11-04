@@ -254,6 +254,24 @@
         <p id="token-status" class="muted"></p>
         <p class="muted">GitHub の自動デプロイ(Secrets の <code>SUPABASE_ACCESS_TOKEN</code>)に使っています。切れると、データベースと関数の更新だけが止まります(いま動いているアプリは止まりません)。新しく作ったら、GitHub の Secrets を上書きし、<code>web/js/config.js</code> の <code>TOKEN_EXPIRES</code> の日付を書き換えます。</p>
       </div>
+      <div class="panel" id="icons-panel">
+        <h2 id="icon-form-title">カレンダーのホーム画面のアイコン</h2>
+        <p class="muted">利用者が、カレンダーの設定の一番下で選べるアイコンです。「いまの(電車)・青・緑・オレンジ」は、はじめから入っています(ここには出ません)。ここで足したものが、その後ろに並びます。</p>
+        <div id="icon-list"></div>
+        <label for="icon-name">名前(20文字まで)</label>
+        <input id="icon-name" maxlength="20" autocomplete="off" placeholder="例: 桜">
+        <div id="icon-file-row">
+          <label for="icon-file">画像(PNG・JPEG・WebP)</label>
+          <input id="icon-file" type="file" accept="image/png,image/jpeg,image/webp">
+          <p class="muted">正方形でなくても、真ん中を正方形に切り取ります。512px 以上の画像がきれいです(192px 未満は使えません)。スマホで丸や角丸に切られることがあるので、大事な絵は真ん中に置いてください。</p>
+          <canvas id="icon-preview" width="96" height="96" hidden aria-label="アイコンの見え方"></canvas>
+        </div>
+        <div class="row">
+          <button id="icon-save" class="primary">追加する</button>
+          <button id="icon-cancel" class="hidden">編集をやめる</button>
+        </div>
+        <p id="icon-message" class="message" aria-live="polite"></p>
+      </div>
       <div class="panel">
         <h2>管理用パスワード</h2>
         <p class="muted">この画面に入るパスワードは、Supabase のダッシュボード「Edge Functions」→「Secrets」の <code>ADMIN_PASSWORD</code> です(12文字以上)。変えるときはそこを書き換えてください。</p>

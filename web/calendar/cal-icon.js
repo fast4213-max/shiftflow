@@ -1,23 +1,40 @@
-// ホーム画面のアイコンを選ぶ(試作)。
+// ホーム画面のアイコンを選ぶ(カレンダーの設定の一番下)。
 // スマホは、「ホーム画面に追加」を押した時点のアイコンを保存する(あとから入れ替えられない)。
 // だから、選んだアイコンを、ページが指す「アイコンの指定」(apple-touch-icon・設定ファイル manifest)に反映しておき、
 // そのあとで「ホーム画面に追加」してもらう。すでに追加してある人は、いったん消して追加し直す。
 //   iPhone: apple-touch-icon の画像がそのまま使われる
-//   Android(Chrome): その時点の manifest の icons が使われる。manifest は選んだアイコン入りのものをその場で作って差し替える
-// 画像は icons/ の中(画像の置き場所は、あとで管理画面から追加できる形に変える予定)。
+//   Android(Chrome): その時点の manifest の icons が使われる(Android で確認済み 2026-11-04)。manifest は選んだアイコン入りのものをその場で作って差し替える
+// 選べるアイコン: はじめから入っているもの(コードの中。icons/)と、管理画面で足したもの(DB の app_icons・Storage の app-icons)。
+// 選んだものは、この端末に覚える。URL ごと覚えるので、開いた直後(通信の前)に反映できる。
 
 const KEY = "shiftflow.cal.icon";
-// 先頭は今のアイコン(manifest.webmanifest・index.html に書いてあるもの)。ほかは icons/v/<id>-<大きさ>.png
-export const ICONS = [
-  { id: "default", name: "いまの(電車)", small: "icons/icon-192.png", touch: "icons/apple-touch-icon.png", any192: "icons/icon-192.png", any512: "icons/icon-512.png", maskable: "icons/icon-maskable-512.png" },
-  { id: "blue", name: "青" }, { id: "green", name: "緑" }, { id: "orange", name: "オレンジ" },
-].map((x) => x.id === "default" ? x : { ...x, small: `icons/v/${x.id}-192.png`, touch: `icons/v/${x.id}-180.png`, any192: `icons/v/${x.id}-192.png`, any512: `icons/v/${x.id}-512.png`, maskable: `icons/v/${x.id}-512.png` });
+const BUCKET = "app-icons";
 
-function get() { try { return window.localStorage.getItem(KEY); } catch (_) { return null; } }
-function set(v) { try { window.localStorage.setItem(KEY, v); } catch (_) { /* 覚えられない端末では、開き直すと今のアイコンに戻る */ } }
+const builtin = (id, name, f) => ({ id, name, small: f.small, touch: f.touch, any192: f.any192, any512: f.any512, maskable: f.maskable });
+const v = (id) => ({ small: `icons/v/${id}-192.png`, touch: `icons/v/${id}-180.png`, any192: `icons/v/${id}-192.png`, any512: `icons/v/${id}-512.png`, maskable: `icons/v/${id}-512.png` });
+// 先頭は今のアイコン(manifest.webmanifest・index.html に書いてあるもの)
+export const BUILTIN = [
+  builtin("default", "いまの(電車)", { small: "icons/icon-192.png", touch: "icons/apple-touch-icon.png", any192: "icons/icon-192.png", any512: "icons/icon-512.png", maskable: "icons/icon-maskable-512.png" }),
+  builtin("blue", "青", v("blue")), builtin("green", "緑", v("green")), builtin("orange", "オレンジ", v("orange")),
+];
+let remote = []; // 管理画面で足したもの(読めたら入る)
+
 const abs = (p) => new URL(p, document.baseURI).href;
-export const iconOf = (id) => ICONS.find((x) => x.id === id) || ICONS[0];
-export const currentId = () => iconOf(get()).id;
+function read() { try { return window.localStorage.getItem(KEY); } catch (_) { return null; } }
+function write(v2) { try { if (v2 === null) window.localStorage.removeItem(KEY); else window.localStorage.setItem(KEY, v2); } catch (_) { /* 覚えられない端末では、開き直すと今のアイコンに戻る */ } }
+
+// 覚えてあるアイコン。前の版は id だけを覚えていた("green" など)ので、それも読む
+function saved() {
+  const raw = read();
+  if (!raw) return null;
+  try {
+    const o = JSON.parse(raw);
+    if (o && typeof o === "object" && o.id && o.touch && o.small) return o;
+  } catch (_) { /* id だけの古い形 */ }
+  return BUILTIN.find((x) => x.id === raw) || null;
+}
+export const all = () => [...BUILTIN, ...remote];
+export const currentId = () => (saved() || BUILTIN[0]).id;
 
 let blobUrl = "";
 function link(rel) {
@@ -26,9 +43,8 @@ function link(rel) {
   return el;
 }
 
-// 選んだアイコンを、ページのアイコンの指定に反映する
-export function apply(id) {
-  const ic = iconOf(id);
+// アイコンを、ページのアイコンの指定に反映する
+export function apply(ic) {
   link("apple-touch-icon").href = abs(ic.touch);
   link("icon").href = abs(ic.small);
   // 設定ファイル: 写しを作って、アイコンの場所だけ差し替える。blob の中では、相対の場所は使えないので、全部 URL で書く
@@ -50,17 +66,37 @@ export function apply(id) {
 }
 
 // 開いたときに、前に選んだアイコンを反映する(選んでいなければ、何もしない)
-export function applySaved() { if (get()) apply(currentId()); }
+export function applySaved() { const ic = saved(); if (ic) apply(ic); }
 
 export function choose(id) {
-  set(iconOf(id).id);
-  apply(id);
+  const ic = all().find((x) => x.id === id) || BUILTIN[0];
+  write(JSON.stringify(ic));
+  apply(ic);
+}
+
+// 管理画面で足したアイコンを読む(読めなくても、はじめから入っているものは使える)。
+// 覚えてあるのが、管理画面で消された(隠された)アイコンなら、今のアイコンに戻す(消えた画像を指さないように)
+export async function loadRemote(supabase, esc, onLoaded) {
+  try {
+    const { data, error } = await supabase.from("app_icons").select("id, name").order("sort_order").order("id");
+    if (error || !Array.isArray(data)) return;
+    const pub = (path) => supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+    remote = data.map((r) => builtin("r" + r.id, r.name, {
+      small: pub(`${r.id}/192.png`), touch: pub(`${r.id}/180.png`), any192: pub(`${r.id}/192.png`), any512: pub(`${r.id}/512.png`), maskable: pub(`${r.id}/512.png`),
+    }));
+    const s = saved();
+    if (s && /^r\d+$/.test(s.id) && !remote.some((x) => x.id === s.id)) { write(null); apply(BUILTIN[0]); }
+    // 設定が開いていたら、一覧だけ差し替える
+    const card = document.getElementById("icon-pick");
+    if (card) card.outerHTML = sectionHtml(esc);
+    if (onLoaded) onLoaded();
+  } catch (_) { /* 読めなければ、はじめから入っているものだけ */ }
 }
 
 export function sectionHtml(esc) {
   const cur = currentId();
   const standalone = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
-  const tiles = ICONS.map((x) => `<label class="ic"><input type="radio" name="appicon" value="${esc(x.id)}"${cur === x.id ? " checked" : ""}><img src="${esc(x.small)}" alt="" width="56" height="56"><span>${esc(x.name)}</span></label>`).join("");
+  const tiles = all().map((x) => `<label class="ic"><input type="radio" name="appicon" value="${esc(x.id)}"${cur === x.id ? " checked" : ""}><img src="${esc(x.small)}" alt="" width="56" height="56"><span>${esc(x.name)}</span></label>`).join("");
   return `<div class="card" id="icon-pick"><h3>ホーム画面のアイコン</h3>
     <div class="icgrid" role="radiogroup" aria-label="ホーム画面のアイコン">${tiles}</div>
     <p class="sub" id="icon-note">${standalone ? "いま、ホーム画面から開いています。" : ""}アイコンを選んだあとで、ホーム画面に追加してください(iPhone: 共有 →「ホーム画面に追加」/ Android: メニュー →「ホーム画面に追加」または「アプリをインストール」)。</p>

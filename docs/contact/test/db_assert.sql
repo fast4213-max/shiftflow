@@ -718,3 +718,76 @@ begin
   perform set_config('request.jwt.claim.sub', '', true);
 end
 $$;
+
+-- ホーム画面のアイコン(app_icons): 管理者だけ書ける・利用者は表示中のものだけ読める・20件まで・並べ替え・Storage の権限
+do $$
+declare
+  admin_id uuid := 'dddddddd-0000-4000-8000-0000000000b1';
+  u uuid := 'dddddddd-0000-4000-8000-0000000000b2';
+  a bigint; b bigint; c bigint;
+  failed boolean;
+begin
+  assert not has_table_privilege('anon', 'public.app_icons', 'select'), 'anon が app_icons を読める';
+  assert (select relrowsecurity from pg_class where oid = 'public.app_icons'::regclass), 'app_icons の RLS が無効';
+  assert not has_function_privilege('anon', 'public.move_app_icon(bigint,int)', 'execute'), 'anon が move_app_icon を実行できる';
+  assert not has_function_privilege('authenticated', 'public.app_icons_limit()', 'execute'), 'authenticated が app_icons_limit を実行できる';
+  insert into auth.users (id) values (admin_id), (u);
+  insert into public.profiles (user_id, role) values (admin_id, 'admin');
+  insert into public.profiles (user_id, employee_no, family_name, given_name) values (u, '7000031', '利', '用');
+  -- 管理者: 足せる・並べ替えられる・隠せる
+  perform set_config('request.jwt.claim.sub', admin_id::text, true);
+  set local role authenticated;
+  insert into public.app_icons (name, sort_order) values ('一番目', 5) returning id into a;
+  insert into public.app_icons (name, sort_order) values ('二番目', 5) returning id into b;
+  insert into public.app_icons (name, sort_order, visible) values ('隠し', 9, false) returning id into c;
+  perform public.move_app_icon(a, 1);
+  assert (select string_agg(name, ',' order by sort_order) from public.app_icons) = '二番目,一番目,隠し', '下へ動かない';
+  assert (select string_agg(sort_order::text, ',' order by sort_order) from public.app_icons) = '1,2,3', '並びが 1,2,3 に直らない';
+  begin perform public.move_app_icon(-1, 1); failed := false; exception when others then failed := true; end;
+  assert failed, '無いアイコンを動かせた';
+  assert (select count(*) from public.app_icons) = 3, '管理者は隠したものも読める';
+  -- 利用者: 表示中のものだけ読める・書けない・動かせない
+  reset role;
+  perform set_config('request.jwt.claim.sub', u::text, true);
+  set local role authenticated;
+  assert (select count(*) from public.app_icons) = 2, '利用者に隠したアイコンが見える';
+  begin insert into public.app_icons (name) values ('x'); failed := false; exception when others then failed := true; end;
+  assert failed, '利用者がアイコンを足せる';
+  begin perform public.move_app_icon(a, 1); failed := false; exception when others then failed := true; end;
+  assert failed, '利用者がアイコンを動かせる';
+  update public.app_icons set name = '書き換え' where id = a;
+  delete from public.app_icons where id = a;
+  reset role;
+  assert (select count(*) from public.app_icons where id = a and name = '一番目') = 1, '利用者がアイコンを書き換え・消せた(RLS が効いていない)';
+  -- 名前の長さ・20件まで
+  perform set_config('request.jwt.claim.sub', admin_id::text, true);
+  set local role authenticated;
+  begin insert into public.app_icons (name) values (''); failed := false; exception when others then failed := true; end;
+  assert failed, '空の名前を入れられた';
+  begin insert into public.app_icons (name) values (repeat('あ', 21)); failed := false; exception when others then failed := true; end;
+  assert failed, '21文字の名前を入れられた';
+  insert into public.app_icons (name) select 'n' || g from generate_series(1, 17) g;
+  begin insert into public.app_icons (name) values ('21件目'); failed := false; exception when others then failed := true; end;
+  assert failed, '21件目を入れられた';
+  reset role;
+  -- Storage(テスト用の偽物でも、バケットと管理者の権限ができている)
+  if to_regclass('storage.buckets') is not null then
+    assert (select public from storage.buckets where id = 'app-icons'), 'app-icons が公開のバケットでない';
+    assert (select count(*) from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname in ('app_icons_select_admin', 'app_icons_insert_admin', 'app_icons_delete_admin')) = 3, 'app-icons の権限が3つ無い';
+    perform set_config('request.jwt.claim.sub', u::text, true);
+    set local role authenticated;
+    begin insert into storage.objects (bucket_id, name) values ('app-icons', '1/512.png'); failed := false; exception when others then failed := true; end;
+    assert failed, '利用者がアイコンの画像を入れられる';
+    reset role;
+    perform set_config('request.jwt.claim.sub', admin_id::text, true);
+    set local role authenticated;
+    insert into storage.objects (bucket_id, name) values ('app-icons', '1/512.png');
+    reset role;
+    delete from storage.objects where bucket_id = 'app-icons';
+  end if;
+  delete from public.app_icons;
+  delete from auth.users where id in (admin_id, u);
+  delete from public.profiles where user_id in (admin_id, u);
+  perform set_config('request.jwt.claim.sub', '', true);
+end
+$$;

@@ -36,6 +36,7 @@ const NOTICES = [
 function backend(opts = {}) {
   const st = { cal: { cal_labels: [], cal_events: [] }, calSeq: 0, uploads: [], removed: [], calls: [], inquiries: [], notices: [...NOTICES], nextNotice: 10,
     guides: (opts.guides || []).map((g, i) => ({ id: i + 1, kind: "video", visible: true, sort_order: i + 1, ...g })), nextGuide: 100,
+    appIcons: (opts.appIcons || []).map((x, i) => ({ id: i + 1, visible: true, sort_order: i + 1, ...x })), nextAppIcon: 100, iconUploads: [], iconRemoved: [],
     offices: [{ id: 1, name: "A区所", sort_order: 1 }, { id: 2, name: "B区所", sort_order: 2 }, { id: 3, name: "C区所", sort_order: 3 }] };
   const handler = async (route) => {
     const req = route.request();
@@ -108,6 +109,20 @@ function backend(opts = {}) {
       if (rest.startsWith("calendar") && req.method() === "DELETE") {
         st.removed.push(...((body && body.prefixes) || []));
         return json([]);
+      }
+      // アイコンの置き場(公開): 入れる・消す・公開の URL で読む(1ドットの画像)
+      if (rest.startsWith("public/app-icons/") && req.method() === "GET") {
+        return route.fulfill({ status: 200, contentType: "image/png", headers: { "access-control-allow-origin": "*" }, body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64") });
+      }
+      if (rest.startsWith("app-icons") && req.method() === "DELETE") {
+        st.iconRemoved.push(...((body && body.prefixes) || []));
+        return json([]);
+      }
+      if (rest.startsWith("app-icons/") && (req.method() === "POST" || req.method() === "PUT")) {
+        if (opts.iconUploadFail && rest.endsWith("/192.png")) return json({ message: "upload failed" }, 500);
+        const buf = req.postDataBuffer() || Buffer.alloc(0);
+        st.iconUploads.push({ path: rest.slice("app-icons/".length), size: buf.length, head: buf.subarray(0, 400).toString("latin1") });
+        return json({ Key: rest, Id: "x" });
       }
       if (rest.startsWith("calendar/") && (req.method() === "POST" || req.method() === "PUT")) {
         const buf = req.postDataBuffer() || Buffer.alloc(0);
@@ -240,6 +255,22 @@ function backend(opts = {}) {
       if (j >= 0 && j < list.length) [list[i], list[j]] = [list[j], list[i]];
       list.forEach((g, k) => { g.sort_order = k + 1; });
       return json(null, 204);
+    }
+    if (path === "/rest/v1/rpc/move_app_icon") {
+      const list = st.appIcons.sort((a, b) => a.sort_order - b.sort_order);
+      const i = list.findIndex((g) => g.id === body.p_id); const j = i + (body.p_delta < 0 ? -1 : 1);
+      if (i < 0) return json({ message: "アイコンが見つかりません" }, 400);
+      if (j >= 0 && j < list.length) [list[i], list[j]] = [list[j], list[i]];
+      list.forEach((g, k) => { g.sort_order = k + 1; });
+      return json(null, 204);
+    }
+    if (path === "/rest/v1/app_icons") {
+      const id = Number((url.searchParams.get("id") || "").replace("eq.", ""));
+      // 管理画面は全部(select=*)、利用者は表示中のものだけ(RLS)
+      if (req.method() === "GET") return json([...st.appIcons].filter((x) => url.searchParams.get("select") === "*" || x.visible).sort((a, b) => a.sort_order - b.sort_order));
+      if (req.method() === "POST") { const row = { id: st.nextAppIcon++, visible: true, ...body }; st.appIcons.push(row); return json({ id: row.id }, 201); }
+      if (req.method() === "PATCH") { const g = st.appIcons.find((x) => x.id === id); if (g) Object.assign(g, body); return json(g ? [{ id }] : []); }
+      if (req.method() === "DELETE") { st.appIcons = st.appIcons.filter((g) => g.id !== id); return json(null, 204); }
     }
     if (path === "/rest/v1/guide_links") {
       const id = Number((url.searchParams.get("id") || "").replace("eq.", ""));
@@ -2102,6 +2133,107 @@ await check("カレンダー: 設定の一番下でホーム画面のアイコ�
   assert.deepEqual(errors, []);
   await page.screenshot({ path: OUT + "calendar-icon-pick.png" });
   await ctx.close();
+});
+
+await check("カレンダー: 管理画面で足したアイコンが選択肢の後ろに並び、選ぶと公開の URL が apple-touch-icon・manifest・タブに入る。開き直しても残り、管理画面で消されたら今のアイコンに戻る。前の版が覚えた id だけの値も読める", async () => {
+  const { page, ctx, be, errors } = await calOpen({}, { appIcons: [{ name: "桜" }, { name: "隠し", visible: false }] });
+  await page.waitForSelector(".bar");
+  await page.waitForTimeout(300);
+  await page.click("#tab-settings");
+  await page.waitForSelector("#icon-pick");
+  await page.waitForFunction(() => document.querySelectorAll('#icon-pick [name="appicon"]').length === 5);
+  assert.deepEqual(await page.locator("#icon-pick .ic span").allTextContents(), ["いまの(電車)", "青", "緑", "オレンジ", "桜"]);
+  await page.locator('#icon-pick label:has([value="r1"])').click();
+  const href = (rel) => page.evaluate((r) => document.head.querySelector(`link[rel="${r}"]`).href, rel);
+  assert.ok((await href("apple-touch-icon")).includes("/storage/v1/object/public/app-icons/1/180.png"), await href("apple-touch-icon"));
+  assert.ok((await href("icon")).includes("/storage/v1/object/public/app-icons/1/192.png"));
+  const manifest = await page.evaluate(async () => (await fetch(document.head.querySelector('link[rel="manifest"]').href)).json());
+  assert.ok(manifest.icons.some((i) => i.src.includes("/public/app-icons/1/512.png") && i.purpose === "maskable"), JSON.stringify(manifest.icons));
+  // 開き直しても残る(通信の前に反映される)
+  await page.reload();
+  await page.waitForSelector(".bar");
+  assert.ok((await href("apple-touch-icon")).includes("/public/app-icons/1/180.png"));
+  await page.click("#tab-settings");
+  await page.waitForFunction(() => document.querySelectorAll('#icon-pick [name="appicon"]').length === 5);
+  assert.equal(await page.locator('#icon-pick [name="appicon"]:checked').getAttribute("value"), "r1");
+  // 管理画面で消された(読めなくなった)ら、開き直したときに今のアイコンに戻る
+  be.st.appIcons.length = 0;
+  await page.reload();
+  await page.waitForSelector(".bar");
+  await page.waitForTimeout(500);
+  assert.ok((await href("apple-touch-icon")).endsWith("icons/apple-touch-icon.png"), await href("apple-touch-icon"));
+  assert.equal(await page.evaluate(() => localStorage.getItem("shiftflow.cal.icon")), null);
+  // 前の版は id だけ("green")を覚えていた。それも読める
+  await page.evaluate(() => localStorage.setItem("shiftflow.cal.icon", "green"));
+  await page.reload();
+  await page.waitForSelector(".bar");
+  assert.ok((await href("apple-touch-icon")).endsWith("icons/v/green-180.png"));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("管理画面(設定): ホーム画面のアイコンを足す(画像は512・192・180の正方形PNGで入る)・名前を直す・並べ替える・隠す・消す(画像も消える)。画像の途中で失敗したら追加しない", async () => {
+  const png = new URL("../../../web/calendar/icons/v/blue-512.png", import.meta.url).pathname;
+  const { page, ctx, be, errors } = await open("admin.html#settings", { userId: "a1", opts: { profile: ADMIN, appIcons: [{ name: "一つ目" }] }, viewport: { width: 1200, height: 900 }, beforeLoad: async (p) => { p.removeAllListeners("dialog"); p.on("dialog", (d) => d.accept().catch(() => {})); } });
+  await page.waitForSelector("#icon-list .notice-admin-row");
+  assert.equal(await page.locator("#icon-list .notice-admin-row").count(), 1);
+  // 足す
+  await page.fill("#icon-name", "桜");
+  await page.setInputFiles("#icon-file", png);
+  await page.waitForSelector("#icon-preview:not([hidden])");
+  await page.click("#icon-save");
+  await page.waitForFunction(() => document.querySelectorAll("#icon-list .notice-admin-row").length === 2);
+  const post = be.st.calls.find((c) => c.path === "/rest/v1/app_icons" && c.method === "POST").body;
+  assert.deepEqual(post, { name: "桜", sort_order: 2 });
+  const ups = be.st.iconUploads.map((u) => u.path).sort();
+  assert.deepEqual(ups, ["100/180.png", "100/192.png", "100/512.png"]);
+  assert.ok(be.st.iconUploads.every((u) => u.size > 100 && u.head.startsWith("\x89PNG") || u.head.includes("PNG")), "PNG で入る");
+  assert.match(await page.textContent("#icon-message"), /追加しました/);
+  // 名前を直す(画像の選びは出ない)
+  await page.click('#icon-list .notice-admin-row:nth-child(2) button:has-text("名前を直す")');
+  assert.equal(await page.locator("#icon-file-row").isHidden(), true);
+  await page.fill("#icon-name", "桜2");
+  await page.click("#icon-save");
+  await page.waitForFunction(() => document.querySelector("#icon-list").textContent.includes("桜2"));
+  assert.equal(be.st.appIcons.find((x) => x.id === 100).name, "桜2");
+  // 並べ替え・隠す
+  await page.click('#icon-list .notice-admin-row:nth-child(2) button[title="1つ上へ"]');
+  await page.waitForFunction(() => document.querySelector("#icon-list .notice-admin-row strong").textContent === "桜2");
+  await page.click('#icon-list .notice-admin-row:nth-child(1) button:has-text("隠す")');
+  await page.waitForFunction(() => document.querySelector("#icon-list .status-badge").textContent === "非表示");
+  assert.equal(be.st.appIcons.find((x) => x.id === 100).visible, false);
+  // 消す(画像も消える)
+  await page.click('#icon-list .notice-admin-row:nth-child(1) button:has-text("削除")');
+  await page.waitForFunction(() => document.querySelectorAll("#icon-list .notice-admin-row").length === 1);
+  assert.deepEqual([...be.st.iconRemoved].sort(), ["100/180.png", "100/192.png", "100/512.png"]);
+  // 名前・画像の入力チェック
+  await page.fill("#icon-name", "");
+  await page.click("#icon-save");
+  assert.match(await page.textContent("#icon-message"), /名前を入力/);
+  await page.fill("#icon-name", "あ".repeat(21).slice(0, 20));
+  await page.click("#icon-save");
+  assert.match(await page.textContent("#icon-message"), /画像を選んで/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+  // 画像が途中で入らなかったら、行も画像も消して、追加しない
+  const b = await open("admin.html#settings", { userId: "a1", opts: { profile: ADMIN, appIcons: [], iconUploadFail: true }, viewport: { width: 1200, height: 900 } });
+  await b.page.waitForSelector("#icon-save");
+  await b.page.fill("#icon-name", "失敗");
+  await b.page.setInputFiles("#icon-file", png);
+  await b.page.waitForSelector("#icon-preview:not([hidden])");
+  await b.page.click("#icon-save");
+  await b.page.waitForFunction(() => document.getElementById("icon-message").className.includes("error"));
+  assert.match(await b.page.textContent("#icon-message"), /追加していません/);
+  assert.equal(b.be.st.appIcons.length, 0, "行が残っている");
+  assert.ok(b.be.st.iconRemoved.includes("100/512.png"), "入った画像を消していない");
+  await b.ctx.close();
+  // 小さすぎる画像(1ドット)は選べない
+  const c = await open("admin.html#settings", { userId: "a1", opts: { profile: ADMIN }, viewport: { width: 1200, height: 900 } });
+  await c.page.waitForSelector("#icon-file");
+  await c.page.setInputFiles("#icon-file", { name: "tiny.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64") });
+  await c.page.waitForFunction(() => document.getElementById("icon-message").className.includes("error"));
+  assert.match(await c.page.textContent("#icon-message"), /小さすぎます/);
+  await c.ctx.close();
 });
 
 await check("カレンダー: 時間つきなのに開始時刻が無い・終了が開始より前・終了日が前は、保存せずに知らせる。日をまたぐ予定は終了日を次の日にすれば通る", async () => {

@@ -985,6 +985,7 @@ async function main() {
     render, setPanel, settingsHtml, closePanel, stampOff: () => { if (extras.stampMode()) extras.toggleStampMode(false); },
   });
   bind();
+  appIcon.loadRemote(supabase, esc); // 管理画面で足したアイコン(読めなくても、はじめから入っているものは使える)
   // 速く出すため、読み込みは一緒に始める。勤務の予定は、まず見える範囲(今の月と前の月)だけ1回で読み、残りは出したあとに読む
   let firstErr = null;
   const prev = addMonths(S.y, S.m, -1);

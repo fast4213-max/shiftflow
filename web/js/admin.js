@@ -5,6 +5,7 @@ import { checkMasterRows, masterRowsFromCsv, masterToCsv, readTextFile } from ".
 import { initContactAdmin } from "./admin-contact.js?v=dev";
 import { initNoticesAdmin } from "./admin-notices.js?v=dev";
 import { initGuideAdmin } from "./admin-guide.js?v=dev";
+import { initIconsAdmin } from "./admin-icons.js?v=dev";
 import { addDays, periodLabel, shortDate } from "./plan.js?v=dev";
 
 const MASTER_COLUMNS = [
@@ -979,6 +980,7 @@ requireLogin("admin.html", { needAdmin: true })
       initContactAdmin();
       initNoticesAdmin();
       initGuideAdmin();
+      initIconsAdmin();
     } catch (err) {
       message(err.message || String(err), "error");
     }
