@@ -29,9 +29,9 @@
       <div id="alerts"></div>
       <div class="kpis">
         <div class="kpi"><div class="kpi-label">登録している人</div><div class="kpi-num" id="kpi-users">—</div><div class="kpi-sub">人</div></div>
-        <div class="kpi"><div class="kpi-label">接続テスト済み</div><div class="kpi-num" id="kpi-verified">—</div><div class="kpi-sub" id="kpi-verified-sub"></div></div>
-        <div class="kpi"><div class="kpi-label">30日以内に登録した人</div><div class="kpi-num" id="kpi-active">—</div><div class="kpi-sub">勤務を登録した人</div></div>
-        <div class="kpi"><div class="kpi-label">直近7日の新規登録</div><div class="kpi-num" id="kpi-new">—</div><div class="kpi-sub">人</div></div>
+        <div class="kpi"><div class="kpi-label">Google連携</div><div class="kpi-num" id="kpi-google">—</div><div class="kpi-sub" id="kpi-google-sub"></div></div>
+        <div class="kpi"><div class="kpi-label">アプリ内カレンダー</div><div class="kpi-num" id="kpi-app">—</div><div class="kpi-sub">Googleは使わず、保存のみ</div></div>
+        <div class="kpi"><div class="kpi-label">30日以内に登録・保存した人</div><div class="kpi-num" id="kpi-active">—</div><div class="kpi-sub">Google登録+保存の合算</div></div>
       </div>
       <div class="panel" id="usage-panel">
         <h2>無料枠の使用量</h2>
@@ -56,16 +56,16 @@
           <h2>利用者 <span id="users-count" class="muted"></span></h2>
           <input id="user-search" type="search" placeholder="社員番号・名前で探す" autocomplete="off">
         </div>
-        <p class="muted">接続: <b>済</b> = Googleカレンダーに登録できる(接続テスト済み) / <b>保</b> = Googleカレンダーは使わず、保存だけ / <b>—</b> = まだ</p>
+        <p class="muted">カレンダー: <b>Google連携 済</b> = Googleカレンダーに登録できる(接続テスト済み) / <b>Google連携 未</b> = Googleに登録する設定だが接続テストがまだ / <b>アプリ内カレンダー</b> = Googleは使わず、保存のみ / <b>—</b> = まだ</p>
         <div class="scroll-x">
           <table class="list">
             <thead id="users-head"><tr>
               <th aria-sort="none"><button type="button" class="sort-btn" data-sort="employee_no">社員番号</button></th>
               <th>氏名</th>
               <th aria-sort="none"><button type="button" class="sort-btn" data-sort="office">区所</button></th>
-              <th aria-sort="none"><button type="button" class="sort-btn" data-sort="verified" title="済 = 接続テスト済み / 保 = Googleなしで保存だけ / — = まだ">接続</button></th>
+              <th aria-sort="none"><button type="button" class="sort-btn" data-sort="verified" title="Google連携(済・未) / アプリ内カレンダー(Googleなしで保存のみ) / — = まだ">カレンダー</button></th>
               <th aria-sort="none"><button type="button" class="sort-btn" data-sort="last_sign_in_at">最終ログイン</button></th>
-              <th aria-sort="none"><button type="button" class="sort-btn" data-sort="last_registered_at">最終登録</button></th>
+              <th aria-sort="none"><button type="button" class="sort-btn" data-sort="last_registered_at" title="Googleへの登録も、保存も含みます">最終登録・保存</button></th>
               <th aria-sort="none"><button type="button" class="sort-btn" data-sort="record_days">記録</button></th>
               <th></th>
             </tr></thead>

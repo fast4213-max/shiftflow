@@ -164,13 +164,13 @@ function renderUsage() {
 
 function renderOverview() {
   $("kpi-users").textContent = stats.users;
-  // 接続テスト済みは、Googleカレンダーにも登録する人の中での数。保存だけの人(Googleなし)は別に出す
-  $("kpi-verified").textContent = stats.verified;
+  // Google連携(Googleカレンダーにも登録する人。うち接続テスト済み)と、アプリ内カレンダー(Googleは使わず保存のみ)に分けて出す
   const g = stats.google_users ?? stats.users;
-  const saveOnly = stats.save_only ? `・保存だけ ${stats.save_only}人` : "";
-  $("kpi-verified-sub").textContent = g ? `Google連携の${g}人中 ${Math.round((stats.verified / g) * 100)}%${saveOnly}` : `Google連携の人はいません${saveOnly}`;
+  $("kpi-google").textContent = g;
+  $("kpi-google-sub").textContent = g ? `接続テスト済み ${stats.verified}人(${Math.round((stats.verified / g) * 100)}%)` : "人";
+  $("kpi-app").textContent = stats.save_only ?? 0;
+  // 30日以内に登録した人は、Googleへの登録と保存を合算(DB が数える)
   $("kpi-active").textContent = stats.active_30d;
-  $("kpi-new").textContent = stats.signups_7d;
 
   const alerts = $("alerts");
   alerts.innerHTML = "";
@@ -280,18 +280,21 @@ async function deleteUser(u) {
 
 // 利用者の並べ替え(画面だけ。DB は触らない)。key が null のときは読み込んだ順(登録の新しい順)。
 // 日付・数・接続は多い順・新しい順から始め、空(未ログイン・未登録・区所なし)はどちら向きでも一番下
-// 接続の状態: 保 = Googleカレンダーに登録しない人(保存だけ。区所は選んである) / 済 = 接続テスト済み / — = まだ
+// カレンダーの状態: google = Google連携で接続テスト済み / google-wait = Google連携だが接続テストがまだ /
+//   app = アプリ内カレンダー(Googleは使わず保存のみ。区所は選んである) / none = まだ
 function connState(u) {
-  if (u.google_sync === false && u.office) return "save";
-  return u.verified ? "verified" : "none";
+  if (u.google_sync === false && u.office) return "app";
+  if (u.google_sync === false) return "none";
+  return u.verified ? "google" : "google-wait";
 }
+const CONN_LABEL = { google: "Google連携 済", "google-wait": "Google連携 未", app: "アプリ内カレンダー", none: "—" };
 const userSort = { key: null, dir: 1 };
 const DESC_FIRST = ["verified", "last_sign_in_at", "last_registered_at", "record_days"];
 
 function sortedUsers(list) {
   const { key, dir } = userSort;
   if (!key) return list;
-  const value = (u) => (key === "verified" ? { verified: 2, save: 1, none: 0 }[connState(u)] : u[key]);
+  const value = (u) => (key === "verified" ? { google: 3, "google-wait": 2, app: 1, none: 0 }[connState(u)] : u[key]);
   const empty = (v) => v === null || v === undefined || v === "";
   return list
     .map((u, i) => ({ u, i, v: value(u) }))
@@ -340,7 +343,7 @@ function renderUsers() {
     cell(tr, u.employee_no, "mono");
     cell(tr, fullName(u));
     cell(tr, u.office || "—");
-    cell(tr, { verified: "済", save: "保", none: "—" }[connState(u)]);
+    cell(tr, CONN_LABEL[connState(u)]);
     cell(tr, u.last_sign_in_at ? formatDateTime(u.last_sign_in_at) : "未ログイン");
     cell(tr, formatDateTime(u.last_registered_at));
     cell(tr, u.record_days + "日");

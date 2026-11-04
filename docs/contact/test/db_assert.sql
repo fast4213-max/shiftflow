@@ -233,6 +233,7 @@ begin
   -- 管理画面の「接続」: Google に登録する人・保存だけの人の数と、利用者ごとの google_sync が返る
   assert (public.admin_stats() ? 'google_users') and (public.admin_stats() ? 'save_only'), '概要に google_users・save_only が無い';
   assert (select coalesce(bool_and(e ? 'google_sync'), true) from jsonb_array_elements(public.admin_stats() -> 'users_list') e), '利用者の一覧に google_sync が無い';
+  assert not (public.admin_stats() ? 'signups_7d'), '直近7日の新規登録は、もう返さない';
   -- もう使っている(いちばん古い)マスタは消せない。まだ始まっていないものは消せて、行も消える
   failed := false;
   begin
@@ -691,3 +692,29 @@ end
 $$;
 
 select 'db_assert: all ok' as result;
+
+-- 管理画面の「最終登録・保存」「30日以内に登録・保存した人」: Googleへの登録(last_registered_at)がなくても、保存(勤務の記録)があれば数える
+do $$
+declare
+  admin_id uuid := 'dddddddd-0000-4000-8000-0000000000a1';
+  u uuid := 'dddddddd-0000-4000-8000-0000000000a2';
+  before_n int;
+  r jsonb;
+begin
+  insert into auth.users (id) values (admin_id), (u);
+  insert into public.profiles (user_id, role) values (admin_id, 'admin');
+  insert into public.profiles (user_id, employee_no, family_name, given_name) values (u, '7000021', '保', '存');
+  perform set_config('request.jwt.claim.sub', admin_id::text, true);
+  before_n := (public.admin_stats() ->> 'active_30d')::int;
+  assert (select e -> 'last_registered_at' from jsonb_array_elements(public.admin_stats() -> 'users_list') e where e ->> 'employee_no' = '7000021') = 'null'::jsonb,
+         '保存していない人の最終登録・保存が空でない';
+  -- 保存だけ(last_registered_at は空のまま)
+  insert into public.shift_records (user_id, date, code) values (u, current_date, '1');
+  assert (public.admin_stats() ->> 'active_30d')::int = before_n + 1, '保存した人が30日以内に登録・保存した人に数えられない';
+  assert (select e ->> 'last_registered_at' from jsonb_array_elements(public.admin_stats() -> 'users_list') e where e ->> 'employee_no' = '7000021') is not null,
+         '保存した人の最終登録・保存が空のまま';
+  delete from auth.users where id in (admin_id, u);
+  delete from public.profiles where user_id in (admin_id, u);
+  perform set_config('request.jwt.claim.sub', '', true);
+end
+$$;

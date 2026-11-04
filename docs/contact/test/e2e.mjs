@@ -191,7 +191,7 @@ function backend(opts = {}) {
     if (path === "/rest/v1/rpc/admin_stats" && opts.statsFail) return json({ message: "statement timeout" }, 500);
     if (path === "/rest/v1/rpc/admin_stats" && opts.twoOffices) {
       const offices = [...st.offices].sort((a, b) => a.sort_order - b.sort_order).map((o) => ({ id: o.id, name: o.name, master_count: 1, user_count: 1, periods: [{ id: o.id * 100, starts_on: "2026-10-03", name: "ダイヤ修正", count: 1 }] }));
-      return json({ users: 1, verified: 1, active_30d: 1, signups_7d: 0, signup_password_set: true, today: "2026-10-15", offices, no_office: 0, users_list: [] });
+      return json({ users: 1, verified: 1, active_30d: 1, signup_password_set: true, today: "2026-10-15", offices, no_office: 0, users_list: [] });
     }
     if (path === "/rest/v1/rpc/admin_usage") {
       if (opts.usageFail) return json({ message: "boom" }, 500);
@@ -199,7 +199,7 @@ function backend(opts = {}) {
     }
     if (path === "/rest/v1/rpc/admin_stats") {
       return json({
-        users: 1, verified: 1, active_30d: 1, signups_7d: 0, signup_password_set: true, today: "2026-10-15",
+        users: 1, verified: 1, active_30d: 1, signup_password_set: true, today: "2026-10-15",
         offices: [{ id: 1, name: "A区所", master_count: 1, user_count: 1, periods: opts.adminPeriods || [{ id: 1, starts_on: "2026-10-03", name: "ダイヤ修正", count: 1 }] }],
         no_office: 0, users_list: [], ...(opts.stats || {}),
       });
@@ -3365,20 +3365,24 @@ await check("使い方ページ: 設定ページからの古いリンク(#share�
   await ctx.close();
 });
 
-await check("管理画面: 「接続」は、済(接続テスト済み)・保(Googleなしで保存だけ)・—(まだ)。接続テスト済みの割合は、Google連携の人の中で数える。並べ替えは 済 → 保 → —", async () => {
+await check("管理画面: 「カレンダー」の列は、Google連携 済・Google連携 未・アプリ内カレンダー・—(まだ)。概要は Google連携 / アプリ内カレンダー / 30日以内(登録+保存の合算)に分け、新規登録のカードは無い。列の見出しは「最終登録・保存」。並べ替えは Google連携 済 → 未 → アプリ内 → —", async () => {
   const u = (no, name, extra) => ({ user_id: "id" + no, employee_no: no, family_name: name, given_name: "太郎", plan: "free", created_at: "2026-10-01T00:00:00Z", last_sign_in_at: null, office: "A区所", verified: false, google_sync: true, last_registered_at: null, record_days: 0, ...extra });
   const stats = { users: 4, verified: 1, google_users: 2, save_only: 1, users_list: [u("1000001", "未接続", {}), u("1000002", "保存だけ", { google_sync: false }), u("1000003", "接続済", { verified: true }), u("1000004", "区所なし", { google_sync: false, office: null })] };
   const { page, ctx, errors } = await open("admin.html#users", { userId: "a1", opts: { profile: ADMIN, stats }, viewport: { width: 1200, height: 900 } });
   await page.waitForSelector("#users tr");
   const rows = async () => (await page.locator("#users tr").evaluateAll((trs) => trs.map((tr) => [tr.children[1].textContent, tr.children[3].textContent])));
   const byName = Object.fromEntries(await rows());
-  assert.equal(byName["未接続 太郎"], "—");
-  assert.equal(byName["保存だけ 太郎"], "保");
-  assert.equal(byName["接続済 太郎"], "済");
-  assert.equal(byName["区所なし 太郎"], "—", "区所を選んでいない人は、保ではなく —");
-  assert.equal(await page.textContent("#kpi-verified-sub"), "Google連携の2人中 50%・保存だけ 1人");
+  assert.equal(byName["未接続 太郎"], "Google連携 未");
+  assert.equal(byName["保存だけ 太郎"], "アプリ内カレンダー");
+  assert.equal(byName["接続済 太郎"], "Google連携 済");
+  assert.equal(byName["区所なし 太郎"], "—", "区所を選んでいない人は、アプリ内カレンダーではなく —");
+  assert.equal(await page.textContent("#kpi-google"), "2");
+  assert.equal(await page.textContent("#kpi-google-sub"), "接続テスト済み 1人(50%)");
+  assert.equal(await page.textContent("#kpi-app"), "1");
+  assert.equal(await page.locator("#kpi-new").count(), 0, "直近7日の新規登録のカードが残っている");
+  assert.equal(await page.textContent('[data-sort="last_registered_at"]'), "最終登録・保存");
   await page.click('[data-sort="verified"]');
-  assert.deepEqual((await rows()).map((r) => r[1]).slice(0, 3), ["済", "保", "—"]);
+  assert.deepEqual((await rows()).map((r) => r[1]).slice(0, 4), ["Google連携 済", "Google連携 未", "アプリ内カレンダー", "—"]);
   assert.deepEqual(errors, []);
   await ctx.close();
 });
