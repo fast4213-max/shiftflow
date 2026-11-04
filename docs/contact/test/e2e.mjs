@@ -2065,6 +2065,45 @@ await check("カレンダー: 日を長押し(0.5秒)すると、その日の予
   await ctx.close();
 });
 
+await check("カレンダー: 設定の一番下でホーム画面のアイコンを選べる。選ぶと apple-touch-icon・manifest(icons)・タブのアイコンが選んだものになり、開き直しても残る", async () => {
+  const { page, ctx, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  const state = () => page.evaluate(async () => {
+    const href = (rel) => document.head.querySelector(`link[rel="${rel}"]`).href;
+    const m = href("manifest");
+    const json = m.startsWith("blob:") ? await (await fetch(m)).json() : null;
+    return { touch: href("apple-touch-icon"), icon: href("icon"), manifest: m.startsWith("blob:") ? "blob" : m, icons: json && json.icons.map((i) => i.src + "|" + i.purpose), start: json && json.start_url, id: json && json.id };
+  });
+  const before = await state();
+  assert.ok(before.touch.endsWith("icons/apple-touch-icon.png") && before.manifest.endsWith("manifest.webmanifest"), "選ぶ前は、いまのアイコンのまま: " + JSON.stringify(before));
+  await page.click("#tab-settings");
+  await page.waitForSelector("#icon-pick");
+  assert.equal(await page.locator('#icon-pick [name="appicon"]').count(), 4);
+  assert.equal(await page.locator('#icon-pick [name="appicon"]:checked').getAttribute("value"), "default");
+  assert.ok((await page.textContent("#icon-note")).includes("ホーム画面に追加"));
+  await page.locator('#icon-pick label:has([value="green"])').click();
+  const after = await state();
+  assert.ok(after.touch.endsWith("icons/v/green-180.png"), after.touch);
+  assert.ok(after.icon.endsWith("icons/v/green-192.png"), after.icon);
+  assert.equal(after.manifest, "blob");
+  assert.ok(after.icons.some((i) => i.endsWith("icons/v/green-192.png|any")) && after.icons.some((i) => i.endsWith("icons/v/green-512.png|maskable")), after.icons.join());
+  assert.ok(after.icons.every((i) => i.startsWith("http")), "manifest の中のアイコンは全部 URL で書く: " + after.icons.join());
+  assert.ok(after.start.startsWith("http") && after.id.startsWith("http"), "start_url・id も URL: " + after.start);
+  // 開き直しても残る(開いた直後に反映される)
+  await page.reload();
+  await page.waitForSelector(".bar");
+  const again = await state();
+  assert.ok(again.touch.endsWith("icons/v/green-180.png") && again.manifest === "blob", JSON.stringify(again));
+  await page.click("#tab-settings");
+  assert.equal(await page.locator('#icon-pick [name="appicon"]:checked').getAttribute("value"), "green");
+  // いまのアイコンに戻せる
+  await page.locator('#icon-pick label:has([value="default"])').click();
+  assert.ok((await state()).touch.endsWith("icons/apple-touch-icon.png"));
+  assert.deepEqual(errors, []);
+  await page.screenshot({ path: OUT + "calendar-icon-pick.png" });
+  await ctx.close();
+});
+
 await check("カレンダー: 時間つきなのに開始時刻が無い・終了が開始より前・終了日が前は、保存せずに知らせる。日をまたぐ予定は終了日を次の日にすれば通る", async () => {
   const { page, ctx, be, errors } = await calOpen();
   await page.waitForSelector(".bar");
@@ -2248,13 +2287,13 @@ await check("カレンダー: 区所を決めていない人には、設定へ�
   await b.ctx.close();
 });
 
-await check("カレンダー設定: 一番上に説明、一番下に色合い。ラベルの追加・色・名前・並び替え・削除(使っているラベルは消せない)", async () => {
+await check("カレンダー設定: 一番上に説明、一番下に色合いとホーム画面のアイコン。ラベルの追加・色・名前・並び替え・削除(使っているラベルは消せない)", async () => {
   const { page, ctx, be, errors } = await calOpen();
   await page.waitForSelector(".bar");
   await page.click("#tab-settings");
   await page.waitForSelector("#about");
   const order = await page.$$eval("#panel .card", (els) => els.map((e) => e.querySelector("h3").textContent));
-  assert.deepEqual(order, ["shiftflowカレンダーについて", "このカレンダーに出すもの", "ラベル", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "あなたの写真・画像の量", "画面の色合い"]);
+  assert.deepEqual(order, ["shiftflowカレンダーについて", "このカレンダーに出すもの", "ラベル", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "あなたの写真・画像の量", "画面の色合い", "ホーム画面のアイコン"]);
   assert.ok((await page.textContent("#about")).includes("1つのアカウントで1人分"));
   // 追加
   await page.fill("#nl-name", "家族");
@@ -2719,7 +2758,7 @@ await check("カレンダー設定: 自分の写真・画像の量が出る(MB�
   const text = await page.textContent("#my-usage");
   assert.ok(text.includes("約 3.5MB(画像の置き場 1/10枚・予定の写真 1枚)"), text);
   const order = await page.$$eval("#panel .card", (els) => els.map((e) => e.querySelector("h3").textContent));
-  assert.deepEqual(order, ["shiftflowカレンダーについて", "このカレンダーに出すもの", "ラベル", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "あなたの写真・画像の量", "画面の色合い"]);
+  assert.deepEqual(order, ["shiftflowカレンダーについて", "このカレンダーに出すもの", "ラベル", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "あなたの写真・画像の量", "画面の色合い", "ホーム画面のアイコン"]);
   await ctx.close();
 });
 

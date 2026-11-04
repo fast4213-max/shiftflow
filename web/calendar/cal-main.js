@@ -4,6 +4,7 @@
 import { callFunction, currentSession, friendlyText, go, loadProfile, loadSettings, selectAllPages, supabase } from "../js/app.js?v=dev";
 import { createExtras, shrinkForEvent } from "./cal-extra.js?v=dev";
 import { createImager } from "./cal-image.js?v=dev";
+import * as appIcon from "./cal-icon.js?v=dev";
 import {
   addDays, addMonths, compareForDay, dateKey, diffDays, expandEvent, resolveCalView, gridRange, layoutWeek, monthIndex, monthLimits, oldestDate, photosClosed, textOn, todayJst, weekday, whenText, WEEKDAYS,
   yearsText,
@@ -13,6 +14,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const HIDDEN_KEY = "shiftflow-cal-hidden";
 const THEME_KEY = "shiftflow-cal-theme";
+appIcon.applySaved(); // 前に選んだホーム画面のアイコンを、アイコンの指定に反映する(「ホーム画面に追加」の前に済ませておく)
 const FALLBACK = { duty: "#3b6fd4", off: "#e0553f", custom: "#6b7280" };
 const REPEAT = { none: "なし", daily: "毎日", weekly: "毎週", monthly: "毎月", yearly: "毎年" };
 
@@ -658,7 +660,7 @@ function settingsHtml() {
         <li><b>1つのアカウントで1人分</b>のカレンダーです。家族に見せたいときは、このアプリのURLを教えて、その人が自分のアカウントでログインして使うか、勤務をGoogleカレンダーに登録して共有します。</li>
         <li><b>画像にする</b>: 下の「月のカレンダーを画像にする」と「選んだ日に〇をつけて画像にする」で、カレンダーを1枚の画像にして、LINEで送ったり印刷したりできます(画像は端末の中で作ります)。</li>
         <li>ホーム画面に追加すると、アプリのように開けます。最初に1回、社員番号とPINでログインします。</li>
-        <li>画面の色合いは、この設定の一番下で変えられます。</li>
+        <li>画面の色合いと、ホーム画面のアイコンは、この設定の一番下で変えられます。</li>
       </ul></div>
     <div class="card" id="calview"><h3>このカレンダーに出すもの</h3>
       <label class="tg"><input type="checkbox" data-cv="cal_show_duty" id="cv-duty"${S.cfg.duty ? " checked" : ""}> 勤務</label>
@@ -675,6 +677,7 @@ function settingsHtml() {
     <div class="card"><h3>画面の色合い</h3><div class="seg" role="radiogroup">
       ${[["auto", "自動"], ["light", "ライト"], ["dark", "ダーク"]].map(([v, t]) => `<label><input type="radio" name="theme" value="${v}"${theme === v ? " checked" : ""}><span>${t}</span></label>`).join("")}
     </div><p class="sub">「自動」は、端末のダークモードの設定に合わせます。この端末だけの設定です。</p></div>
+    ${appIcon.sectionHtml(esc)}
   </div>`);
 }
 function openSettings() { openPanel(settingsHtml()); }
@@ -932,6 +935,7 @@ function bind() {
     if (draft && el.dataset.f) return readDraftField(el);
     if (el.dataset.lf) return labelFieldChanged(el);
     if (el.name === "theme") { storageSet(THEME_KEY, el.value); applyTheme(); return; }
+    if (el.name === "appicon") { appIcon.choose(el.value); return; }
     if (el.dataset.cv) {
       saveCalView(el.dataset.cv, el.checked).then(() => { setPanel(settingsHtml()); render(); }).catch((err) => { el.checked = !el.checked; const m = $("cv-msg"); if (m) m.textContent = friendlyText(err.message || String(err)); });
       return;
