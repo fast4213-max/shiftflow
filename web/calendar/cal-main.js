@@ -854,6 +854,42 @@ function bind() {
     const cell = ev.target.closest("[data-date]");
     if (cell) openDay(cell.dataset.date);
   });
+  // 日を長押し(0.5秒)すると、その日の予定の追加を直接開く(タップは、これまでどおり、その日の予定の一覧)。
+  // 指が動いた・スクロールが始まった・指を離したのどれかで取りやめる(スクロールが始まるとブラウザが pointercancel を出す)。
+  // 〇をつける日を選んでいるとき・スタンプの画面・スタンプの上は、長押しにしない。
+  // 長押しで開いたあとに続く click は、日の一覧が重ねて開かないように捨てる
+  const LONG_PRESS_MS = 500, LONG_PRESS_MOVE = 10;
+  let press = null, pressFired = 0;
+  const pressCancel = () => { if (press) { clearTimeout(press.timer); press = null; } };
+  $("weeks").addEventListener("pointerdown", (ev) => {
+    pressCancel();
+    if (ev.pointerType === "mouse" && ev.button !== 0) return;
+    if (imager.isMarking() || extras.stampMode() || ev.target.closest(".stamp")) return;
+    const c = extras.cellAt(ev.clientX, ev.clientY);
+    if (!c) return;
+    const date = c.dataset.date;
+    press = {
+      x: ev.clientX, y: ev.clientY,
+      timer: setTimeout(() => {
+        press = null;
+        pressFired = Date.now();
+        try { if (navigator.vibrate) navigator.vibrate(15); } catch (_) { /* 振動できなくても開く */ }
+        openForm(null, date);
+      }, LONG_PRESS_MS),
+    };
+  });
+  $("weeks").addEventListener("pointermove", (ev) => {
+    if (press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > LONG_PRESS_MOVE) pressCancel();
+  });
+  $("weeks").addEventListener("pointerup", pressCancel);
+  $("weeks").addEventListener("pointercancel", pressCancel);
+  $("cal").addEventListener("scroll", pressCancel, { passive: true });
+  $("weeks").addEventListener("click", (ev) => {
+    if (Date.now() - pressFired < 1000) { pressFired = 0; ev.stopImmediatePropagation(); ev.preventDefault(); }
+  }, true);
+  // スマホの長押しで出る「コピー」などのメニュー(contextmenu)は、長押しの追加の邪魔なので出さない
+  $("weeks").addEventListener("contextmenu", (ev) => { if (ev.pointerType !== "mouse" || Date.now() - pressFired < 1000) ev.preventDefault(); });
+
   $("weeks").addEventListener("keydown", (ev) => {
     if ((ev.key === "Enter" || ev.key === " ") && ev.target.dataset && ev.target.dataset.date) { ev.preventDefault(); if (imager.isMarking()) imager.toggleDate(ev.target.dataset.date); else openDay(ev.target.dataset.date); }
   });

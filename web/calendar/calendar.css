@@ -72,6 +72,7 @@ button:disabled { opacity: .35; cursor: default; }
 #weeks { display: block; }
 .week { position: relative; height: var(--rh); border-bottom: 1px solid var(--grid); }
 .cells { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+#weeks { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; } /* 長押しで文字が選ばれない */
 .cell { position: relative; min-width: 0; background: var(--bg); border-right: 1px solid var(--grid); padding: 0; cursor: pointer; }
 .cell:last-child { border-right: 0; }
 .cell.alt { background: var(--alt); }

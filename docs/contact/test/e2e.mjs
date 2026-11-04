@@ -2027,6 +2027,44 @@ await check("カレンダー: 予定を追加(終日)・時間指定(分単位)�
   await ctx.close();
 });
 
+await check("カレンダー: 日を長押し(0.5秒)すると、その日の予定の追加が開く。短いタップは日の一覧。指が動いたら追加は開かない。長押しのあとに日の一覧が重ねて開かない", async () => {
+  const { page, ctx, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  const day = today.slice(0, 8) + "15";
+  const pos = async () => { const b = await page.locator(`.cell[data-date="${day}"]`).boundingBox(); return { x: b.x + b.width / 2, y: b.y + b.height - 6 }; };
+  await page.locator(`.cell[data-date="${day}"]`).scrollIntoViewIfNeeded();
+  // 長押し → 追加(開始日・終了日がその日)
+  let p = await pos();
+  await page.mouse.move(p.x, p.y);
+  await page.mouse.down();
+  await page.waitForTimeout(250);
+  assert.equal(await page.locator("#f-title").count(), 0, "0.25秒では、まだ開かない");
+  await page.waitForSelector("#f-title", { timeout: 1500 });
+  assert.equal(await page.inputValue("#f-start"), day);
+  assert.equal(await page.inputValue("#f-end"), day);
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator("#f-title").count(), 1, "指を離したあと、日の一覧に置き換わっていない");
+  await page.click("#panel [data-act=close]");
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  await page.waitForTimeout(400); // 閉じるときの history.back の popstate が落ち着くのを待つ
+  // 指が動いたら開かない(スクロールのつもり)
+  p = await pos();
+  await page.mouse.move(p.x, p.y);
+  await page.mouse.down();
+  await page.mouse.move(p.x, p.y - 130, { steps: 6 }); // 別の週まで動かす(同じマスの中だと、マウスはクリックになる)
+  await page.waitForTimeout(800);
+  await page.mouse.up();
+  assert.equal(await page.locator("#f-title").count(), 0, "動かした指の長押しで追加が開いた");
+  // 短いタップ → これまでどおり日の一覧
+  p = await pos();
+  await page.mouse.click(p.x, p.y);
+  await page.waitForSelector('#panel:not([hidden]) [data-act="new"]');
+  assert.equal(await page.locator("#f-title").count(), 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await check("カレンダー: 時間つきなのに開始時刻が無い・終了が開始より前・終了日が前は、保存せずに知らせる。日をまたぐ予定は終了日を次の日にすれば通る", async () => {
   const { page, ctx, be, errors } = await calOpen();
   await page.waitForSelector(".bar");
