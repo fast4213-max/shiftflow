@@ -281,13 +281,14 @@ async function deleteUser(u) {
 // 利用者の並べ替え(画面だけ。DB は触らない)。key が null のときは読み込んだ順(登録の新しい順)。
 // 日付・数・接続は多い順・新しい順から始め、空(未ログイン・未登録・区所なし)はどちら向きでも一番下
 // カレンダーの状態: google = Google連携で接続テスト済み / google-wait = Google連携だが接続テストがまだ /
-//   app = アプリ内カレンダー(Googleは使わず保存のみ。区所は選んである) / none = まだ
+//   app = アプリ内(アプリ内カレンダーだけ。Googleは使わず保存のみ。区所は選んである) / none = まだ
+//   設定の行がまだ無い人(google_sync が null。設定を一度も保存していない)は、概要の「Google連携」の数に入らないので none
 function connState(u) {
-  if (u.google_sync === false && u.office) return "app";
-  if (u.google_sync === false) return "none";
+  if (u.google_sync == null) return "none";
+  if (u.google_sync === false) return u.office ? "app" : "none";
   return u.verified ? "google" : "google-wait";
 }
-const CONN_LABEL = { google: "Google連携 済", "google-wait": "Google連携 未", app: "アプリ内カレンダー", none: "—" };
+const CONN_LABEL = { google: "Google連携 済", "google-wait": "Google連携 未", app: "アプリ内", none: "—" };
 const userSort = { key: null, dir: 1 };
 const DESC_FIRST = ["verified", "last_sign_in_at", "last_registered_at", "record_days"];
 

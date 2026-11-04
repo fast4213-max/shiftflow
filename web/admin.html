@@ -56,14 +56,14 @@
           <h2>利用者 <span id="users-count" class="muted"></span></h2>
           <input id="user-search" type="search" placeholder="社員番号・名前で探す" autocomplete="off">
         </div>
-        <p class="muted">カレンダー: <b>Google連携 済</b> = Googleカレンダーに登録できる(接続テスト済み) / <b>Google連携 未</b> = Googleに登録する設定だが接続テストがまだ / <b>アプリ内カレンダー</b> = Googleは使わず、保存のみ / <b>—</b> = まだ</p>
+        <p class="muted">カレンダー: <b>Google連携 済</b> = Googleカレンダーに登録できる(接続テスト済み) / <b>Google連携 未</b> = Googleに登録する設定だが接続テストがまだ / <b>アプリ内</b> = アプリ内カレンダーだけ(Googleは使わず、保存のみ) / <b>—</b> = まだ</p>
         <div class="scroll-x">
           <table class="list">
             <thead id="users-head"><tr>
               <th aria-sort="none"><button type="button" class="sort-btn" data-sort="employee_no">社員番号</button></th>
               <th>氏名</th>
               <th aria-sort="none"><button type="button" class="sort-btn" data-sort="office">区所</button></th>
-              <th aria-sort="none"><button type="button" class="sort-btn" data-sort="verified" title="Google連携(済・未) / アプリ内カレンダー(Googleなしで保存のみ) / — = まだ">カレンダー</button></th>
+              <th aria-sort="none"><button type="button" class="sort-btn" data-sort="verified" title="Google連携(済・未) / アプリ内(アプリ内カレンダーだけ。Googleなしで保存のみ) / — = まだ">カレンダー</button></th>
               <th aria-sort="none"><button type="button" class="sort-btn" data-sort="last_sign_in_at">最終ログイン</button></th>
               <th aria-sort="none"><button type="button" class="sort-btn" data-sort="last_registered_at" title="Googleへの登録も、保存も含みます">最終登録・保存</button></th>
               <th aria-sort="none"><button type="button" class="sort-btn" data-sort="record_days">記録</button></th>

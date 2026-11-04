@@ -3365,17 +3365,18 @@ await check("使い方ページ: 設定ページからの古いリンク(#share�
   await ctx.close();
 });
 
-await check("管理画面: 「カレンダー」の列は、Google連携 済・Google連携 未・アプリ内カレンダー・—(まだ)。概要は Google連携 / アプリ内カレンダー / 30日以内(登録+保存の合算)に分け、新規登録のカードは無い。列の見出しは「最終登録・保存」。並べ替えは Google連携 済 → 未 → アプリ内 → —", async () => {
+await check("管理画面: 「カレンダー」の列は、Google連携 済・Google連携 未・アプリ内・—(まだ。設定の行が無い人も)。概要は Google連携 / アプリ内カレンダー / 30日以内(登録+保存の合算)に分け、新規登録のカードは無い。列の見出しは「最終登録・保存」。並べ替えは Google連携 済 → 未 → アプリ内 → —。社員番号・氏名・日時は折り返さない", async () => {
   const u = (no, name, extra) => ({ user_id: "id" + no, employee_no: no, family_name: name, given_name: "太郎", plan: "free", created_at: "2026-10-01T00:00:00Z", last_sign_in_at: null, office: "A区所", verified: false, google_sync: true, last_registered_at: null, record_days: 0, ...extra });
-  const stats = { users: 4, verified: 1, google_users: 2, save_only: 1, users_list: [u("1000001", "未接続", {}), u("1000002", "保存だけ", { google_sync: false }), u("1000003", "接続済", { verified: true }), u("1000004", "区所なし", { google_sync: false, office: null })] };
+  const stats = { users: 5, verified: 1, google_users: 2, save_only: 1, users_list: [u("1000001", "未接続", {}), u("1000002", "保存だけ", { google_sync: false }), u("1000003", "接続済", { verified: true }), u("1000004", "区所なし", { google_sync: false, office: null }), u("1000005", "設定なし", { google_sync: null, office: null })] };
   const { page, ctx, errors } = await open("admin.html#users", { userId: "a1", opts: { profile: ADMIN, stats }, viewport: { width: 1200, height: 900 } });
   await page.waitForSelector("#users tr");
   const rows = async () => (await page.locator("#users tr").evaluateAll((trs) => trs.map((tr) => [tr.children[1].textContent, tr.children[3].textContent])));
   const byName = Object.fromEntries(await rows());
   assert.equal(byName["未接続 太郎"], "Google連携 未");
-  assert.equal(byName["保存だけ 太郎"], "アプリ内カレンダー");
+  assert.equal(byName["保存だけ 太郎"], "アプリ内");
+  assert.equal(byName["設定なし 太郎"], "—", "設定の行が無い人(google_sync が null)は、Google連携 未ではなく —");
   assert.equal(byName["接続済 太郎"], "Google連携 済");
-  assert.equal(byName["区所なし 太郎"], "—", "区所を選んでいない人は、アプリ内カレンダーではなく —");
+  assert.equal(byName["区所なし 太郎"], "—", "区所を選んでいない人は、アプリ内ではなく —");
   // 全列が左右中央揃え。見出しの文字と中身の文字の中心が、同じ列の中でそろっている(並べ替えの見出しだけ右にずれていた)
   const aligns = await page.evaluate(() => [...document.querySelectorAll("#users-head th, #users tr:first-child td")].map((c) => getComputedStyle(c).textAlign));
   assert.ok(aligns.every((a) => a === "center"), "利用者一覧が中央揃えでない: " + aligns);
@@ -3386,13 +3387,23 @@ await check("管理画面: 「カレンダー」の列は、Google連携 済・G
     return heads.map((h, i) => (h.querySelector(".sort-btn") ? Math.abs(mid(h.querySelector(".sort-btn")) - mid(cells[i])) : 0));
   });
   assert.ok(centers.every((d) => d < 6), "見出しと中身の中心がずれている: " + centers);
+  // 狭い画面でも、社員番号・氏名・日時は折り返さない(表は横にスクロールする)
+  const wraps = await page.evaluate(() => [...document.querySelectorAll("#users tr:first-child td:not(:last-child)")].map((c) => getComputedStyle(c).whiteSpace));
+  assert.ok(wraps.every((w) => w === "nowrap"), "折り返す列がある: " + wraps);
+  // ▼ を付けても、見出しの文字の位置が動かない
+  // (狭い画面では、押すと表が横にスクロールするので、見出しのセルの左端からの距離で測る)
+  const textX = () => page.evaluate(() => { const b = document.querySelector('[data-sort="record_days"]'); const r = document.createRange(); r.selectNodeContents(b); return r.getBoundingClientRect().left - b.closest("th").getBoundingClientRect().left; });
+  const xBefore = await textX();
+  await page.click('[data-sort="record_days"]');
+  const xAfter = await textX();
+  assert.ok(Math.abs(xBefore - xAfter) < 1, "▼ で見出しが動く: " + xBefore + " → " + xAfter);
   assert.equal(await page.textContent("#kpi-google"), "2");
   assert.equal(await page.textContent("#kpi-google-sub"), "接続テスト済み 1人(50%)");
   assert.equal(await page.textContent("#kpi-app"), "1");
   assert.equal(await page.locator("#kpi-new").count(), 0, "直近7日の新規登録のカードが残っている");
   assert.equal(await page.textContent('[data-sort="last_registered_at"]'), "最終登録・保存");
   await page.click('[data-sort="verified"]');
-  assert.deepEqual((await rows()).map((r) => r[1]).slice(0, 4), ["Google連携 済", "Google連携 未", "アプリ内カレンダー", "—"]);
+  assert.deepEqual((await rows()).map((r) => r[1]).slice(0, 4), ["Google連携 済", "Google連携 未", "アプリ内", "—"]);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

@@ -134,4 +134,8 @@ table.master tr.changed td { background: #fff6d6; }
 /* 利用者一覧は、見出しも中身も全列を左右中央揃えにする。
    見出しのボタンは、表のボタン用の余白(table.list button)で右にずれていたので、余白を無くして中身と揃える */
 #users-head th, #users td { text-align: center; }
-#users-head .sort-btn { padding: 0; margin: 0; text-align: center; }
+#users-head .sort-btn { padding: 0; margin: 0; text-align: center; position: relative; }
+/* 並べ替えの ▼▲ は文字の右に浮かせる(文字の位置を動かさない) */
+#users-head .sort-btn::after { content: attr(data-mark); position: absolute; left: 100%; padding-left: 3px; }
+/* 社員番号・氏名・日時などは折り返さない(狭い画面は、表が横にスクロールする)。操作のボタンの列だけ折り返してよい */
+#users-head th, #users td:not(:last-child) { white-space: nowrap; }
