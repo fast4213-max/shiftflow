@@ -1,4 +1,4 @@
-# A4 のまとめ(セキュリティシート・管理者の手引き・使い方)
+# A4 のまとめ(セキュリティシート・管理者の手引き・使い方・費用対効果)
 
 | ファイル | 中身 |
 |---|---|
@@ -6,7 +6,7 @@
 | `admin-guide.pdf` | 管理者の役割・交代のしかた・ダイヤ改正/修正のときのマスタ更新(AI で CSV にする指示文つき) |
 | `user-guide.pdf` | 利用者向けの使い方(最初の設定・勤務の入力・写真取込・アプリのカレンダー・ホーム画面に追加・Google連携・困った時)。元はアプリの「使い方」(`web/help.html`) |
 | `master-prompt.txt` | マスタ CSV を作る指示文(Claude のチャットに画像と一緒に貼る)。`admin-guide.pdf` にも同じ文が入る |
-| `make_sheets.py` | 上の3つの PDF を作る(`pip install reportlab`、`python3 docs/sheets/make_sheets.py`) |
+| `make_sheets.py` | 上の4つの PDF を作る(`pip install reportlab`、`python3 docs/sheets/make_sheets.py`) |
 
 - 公開リポジトリなので、パスワード・キー・URL の実際の値、氏名などの個人情報は載せない
 - 文字の大きさは、A4 1枚に収まるいちばん大きい値に自動で合わせる。フォントは IPA ゴシックを埋め込む
