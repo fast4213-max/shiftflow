@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  fitCycle, hasPattern, indexOn, isSpareMonth, koubanValue, moveStart, nextOff, offOn, readKouban,
+  fitCycle, hasPattern, indexOn, isSpareMonth, koubanValue, moveStart, nextOff, OFF_ORDER, offOn, readKouban,
 } from "../../../web/js/kouban.js";
 
 const sample = (extra = {}) => readKouban({ start: "2026-11-01", cycle: 30, days: { 2: "特休", 3: "公休", 13: "特公" }, spareMonths: [2, 5, 8, 11], spareOff: true, ...extra });
@@ -65,7 +65,12 @@ test("予備の月: 「何もしない」なら入れない。「休みを入れ
   assert.equal(offOn(off, "2026-12-03"), "特休");
 });
 
-test("タップで切り替える順: なし → マスタの順 → なし", () => {
+test("タップで切り替える順: なし → 特休 → 公休 → なし(特公などは出ない)", () => {
+  assert.deepEqual(OFF_ORDER, ["特休", "公休"]);
+  assert.equal(nextOff(OFF_ORDER, ""), "特休");
+  assert.equal(nextOff(OFF_ORDER, "特休"), "公休");
+  assert.equal(nextOff(OFF_ORDER, "公休"), "");
+  assert.equal(nextOff(undefined, "特公"), ""); // 前に入れた特公は、タップで なし に戻る
   const order = ["特休", "公休", "特公"];
   assert.equal(nextOff(order, ""), "特休");
   assert.equal(nextOff(order, "特休"), "公休");

@@ -8,6 +8,8 @@
 export const MIN_CYCLE = 7;
 export const MAX_CYCLE = 99;
 export const DEFAULT_CYCLE = 30;
+// タップで切り替える休み(なし → 特休 → 公休 → なし)。どの区所も同じ(本人が決定 2026-11-05)
+export const OFF_ORDER = ["特休", "公休"];
 const MAX_CODE = 30;
 
 // ---------- 日付(plan.js に頼らない。node のテストでそのまま読めるように) ----------
@@ -88,9 +90,8 @@ export function offOn(k, key) {
 
 // ---------- 設定の画面で使うもの ----------
 
-// タップで切り替える次の休み。order は区所のマスタの休日の番号(並び順)。
-// なし → order[0] → … → 最後 → なし。今の番号が order に無ければ(マスタが変わったなど)、なし に戻す
-export function nextOff(order, current) {
+// タップで切り替える次の休み。なし → order[0] → … → 最後 → なし。今の番号が order に無ければ(前の版の「特公」など)、なし に戻す
+export function nextOff(order = OFF_ORDER, current = "") {
   if (!current) return order[0] || "";
   const i = order.indexOf(current);
   return i < 0 || i === order.length - 1 ? "" : order[i + 1];

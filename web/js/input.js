@@ -7,7 +7,7 @@ import {
 import { PHOTO_IMPORT_URL } from "./config.js?v=dev";
 import { captureImportFromHash, decodeImport, stashImport, takePendingImport } from "./photo-import.js?v=dev";
 import {
-  DEFAULT_CYCLE, fitCycle, hasPattern, isCycle, isDateKey, isSpareMonth, koubanValue, MAX_CYCLE, MIN_CYCLE, moveStart, nextOff, offOn, readKouban,
+  DEFAULT_CYCLE, fitCycle, hasPattern, isCycle, isDateKey, isSpareMonth, koubanValue, MAX_CYCLE, MIN_CYCLE, moveStart, nextOff, OFF_ORDER, offOn, readKouban,
 } from "./kouban.js?v=dev";
 
 // 写真取込のリンク(input.html#import=…)で開いたときは、ログインを確かめる前に取込の文字を覚えて、アドレスから消す
@@ -897,13 +897,6 @@ $("kouban").addEventListener("click", () => {
 // ---------- 交番表の設定(⚙) ----------
 let koubanDraft = null; // ダイアログで直している並び { start, cycle, days, spareMonths, spareOff }
 
-// タップで切り替える休み: 始まりの日の区所のマスタの、休日の番号(マスタの並び順)。無ければ「公休」だけ
-function koubanOrder() {
-  const key = koubanDraft && isDateKey(koubanDraft.start) ? koubanDraft.start : dateKey(state.year, state.month, 1);
-  const list = masterRowsAt(key).filter((m) => m.kind === "休日").map((m) => m.code);
-  return list.length ? list : ["公休"];
-}
-
 function settingsError(text) {
   $("kouban-settings-error").textContent = text || "";
   $("kouban-settings-error").hidden = !text;
@@ -912,7 +905,7 @@ function settingsError(text) {
 function renderKoubanCal() {
   const cal = $("kouban-cal");
   cal.innerHTML = "";
-  const order = koubanOrder();
+  const order = OFF_ORDER;
   $("kouban-order").textContent = "タップするたびに: なし → " + order.join(" → ") + " → なし";
   const k = koubanDraft;
   ["日", "月", "火", "水", "木", "金", "土"].forEach((w, i) => {

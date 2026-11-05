@@ -3674,7 +3674,7 @@ const kOpen = (opts, asked) => open("input.html", {
 });
 const kSaved = (be) => be.st.calls.filter((c) => c.path === "/rest/v1/user_settings" && c.method === "PATCH").pop().body.kouban;
 
-await check("交番表: 並びが無ければ ⚙ が開く。タップで なし→特休→公休→特公→なし と切り替わり、保存する", async () => {
+await check("交番表: 並びが無ければ ⚙ が開く。タップで なし→特休→公休→なし と切り替わり(特公は出ない)、保存する", async () => {
   const asked = [];
   const { page, ctx, be, errors } = await kOpen({}, asked);
   await page.waitForSelector("#register:not([disabled])");
@@ -3683,7 +3683,7 @@ await check("交番表: 並びが無ければ ⚙ が開く。タップで な�
   await page.waitForSelector("#kouban-settings-dialog[open]");
   assert.equal(await page.inputValue("#kouban-start"), kDay(1));
   assert.equal(await page.inputValue("#kouban-cycle"), "30");
-  assert.equal(await page.textContent("#kouban-order"), "タップするたびに: なし → 特休 → 公休 → 特公 → なし");
+  assert.equal(await page.textContent("#kouban-order"), "タップするたびに: なし → 特休 → 公休 → なし");
   assert.equal(await page.locator("#kouban-cal button").count(), 30);
   const day = (i) => page.locator("#kouban-cal button").nth(i);
   await day(2).click();
@@ -3691,10 +3691,9 @@ await check("交番表: 並びが無ければ ⚙ が開く。タップで な�
   await day(3).click();
   await day(3).click();
   assert.equal(await day(3).locator(".c").textContent(), "公休");
-  for (let n = 0; n < 3; n++) await day(14).click();
-  assert.equal(await day(14).locator(".c").textContent(), "特公");
-  await day(20).click();
-  for (let n = 0; n < 3; n++) await day(20).click(); // 4回で なし に戻る
+  await day(14).click();
+  assert.equal(await day(14).locator(".c").textContent(), "特休");
+  for (let n = 0; n < 3; n++) await day(20).click(); // 3回で なし に戻る
   assert.equal(await day(20).locator(".c").textContent(), "");
   // 予備の月(2・5・8・11)
   for (const m of [2, 5, 8, 11]) await page.click(`#kouban-months button:text-is("${m}月")`);
@@ -3702,7 +3701,7 @@ await check("交番表: 並びが無ければ ⚙ が開く。タップで な�
   await page.screenshot({ path: OUT + "kouban-settings.png", fullPage: true });
   await page.click("#kouban-settings-save");
   await page.waitForFunction(() => document.getElementById("status").textContent.includes("設定を保存"));
-  assert.deepEqual(kSaved(be), { start: kDay(1), cycle: 30, days: { 2: "特休", 3: "公休", 14: "特公" }, spareMonths: [2, 5, 8, 11], spareOff: true });
+  assert.deepEqual(kSaved(be), { start: kDay(1), cycle: 30, days: { 2: "特休", 3: "公休", 14: "特休" }, spareMonths: [2, 5, 8, 11], spareOff: true });
   assert.deepEqual(errors, []);
   await ctx.close();
 });
