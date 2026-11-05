@@ -78,7 +78,11 @@ html, body { overscroll-behavior-y: none; }
 .shift-footer { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
 
 /* 写真取込(勤務表の写真を Claude で読み取ったもの)。設計は docs/photo/DESIGN.md */
-.import-bar { display: flex; gap: 8px; justify-content: flex-end; padding: 8px 0 4px; }
+.import-bar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; padding: 8px 0 4px; }
+/* 交番表(左に寄せる) */
+.import-bar .kouban-bar { display: flex; gap: 6px; margin-right: auto; }
+.import-bar .kouban-bar[hidden] { display: none; }
+.import-bar button.kouban { color: var(--accent); border-color: var(--accent); font-weight: bold; }
 .import-bar .button, .import-bar button {
   font-size: 0.95rem; padding: 7px 12px; border: 1px solid #bbb; border-radius: 6px; background: #fff;
   color: var(--text); text-decoration: none; line-height: 1.6;
@@ -101,3 +105,24 @@ html, body { overscroll-behavior-y: none; }
 .period-note p { margin: 4px 0; overflow-wrap: anywhere; }
 .period-note p.error { color: var(--danger); font-weight: bold; }
 .shift tr.period-error td { background: #fdecea; }
+
+/* 交番表: 自分の位置を選ぶ・設定 */
+#kouban-pos-dialog, #kouban-settings-dialog { width: min(520px, 96vw); padding: 12px; }
+#kouban-pos-dialog h2, #kouban-settings-dialog h2 { margin: 0 0 8px; font-size: 1rem; }
+#kouban-pos-dialog p, #kouban-settings-dialog p { margin: 0 0 8px; font-size: 0.9rem; }
+.kouban-grid-wrap { max-height: 52vh; overflow: auto; border: 1px solid #ccc; border-radius: 6px; }
+.kouban-grid { border-collapse: collapse; width: 100%; font-size: 0.8rem; }
+.kouban-grid th, .kouban-grid td { border: 1px solid #ddd; padding: 0; text-align: center; }
+.kouban-grid thead th { position: sticky; top: 0; background: #f4f6fa; padding: 3px 2px; font-weight: normal; line-height: 1.3; z-index: 1; }
+.kouban-grid thead th .grp { display: block; font-weight: bold; color: var(--accent); }
+.kouban-grid tbody th { background: #f4f6fa; padding: 0 4px; white-space: nowrap; font-weight: normal; }
+.kouban-grid tr.block-start > * { border-top: 2px solid #555; }
+.kouban-grid td button { width: 100%; min-width: 34px; height: 30px; border: 0; background: #fff; border-radius: 0; padding: 0; font-size: 0.75rem; color: #888; }
+.kouban-grid td button.selected { background: var(--accent); color: #fff; font-weight: bold; }
+.kouban-preview { font-size: 0.8rem; line-height: 1.6; margin-top: 8px !important; word-break: break-all; }
+.kouban-preview .off { color: #c62828; font-weight: bold; }
+#kouban-pos-dialog .actions, #kouban-settings-dialog .actions { display: flex; gap: 8px; margin-top: 10px; }
+#kouban-pos-dialog .actions button, #kouban-settings-dialog .actions button { flex: 1; padding: 10px 0; }
+#kouban-settings-dialog fieldset { border: 1px solid #ddd; border-radius: 6px; margin: 0 0 8px; padding: 6px 10px; }
+#kouban-settings-dialog fieldset label, #kouban-settings-dialog label.check { display: block; padding: 6px 0; font-size: 0.95rem; }
+.kouban-pos-now { color: #555; }

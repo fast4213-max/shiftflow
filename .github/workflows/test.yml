@@ -4,7 +4,7 @@ name: Test
 on:
   push:
     branches: [main]
-    paths: ["supabase/functions/**", "supabase/migrations/**", "docs/contact/test/db_*", "web/js/plan.js", "web/js/csv.js", "web/calendar/cal-core.js", "docs/mycalendar/test/**", ".github/workflows/test.yml"]
+    paths: ["supabase/functions/**", "supabase/migrations/**", "docs/contact/test/db_*", "web/js/plan.js", "web/js/csv.js", "web/calendar/cal-core.js", "docs/mycalendar/test/**", "web/js/kouban.js", "docs/kouban/test/**", ".github/workflows/test.yml"]
   workflow_dispatch:
 
 permissions:
@@ -33,6 +33,8 @@ jobs:
         with:
           node-version: 22
       - run: node --test docs/mycalendar/test/cal-core.test.mjs
+      # 交番表の計算(web/js/kouban.js)
+      - run: node --test docs/kouban/test/kouban.test.mjs
 
   # migration を、空の PostgreSQL に全部当てて、権限・RLS・動きを確かめる(docs/contact/test/db_assert.sql)。
   # 本物の Supabase の DB に反映する前に、migration の誤りや権限の外し忘れを見つける(pg_cron は無いので、そこは飛ばされる)

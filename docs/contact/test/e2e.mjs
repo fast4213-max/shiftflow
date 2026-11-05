@@ -69,7 +69,7 @@ function backend(opts = {}) {
       // 保存(PATCH)は、送った値を足した行を返す(.single() なので1件だけ)
       if (req.method() === "PATCH") {
         // カレンダーの「出すもの」の保存(update): 送った値を覚えて、次に読むときに返す
-        for (const k of Object.keys(body || {})) if (k.startsWith("cal_")) st.settingsPatch[k] = body[k];
+        for (const k of Object.keys(body || {})) if (k.startsWith("cal_") || k === "kouban") st.settingsPatch[k] = body[k];
         return json({ ...row, ...body, verified_at: null });
       }
       if (req.method() === "POST" && body && body.user_id) {
@@ -202,7 +202,11 @@ function backend(opts = {}) {
       if (url.searchParams.get("select") === "sort_order") return json(sorted.slice(-1).map((o) => ({ sort_order: o.sort_order })));
       return json(sorted);
     }
-    if (path === "/rest/v1/offices") return json([{ id: 1, name: "A区所" }]);
+    if (path === "/rest/v1/offices") return json([{ id: 1, name: opts.officeName || "A区所" }]);
+    // 交番表(切替日ごと)。保存・消すは呼ばれたことだけ覚える
+    if (path === "/rest/v1/kouban_tables") return json(opts.kouban || []);
+    if (path === "/rest/v1/rpc/save_kouban") return json(body.p_period_ids.length);
+    if (path === "/rest/v1/rpc/delete_kouban") return json(body.p_period_ids.length);
     if (path === "/rest/v1/rpc/admin_stats" && opts.statsAbort) return route.abort("failed");
     if (path === "/rest/v1/rpc/admin_stats" && opts.statsFail) return json({ message: "statement timeout" }, 500);
     if (path === "/rest/v1/rpc/admin_stats" && opts.twoOffices) {
@@ -346,6 +350,7 @@ function backend(opts = {}) {
 
 const failures = [];
 async function check(name, fn) {
+  if (process.env.ONLY && !name.includes(process.env.ONLY)) return; // ONLY=交番表 で、名前にその文字がある項目だけ
   try {
     await fn();
     console.log("ok  " + name);
@@ -3651,6 +3656,163 @@ await check("管理画面: 「カレンダー」の列は、Google連携 済・G
   assert.equal(await page.textContent('[data-sort="last_registered_at"]'), "最終登録・保存");
   await page.click('[data-sort="verified"]');
   assert.deepEqual((await rows()).map((r) => r[1]).slice(0, 4), ["Google連携 済", "Google連携 未", "アプリ内", "—"]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// ---------- 交番表 ----------
+// 架空の交番表: 6日ごと・2行・名前の欄2つ(「特急1」はいつも乗務の組「甲」、「予備」はいつも予備)。1列目は今月の1日
+const K_BASE = ["①", "", "特", "公", "②", ""];
+const K_TABLE = {
+  v: 1, start: `${thisMonth.y}-${String(thisMonth.m).padStart(2, "0")}-01`, days: 6, rows: ["1", "2"],
+  cells: [K_BASE, K_BASE.map((_, j) => K_BASE[(j + 5) % 6])],
+  cols: [{ label: "特急1", groups: Object.fromEntries([...Array(12)].map((_, i) => [String(i + 1), "甲"])) },
+    { label: "予備", groups: Object.fromEntries([...Array(12)].map((_, i) => [String(i + 1), "予"])) }],
+  routes: { 甲: { "①": "1", "②": "25" } },
+  off: { 特: "特休", 公: "公休" },
+};
+// 一覧の泊は「特1」(交番表の「1」→ 一覧の「特1」に合わせる)
+const K_MASTER = [
+  { code: "特1", kind: "泊", weekday_start: "10:00", weekday_end: "9:00", holiday_start: "10:00", holiday_end: "9:00", stay: "京都", sort_order: 1 },
+  { code: "25", kind: "日勤", weekday_start: "9:00", weekday_end: "17:45", holiday_start: "9:00", holiday_end: "17:45", stay: "", sort_order: 2 },
+  { code: "公休", kind: "休日", weekday_start: "", weekday_end: "", holiday_start: "", holiday_end: "", stay: "", sort_order: 3 },
+  { code: "特休", kind: "休日", weekday_start: "", weekday_end: "", holiday_start: "", holiday_end: "", stay: "", sort_order: 4 },
+];
+const codeTexts = (page) => page.$$eval("#list tr td.code", (tds) => tds.map((td) => td.textContent.trim()));
+const koubanOpen = (opts, asked) => open("input.html", {
+  userId: "u1",
+  opts: { profile: USER, master: K_MASTER, officeName: "天王寺車掌区", kouban: [{ period_id: 1, data: K_TABLE }], ...opts },
+  beforeLoad: async (p) => { p.removeAllListeners("dialog"); p.on("dialog", (d) => { asked.push(d.message()); d.accept(); }); },
+});
+
+await check("交番表: 区所の名前に天王寺車掌区が無ければボタンを出さない", async () => {
+  const { page, ctx, errors } = await open("input.html", { userId: "u1", opts: { profile: USER, master: K_MASTER } });
+  await page.waitForSelector("#register:not([disabled])");
+  await page.waitForTimeout(300);
+  assert.equal(await page.isVisible("#kouban"), false);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("交番表: 位置をタップで選ぶ → 確認 → その月に入る(1 → 一覧の特1・泊の翌日は非番)。位置は保存する", async () => {
+  const asked = [];
+  const { page, ctx, be, errors } = await koubanOpen({}, asked);
+  await page.waitForSelector("#register:not([disabled])");
+  await page.waitForSelector("#kouban", { state: "visible" });
+  await page.click("#kouban");
+  await page.waitForSelector("#kouban-pos-dialog[open]");
+  // 見出しに、この月の組が出る。名前は出ない
+  assert.ok((await page.textContent("#kouban-grid thead")).includes("甲"));
+  assert.equal(await page.isDisabled("#kouban-pos-ok"), true);
+  await page.click('#kouban-grid button[aria-label="1・特急1"]');
+  assert.ok((await page.textContent("#kouban-pos-preview")).includes("1日 特1"));
+  await page.screenshot({ path: OUT + "kouban-pos.png" });
+  await page.click("#kouban-pos-ok");
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("交番表:"));
+  assert.ok(asked[0].includes("置き換わります") && asked[0].includes("1・特急1"), asked[0]);
+  const codes = await codeTexts(page);
+  assert.equal(codes[0], "特1");
+  assert.equal(codes[1], "非番");
+  assert.equal(codes[2], "特休");
+  assert.equal(codes[3], "公休");
+  assert.equal(codes[4], "25");
+  assert.equal(codes[5], "");
+  assert.equal(codes[6], "特1");
+  assert.equal(await page.locator("#list tr.imported").count(), await page.locator("#list tr").count());
+  const saved = be.st.calls.find((c) => c.path === "/rest/v1/user_settings" && c.method === "PATCH").body;
+  assert.deepEqual(saved.kouban, { pos: { 1: { r: 0, c: 0 } }, routes: true, spareOff: true });
+  await page.screenshot({ path: OUT + "kouban-filled.png" });
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("交番表: 設定で「休みだけ」にすると行路は入らない。予備の欄で「休みを入れる」を外すと何も入らない", async () => {
+  const asked = [];
+  const { page, ctx, be, errors } = await koubanOpen({ settings: { kouban: { pos: { 1: { r: 0, c: 0 } } } } }, asked);
+  await page.waitForSelector("#register:not([disabled])");
+  await page.waitForSelector("#kouban-settings", { state: "visible" });
+  await page.click("#kouban-settings");
+  await page.waitForSelector("#kouban-settings-dialog[open]");
+  assert.ok((await page.textContent("#kouban-pos-now")).includes("1・特急1"));
+  await page.check("#kouban-routes-off");
+  await page.click("#kouban-settings-save");
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("設定を保存"));
+  let saved = be.st.calls.filter((c) => c.path === "/rest/v1/user_settings" && c.method === "PATCH").pop().body;
+  assert.equal(saved.kouban.routes, false);
+  // 位置は選んであるので、すぐ確認になる
+  await page.click("#kouban");
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("交番表:"));
+  const codes = await codeTexts(page);
+  assert.deepEqual(codes.slice(0, 6), ["", "", "特休", "公休", "", ""]);
+  // 予備の欄に選び直し、休みを入れない
+  await page.click("#kouban-settings");
+  await page.waitForSelector("#kouban-settings-dialog[open]");
+  await page.uncheck("#kouban-spare-off");
+  await page.click("#kouban-repos");
+  await page.waitForSelector("#kouban-pos-dialog[open]");
+  await page.click('#kouban-grid button[aria-label="1・予備"]');
+  await page.click("#kouban-pos-ok");
+  await page.waitForFunction(() => document.getElementById("kouban-pos-now").textContent.includes("1・予備"));
+  await page.click("#kouban-settings-save");
+  await page.waitForFunction(() => !document.getElementById("kouban-settings-dialog").open);
+  saved = be.st.calls.filter((c) => c.path === "/rest/v1/user_settings" && c.method === "PATCH").pop().body;
+  assert.deepEqual(saved.kouban, { pos: { 1: { r: 0, c: 1 } }, routes: false, spareOff: false });
+  await page.click("#kouban");
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("入れる番号がありません"));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("交番表: その月の切替日の交番表が無ければ入れない。月の途中の切替日なら、無い側の日は今のまま", async () => {
+  const asked = [];
+  const a = await koubanOpen({ kouban: [] }, asked);
+  await a.page.waitForSelector("#register:not([disabled])");
+  await a.page.waitForSelector("#kouban", { state: "visible" });
+  await a.page.click("#kouban");
+  await a.page.waitForFunction(() => document.getElementById("status").textContent.includes("まだ登録されていません"));
+  assert.deepEqual(a.errors, []);
+  await a.ctx.close();
+  // 15日から新しい切替日(id 2)。交番表は前の切替日(id 1)だけ。15日の記録は残る
+  const mid = `${thisMonth.y}-${String(thisMonth.m).padStart(2, "0")}-15`;
+  const b = await koubanOpen({
+    periods: [{ id: 1, starts_on: "2026-01-01", name: "前" }, { id: 2, starts_on: mid, name: "ダイヤ改正" }],
+    master: [...K_MASTER, ...K_MASTER.map((r) => ({ ...r, period_id: 2 }))],
+    records: [{ date: mid, code: "公休", memo: "" }],
+    settings: { kouban: { pos: { 1: { r: 0, c: 0 } } } },
+  }, asked);
+  await b.page.waitForSelector("#register:not([disabled])");
+  await b.page.click("#kouban");
+  await b.page.waitForFunction(() => document.getElementById("status").textContent.includes("交番表:"));
+  assert.ok(asked.pop().includes("今のまま"));
+  assert.ok((await b.page.textContent("#status")).includes("まだ無い"));
+  const codes = await codeTexts(b.page);
+  assert.equal(codes[0], "特1");
+  assert.equal(codes[14], "公休");
+  assert.equal(await b.page.locator("#list tr.imported").count(), 14);
+  assert.deepEqual(b.errors, []);
+  await b.ctx.close();
+});
+
+await check("管理画面: 天王寺車掌区の切替日に交番表の JSON を入れる(形が違えば断る)", async () => {
+  const asked = [];
+  const { page, ctx, be, errors } = await open("admin.html#master", {
+    userId: "a1",
+    opts: { profile: ADMIN, master: K_MASTER, kouban: [], stats: { offices: [{ id: 1, name: "天王寺車掌区", master_count: 4, user_count: 1, periods: [{ id: 1, starts_on: "2026-10-03", name: "ダイヤ修正", count: 4 }] }] } },
+    beforeLoad: async (p) => { p.removeAllListeners("dialog"); p.on("dialog", (d) => { asked.push(d.message()); d.accept(); }); },
+  });
+  await page.waitForSelector("#kouban-admin:not([hidden])");
+  await page.waitForFunction(() => document.getElementById("kouban-admin-state").textContent.includes("まだありません"));
+  await page.fill("#kouban-admin-text", "{ broken");
+  await page.click("#kouban-admin-apply");
+  await page.waitForFunction(() => document.getElementById("kouban-admin-message").textContent.includes("JSON"));
+  assert.ok(!be.st.calls.some((c) => c.path === "/rest/v1/rpc/save_kouban"));
+  await page.fill("#kouban-admin-text", JSON.stringify(K_TABLE));
+  await page.click("#kouban-admin-apply");
+  await page.waitForFunction(() => document.getElementById("kouban-admin-message").textContent.includes("入れました"));
+  assert.ok(asked.pop().includes("2行・名前の欄2"));
+  const sent = be.st.calls.find((c) => c.path === "/rest/v1/rpc/save_kouban").body;
+  assert.deepEqual(sent.p_period_ids, [1]);
+  assert.equal(sent.p_data.days, 6);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

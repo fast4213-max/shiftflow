@@ -38,6 +38,8 @@ jobs:
         with:
           node-version: 22
       - run: node --test docs/mycalendar/test/cal-core.test.mjs
+      # 交番表の計算(web/js/kouban.js)
+      - run: node --test docs/kouban/test/kouban.test.mjs
 
   deploy:
     needs: test

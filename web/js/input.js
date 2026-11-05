@@ -6,6 +6,7 @@ import {
 } from "./plan.js?v=dev";
 import { PHOTO_IMPORT_URL } from "./config.js?v=dev";
 import { captureImportFromHash, decodeImport, stashImport, takePendingImport } from "./photo-import.js?v=dev";
+import { checkKouban, groupOn, isSpare, koubanCode, officeHasKouban, readPrefs, validPos } from "./kouban.js?v=dev";
 
 // 写真取込のリンク(input.html#import=…)で開いたときは、ログインを確かめる前に取込の文字を覚えて、アドレスから消す
 captureImportFromHash();
@@ -36,6 +37,9 @@ const state = {
   registering: false,
   saving: false,
   imported: new Set(), // 写真取込で入れた日("yyyy-MM-dd")。保存・登録・月の移動で消す
+  userId: null,
+  kouban: readPrefs(null), // 交番表の自分の位置(切替日ごと)と設定(user_settings.kouban)
+  koubanBusy: false,
 };
 
 // 今月より前には戻れない(今月かそれ以前の月を見ているとき)
@@ -769,17 +773,22 @@ async function applyImport(text) {
   state.imported = new Set(Object.keys(entries));
   changed();
   window.scrollTo(0, 0);
+  setStatus("写真取込: " + (who ? "「" + who + "」の行の" : "") + days.size + "日分を入れました。" + filledNote(unsureNote));
+}
+
+// 写真取込・交番表で入れたあとの案内: 保存・登録の案内、extra、一覧(マスタ)にない番号、時間の無い日。
+// 休みの番号が一覧にないと、登録で勤務用カレンダーに入るので知らせる(L3)
+function filledNote(extra) {
   const needTime = document.querySelectorAll("#list tr.needtime").length;
-  // 一覧(マスタ)にない番号を並べる。休みの番号が一覧にないと、登録で勤務用カレンダーに入るので知らせる(L3)
-  const unknown = [...new Set(Object.entries(state.entries).map(([key, e]) => [key, e.code.trim()])
+  const unknown = [...new Set(Object.entries(state.entries).map(([key, e]) => [key, (e.code || "").trim()])
     .filter(([key, c]) => c && !masterAt(key)[c] && !/^[〜~\-ー—]$/.test(c)).map(([, c]) => c))];
   const offUnknown = unknown.filter((c) => /休/.test(c) && !/[出勤]/.test(c));
-  setStatus("写真取込: " + (who ? "「" + who + "」の行の" : "") + days.size + "日分を入れました。" + (state.googleSync
+  return (state.googleSync
     ? "確かめて「登録」(Googleカレンダーにも入れる)か「保存」(入力だけ残す。アプリのカレンダーには出ます)を押してください。"
-    : "確かめて「保存」を押してください(アプリのカレンダーに出ます)。") + unsureNote +
+    : "確かめて「保存」を押してください(アプリのカレンダーに出ます)。") + extra +
     (unknown.length ? "一覧にない番号: " + unknown.join("、") + "(手入力として入りました)。" : "") +
     (needTime ? "時間の無い日が" + needTime + "日あります(黄色)。分かればメモに時間を入れてください。" : "") +
-    (offUnknown.length ? "休みの番号(" + offUnknown.join("、") + ")が一覧に無いので、" + (state.googleSync ? "登録すると勤務用カレンダーに入ります" : "勤務の予定として出ます") + "。管理者に一覧への追加を頼んでください。" : ""));
+    (offUnknown.length ? "休みの番号(" + offUnknown.join("、") + ")が一覧に無いので、" + (state.googleSync ? "登録すると勤務用カレンダーに入ります" : "勤務の予定として出ます") + "。管理者に一覧への追加を頼んでください。" : "");
 }
 
 if (PHOTO_IMPORT_URL) {
@@ -804,6 +813,303 @@ $("paste-run").addEventListener("click", () => {
   }
   $("paste-dialog").close();
   applyImport(text);
+});
+
+// ---------- 交番表 ----------
+// 交番表(管理画面で切替日ごとに登録)から、その月の勤務を入れる(まだ保存・登録はしない)。設計は docs/kouban/DESIGN.md
+
+// 区所の名前に「天王寺車掌区」が入っている人だけ、ボタンを出す(読めなければ出さない)
+async function showKoubanButtons() {
+  const { data } = await supabase.from("offices").select("name").eq("id", state.officeId).maybeSingle();
+  $("kouban-bar").hidden = !(data && officeHasKouban(data.name));
+}
+
+// この区所の切替日ごとの交番表。形がおかしいものは { broken: 理由 }
+async function loadKoubanTables() {
+  const ids = state.master.periods.map((p) => p.id);
+  const tables = new Map();
+  if (!ids.length) return tables;
+  const { data, error } = await supabase.from("kouban_tables").select("period_id, data").in("period_id", ids);
+  if (error) throw error;
+  (data || []).forEach((r) => {
+    try {
+      tables.set(r.period_id, checkKouban(r.data));
+    } catch (err) {
+      tables.set(r.period_id, { broken: err.message });
+    }
+  });
+  return tables;
+}
+
+// 表示中の月の日を、使うマスタの切替日ごとに分ける([{ period, table, keys }]。月の途中で切り替わると2つ)
+function monthKoubanGroups(tables) {
+  const groups = [];
+  for (let d = 1; d <= daysInMonth(state.year, state.month); d++) {
+    const key = dateKey(state.year, state.month, d);
+    const period = state.master.periodOn(key);
+    let g = groups.find((x) => x.period.id === period.id);
+    if (!g) groups.push(g = { period, table: tables.get(period.id) || null, keys: [] });
+    g.keys.push(key);
+  }
+  return groups;
+}
+
+const usableTable = (t) => !!t && !t.broken;
+
+// 「上5・特急2(11月は特1)」
+function koubanPosText(table, pos, key) {
+  const group = groupOn(table, pos.c, key);
+  return table.rows[pos.r] + "・" + table.cols[pos.c].label + "(" + Number(key.slice(5, 7)) + "月は" + group + (isSpare(table, group) ? "。休みだけ" : "") + ")";
+}
+
+// 位置と設定を保存する(この区所の切替日の位置だけ残す。ほかの区所にいたときの位置で大きくならないように)
+async function saveKoubanPrefs(prefs) {
+  const ids = new Set(state.master.periods.map((p) => String(p.id)));
+  const pos = Object.fromEntries(Object.entries(prefs.pos).filter(([id]) => ids.has(id)));
+  const value = { pos, routes: prefs.routes, spareOff: prefs.spareOff };
+  const { error } = await supabase.from("user_settings").update({ kouban: value }).eq("user_id", state.userId);
+  if (error) throw error;
+  state.kouban = readPrefs(value);
+}
+
+// 自分の位置を選ぶ(名前の無い表のマスをタップ)。選んだ位置か、やめたら null
+let koubanPosDone = null;
+function chooseKoubanPos(group, prefs) {
+  const { table, keys, period } = group;
+  let selected = validPos(table, prefs.pos[period.id]) ? prefs.pos[period.id] : null;
+  const multi = state.master.periods.length > 1;
+  $("kouban-pos-title").textContent = "交番表の自分の位置" + (multi ? "(" + periodLabel(period) + ")" : "");
+  const grid = $("kouban-grid");
+  grid.innerHTML = "";
+  const head = grid.createTHead().insertRow();
+  head.appendChild(document.createElement("th"));
+  table.cols.forEach((col, c) => {
+    const th = document.createElement("th");
+    th.append(col.label);
+    const grp = document.createElement("span");
+    grp.className = "grp";
+    grp.textContent = groupOn(table, c, keys[0]);
+    th.appendChild(grp);
+    head.appendChild(th);
+  });
+  const body = grid.createTBody();
+  const buttons = [];
+  table.rows.forEach((label, r) => {
+    const tr = body.insertRow();
+    // 「1」に戻る行(下の1など)の上に太い線
+    if (r > 0 && /(^|\D)1$/.test(label)) tr.className = "block-start";
+    const th = document.createElement("th");
+    th.textContent = label;
+    tr.appendChild(th);
+    table.cols.forEach((col, c) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("aria-label", label + "・" + col.label);
+      b.addEventListener("click", () => select({ r, c }));
+      tr.insertCell().appendChild(b);
+      buttons.push({ b, r, c });
+    });
+  });
+  function select(pos) {
+    selected = pos;
+    buttons.forEach(({ b, r, c }) => {
+      const on = r === pos.r && c === pos.c;
+      b.classList.toggle("selected", on);
+      b.textContent = on ? "自分" : "";
+    });
+    $("kouban-pos-ok").disabled = false;
+    // その月の自分の並び(今の設定で入る番号。入らない日は「·」)
+    const preview = $("kouban-pos-preview");
+    preview.innerHTML = "";
+    preview.append(koubanPosText(table, pos, keys[0]) + ": ");
+    keys.forEach((key) => {
+      const raw = koubanCode(table, pos, key, prefs).code;
+      const code = raw ? masterCodeOf(raw, key) || raw : "";
+      const span = document.createElement("span");
+      span.textContent = Number(key.slice(8)) + "日 " + (code || "·") + "  ";
+      if (code && Object.values(table.off).includes(code)) span.className = "off";
+      preview.appendChild(span);
+    });
+  }
+  $("kouban-pos-ok").disabled = true;
+  $("kouban-pos-preview").textContent = "マスを選ぶと、この月の自分の並びが出ます。";
+  if (selected) select(selected);
+  return new Promise((resolve) => {
+    koubanPosDone = (pos) => {
+      koubanPosDone = null;
+      resolve(pos);
+    };
+    $("kouban-pos-dialog").returnValue = "";
+    $("kouban-pos-dialog").showModal();
+    $("kouban-pos-ok").onclick = () => {
+      const pos = selected;
+      $("kouban-pos-dialog").close("ok");
+      if (koubanPosDone) koubanPosDone(pos);
+    };
+    const row = grid.querySelector("button.selected");
+    if (row) row.scrollIntoView({ block: "center" });
+  });
+}
+$("kouban-pos-cancel").addEventListener("click", () => $("kouban-pos-dialog").close());
+$("kouban-pos-dialog").addEventListener("close", () => {
+  if (koubanPosDone) koubanPosDone(null); // やめる・Esc・戻る
+});
+
+// 使う交番表の位置がまだ無ければ選んでもらう(force なら選び直す)。選んだら保存する。やめたら false
+async function ensureKoubanPos(groups, prefs, force) {
+  for (const g of groups) {
+    if (!force && validPos(g.table, prefs.pos[g.period.id])) continue;
+    const pos = await chooseKoubanPos(g, prefs);
+    if (!pos) return false;
+    prefs.pos = { ...prefs.pos, [g.period.id]: pos };
+    await saveKoubanPrefs(prefs);
+  }
+  return true;
+}
+
+// 入れる前の確かめ(読み込み中・登録中は断る)。だめなら理由を出して false
+function koubanReady() {
+  if (state.registering || state.saving) {
+    setStatus("登録・保存が終わってから、もう一度押してください。", true);
+    return false;
+  }
+  if (state.koubanBusy) return false;
+  if (!state.master.periods.length || !$("list").children.length) {
+    setStatus("画面の読み込みが終わってから、もう一度押してください。", true);
+    return false;
+  }
+  return true;
+}
+
+function noKoubanText() {
+  return "この月に使う交番表が、まだ登録されていません。管理者に登録を頼んでください。";
+}
+
+$("kouban").addEventListener("click", async () => {
+  if (!koubanReady()) return;
+  const { year, month } = state;
+  state.koubanBusy = true;
+  try {
+    const tables = await loadKoubanTables();
+    const groups = monthKoubanGroups(tables);
+    const usable = groups.filter((g) => usableTable(g.table));
+    const broken = groups.filter((g) => g.table && g.table.broken);
+    if (!usable.length) {
+      setStatus(broken.length ? "交番表の形がおかしいので使えません(" + broken[0].table.broken + ")。管理者に入れ直しを頼んでください。" : noKoubanText(), true);
+      return;
+    }
+    const prefs = readPrefs(state.kouban);
+    if (!(await ensureKoubanPos(usable, prefs, false))) {
+      setStatus("交番表をやめました。");
+      return;
+    }
+    if (state.year !== year || state.month !== month || state.registering || state.saving) return; // 選んでいるあいだに月を移動した
+
+    // 日ごとの番号(一覧の番号に合わせる。「1」→ 一覧の「特1」・全角も)
+    const filled = new Map();
+    usable.forEach((g) => g.keys.forEach((key) => {
+      const { code } = koubanCode(g.table, prefs.pos[g.period.id], key, prefs);
+      filled.set(key, code ? masterCodeOf(code, key) || code : "");
+    }));
+    const count = [...filled.values()].filter(Boolean).length;
+    if (!count) {
+      setStatus("入れる番号がありません(" + (prefs.spareOff ? "交番表のこの月は空です" : "予備・M組の月で、休みを入れない設定です") + ")。", true);
+      return;
+    }
+    const where = usable.map((g) => koubanPosText(g.table, prefs.pos[g.period.id], g.keys[0])).join("、");
+    const skipped = groups.filter((g) => !usableTable(g.table));
+    const skipText = skipped.map((g) => shortDate(g.keys[0]) + "〜" + shortDate(g.keys[g.keys.length - 1])).join("、");
+    const label = year + "年" + month + "月";
+    const lose = state.dirty ? "\n" + (state.googleSync ? "登録" : "保存") + "していない変更は消えます。" : "";
+    if (!confirm(label + "に、交番表の内容(" + count + "日分)を入れます。\n位置: " + where + "\n" + (prefs.routes ? "行路も入れます。" : "休みだけ入れます。") +
+      "\nこの月の今の入力は置き換わります" + (skipText ? "(交番表の無い " + skipText + " は今のまま)" : "") + "(まだ保存・登録はしません)。" + lose + "\nよろしいですか？")) {
+      setStatus("交番表をやめました。");
+      return;
+    }
+    if (state.year !== year || state.month !== month || state.registering || state.saving) return;
+
+    // 交番表の無い日(ダイヤ改正のあと、まだ入っていない日)は今の入力を残す
+    const entries = {};
+    Object.entries(state.entries).forEach(([key, e]) => {
+      if (!filled.has(key)) entries[key] = e;
+    });
+    filled.forEach((code, key) => {
+      entries[key] = { code, memo: "" };
+    });
+    state.entries = entries;
+    // 泊の翌日(非番)の番号は消す(交番表では空なので、交番表の無い日の境目だけ)。メモは残す
+    offdutyDays().forEach((_, key) => {
+      if (state.entries[key]) state.entries[key].code = "";
+    });
+    state.imported = new Set(filled.keys());
+    changed();
+    window.scrollTo(0, 0);
+    const skipNote = skipped.map((g) => shortDate(g.keys[0]) + "からの交番表(" + periodLabel(g.period) + ")が" +
+      (g.table ? "おかしい(" + g.table.broken + ")" : "まだ無い") + "ので、" + shortDate(g.keys[0]) + "〜" + shortDate(g.keys[g.keys.length - 1]) + "は今のままです。").join("");
+    setStatus("交番表: " + where + "の" + count + "日分を入れました。" + filledNote(skipNote));
+  } catch (err) {
+    setStatus(err.message || String(err), true);
+  } finally {
+    state.koubanBusy = false;
+  }
+});
+
+// 交番表の設定: 行路も入れるか・予備のとき休を入れるか・位置を選び直す
+let koubanSettingsGroups = [];
+function renderKoubanPosNow() {
+  const usable = koubanSettingsGroups.filter((g) => usableTable(g.table));
+  $("kouban-repos").disabled = !usable.length;
+  $("kouban-pos-now").textContent = !usable.length ? noKoubanText()
+    : "自分の位置(" + state.year + "年" + state.month + "月): " + usable.map((g) => {
+      const pos = state.kouban.pos[g.period.id];
+      return validPos(g.table, pos) ? koubanPosText(g.table, pos, g.keys[0]) : "まだ選んでいません";
+    }).join("、");
+}
+$("kouban-settings").addEventListener("click", async () => {
+  if (!koubanReady()) return;
+  state.koubanBusy = true;
+  try {
+    koubanSettingsGroups = monthKoubanGroups(await loadKoubanTables());
+  } catch (err) {
+    setStatus(err.message || String(err), true);
+    return;
+  } finally {
+    state.koubanBusy = false;
+  }
+  $(state.kouban.routes ? "kouban-routes-all" : "kouban-routes-off").checked = true;
+  $("kouban-spare-off").checked = state.kouban.spareOff;
+  $("kouban-settings-error").hidden = true;
+  renderKoubanPosNow();
+  $("kouban-settings-dialog").showModal();
+});
+$("kouban-settings-cancel").addEventListener("click", () => $("kouban-settings-dialog").close());
+$("kouban-repos").addEventListener("click", async () => {
+  const prefs = readPrefs(state.kouban);
+  prefs.routes = $("kouban-routes-all").checked;
+  prefs.spareOff = $("kouban-spare-off").checked;
+  try {
+    await ensureKoubanPos(koubanSettingsGroups.filter((g) => usableTable(g.table)), prefs, true);
+  } catch (err) {
+    $("kouban-settings-error").textContent = friendlyText(err.message || String(err));
+    $("kouban-settings-error").hidden = false;
+  }
+  renderKoubanPosNow();
+});
+$("kouban-settings-save").addEventListener("click", async () => {
+  const prefs = readPrefs(state.kouban);
+  prefs.routes = $("kouban-routes-all").checked;
+  prefs.spareOff = $("kouban-spare-off").checked;
+  $("kouban-settings-save").disabled = true;
+  try {
+    await saveKoubanPrefs(prefs);
+    $("kouban-settings-dialog").close();
+    setStatus("交番表の設定を保存しました(" + (prefs.routes ? "行路も入れる" : "休みだけ入れる") + "・予備とM組の月は" + (prefs.spareOff ? "休みを入れる" : "何も入れない") + ")。");
+  } catch (err) {
+    $("kouban-settings-error").textContent = friendlyText(err.message || String(err));
+    $("kouban-settings-error").hidden = false;
+  } finally {
+    $("kouban-settings-save").disabled = false;
+  }
 });
 
 $("reset").addEventListener("click", () => {
@@ -857,6 +1163,9 @@ requireLogin("input.html", { needOffice: true })
   .then((ctx) => {
     if (!ctx) return;
     state.officeId = ctx.settings.office_id;
+    state.userId = ctx.session.user.id;
+    state.kouban = readPrefs(ctx.settings.kouban);
+    showKoubanButtons();
     state.googleSync = ctx.settings.google_sync !== false;
     if (!state.googleSync) {
       // Googleカレンダーには登録しない人: 登録のボタンを隠して「保存」を主にする(接続テストの案内も出さない)

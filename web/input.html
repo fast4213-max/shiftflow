@@ -21,6 +21,11 @@
   </div>
   <main class="shift">
     <div class="import-bar">
+      <!-- 交番表から自動入力(区所の名前に「天王寺車掌区」が入っている人だけ。docs/kouban/DESIGN.md) -->
+      <span id="kouban-bar" class="kouban-bar" hidden>
+        <button id="kouban" type="button" class="kouban">交番表</button>
+        <button id="kouban-settings" type="button" aria-label="交番表の設定" title="交番表の設定">⚙</button>
+      </span>
       <a id="photo-import" class="button" href="#" rel="noopener" hidden>写真取込</a>
       <button id="paste-import" type="button">貼り付けで取込</button>
     </div>
@@ -65,6 +70,36 @@
     <div class="actions">
       <button id="paste-cancel">やめる</button>
       <button id="paste-run" class="primary">取り込む</button>
+    </div>
+  </dialog>
+
+  <dialog id="kouban-pos-dialog">
+    <h2 id="kouban-pos-title">交番表の自分の位置</h2>
+    <p id="kouban-pos-note">交番表で、自分の名前があるマスをタップしてください(名前は出していません)。欄の上は、この月の組です。</p>
+    <div class="kouban-grid-wrap"><table id="kouban-grid" class="kouban-grid"></table></div>
+    <p id="kouban-pos-preview" class="kouban-preview">マスを選ぶと、この月の自分の並びが出ます。</p>
+    <div class="actions">
+      <button id="kouban-pos-cancel" type="button">やめる</button>
+      <button id="kouban-pos-ok" type="button" class="primary" disabled>この位置にする</button>
+    </div>
+  </dialog>
+
+  <dialog id="kouban-settings-dialog">
+    <h2>交番表の設定</h2>
+    <fieldset>
+      <legend>交番表で入れるもの</legend>
+      <label><input type="radio" name="kouban-routes" id="kouban-routes-all" value="all"> 行路も入れる(①〜⑩ を行路番号で入れる)</label>
+      <label><input type="radio" name="kouban-routes" id="kouban-routes-off" value="off"> 休みだけ入れる</label>
+    </fieldset>
+    <label class="check"><input type="checkbox" id="kouban-spare-off"> 予備・M組の月も、休みを入れる</label>
+    <p id="kouban-pos-now" class="kouban-pos-now"></p>
+    <p id="kouban-settings-error" class="error" hidden></p>
+    <div class="actions">
+      <button id="kouban-repos" type="button">位置を選び直す</button>
+    </div>
+    <div class="actions">
+      <button id="kouban-settings-cancel" type="button">やめる</button>
+      <button id="kouban-settings-save" type="button" class="primary">保存</button>
     </div>
   </dialog>
 

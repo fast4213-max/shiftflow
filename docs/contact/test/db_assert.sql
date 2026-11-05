@@ -791,3 +791,68 @@ begin
   perform set_config('request.jwt.claim.sub', '', true);
 end
 $$;
+
+-- 交番表(kouban_tables・user_settings.kouban): 管理者だけ入れる・消せる・利用者は読むだけ・切替日を消すと一緒に消える・自分の位置は本人が書ける
+do $$
+declare
+  admin_id uuid := 'dddddddd-0000-4000-8000-0000000000c1';
+  u uuid := 'dddddddd-0000-4000-8000-0000000000c2';
+  office bigint; base bigint;
+  failed boolean;
+  n int;
+begin
+  assert not has_table_privilege('anon', 'public.kouban_tables', 'select'), 'anon が kouban_tables を読める';
+  assert not has_table_privilege('authenticated', 'public.kouban_tables', 'insert'), 'authenticated が kouban_tables に直接書ける';
+  assert (select relrowsecurity from pg_class where oid = 'public.kouban_tables'::regclass), 'kouban_tables の RLS が無効';
+  assert not has_function_privilege('anon', 'public.save_kouban(bigint[],jsonb)', 'execute'), 'anon が save_kouban を実行できる';
+  assert not has_function_privilege('anon', 'public.delete_kouban(bigint[])', 'execute'), 'anon が delete_kouban を実行できる';
+  assert has_column_privilege('authenticated', 'public.user_settings', 'kouban', 'update'), 'kouban 列を更新できない';
+  insert into public.offices (name, sort_order) values ('交番テスト区', 996) returning id into office;
+  select id into base from public.master_periods where office_id = office;
+  insert into auth.users (id) values (admin_id), (u);
+  insert into public.profiles (user_id, role) values (admin_id, 'admin');
+  insert into public.profiles (user_id, employee_no, family_name, given_name) values (u, '7000041', '交', '番');
+  -- 利用者は入れられない
+  perform set_config('request.jwt.claim.sub', u::text, true);
+  set local role authenticated;
+  begin perform public.save_kouban(array[base], '{"v":1}'); failed := false; exception when others then failed := true; end;
+  assert failed, '利用者が交番表を入れられる';
+  reset role;
+  -- 管理者は入れられる(2回目は入れ替え)。形が違う・無い切替日は断る
+  perform set_config('request.jwt.claim.sub', admin_id::text, true);
+  set local role authenticated;
+  n := public.save_kouban(array[base, base], '{"v":1,"days":30}');
+  assert n = 1, '同じ切替日を2つ渡すと2件になる';
+  n := public.save_kouban(array[base], '{"v":1,"days":6}');
+  assert (select data ->> 'days' from public.kouban_tables where period_id = base) = '6', '入れ替わらない';
+  begin perform public.save_kouban(array[base], '{"v":2}'); failed := false; exception when others then failed := true; end;
+  assert failed, 'v が 1 でない交番表を入れられる';
+  begin perform public.save_kouban(array[-1::bigint], '{"v":1}'); failed := false; exception when others then failed := true; end;
+  assert failed, '無い切替日に入れられる';
+  reset role;
+  -- 利用者は読める・直接は書けない。自分の位置は書ける
+  perform set_config('request.jwt.claim.sub', u::text, true);
+  set local role authenticated;
+  assert (select count(*) from public.kouban_tables where period_id = base) = 1, '利用者が交番表を読めない';
+  begin delete from public.kouban_tables where period_id = base; exception when others then null; end;
+  insert into public.user_settings (user_id, office_id) values (u, office);
+  update public.user_settings set kouban = jsonb_build_object('pos', jsonb_build_object(base::text, '{"r":3,"c":1}'::jsonb), 'routes', false) where user_id = u;
+  assert (select kouban -> 'pos' -> base::text ->> 'r' from public.user_settings where user_id = u) = '3', '自分の位置を保存できない';
+  begin update public.user_settings set kouban = '[]' where user_id = u; failed := false; exception when others then failed := true; end;
+  assert failed, 'kouban に配列を入れられる';
+  reset role;
+  assert (select count(*) from public.kouban_tables where period_id = base) = 1, '利用者が交番表を消せた(RLS が効いていない)';
+  -- 消す: 管理者だけ。切替日を消すと一緒に消える
+  perform set_config('request.jwt.claim.sub', admin_id::text, true);
+  set local role authenticated;
+  assert public.delete_kouban(array[base]) = 1, '交番表を消せない';
+  perform public.save_kouban(array[base], '{"v":1}');
+  reset role;
+  delete from public.offices where id = office;
+  assert (select count(*) from public.kouban_tables where period_id = base) = 0, '区所(切替日)を消しても交番表が残る';
+  delete from public.user_settings where user_id = u;
+  delete from auth.users where id in (admin_id, u);
+  delete from public.profiles where user_id in (admin_id, u);
+  perform set_config('request.jwt.claim.sub', '', true);
+end
+$$;
