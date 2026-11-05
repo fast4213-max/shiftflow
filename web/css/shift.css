@@ -114,6 +114,8 @@ html, body { overscroll-behavior-y: none; }
 .kouban-fields { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 8px; font-size: 0.95rem; }
 .kouban-fields input { font-size: 1rem; padding: 4px 6px; }
 .kouban-fields input[type="number"] { width: 4.5em; }
+.kouban-fields input[type="month"] { width: 11em; }
+.kouban-months-note { margin: 6px 0 0 !important; font-size: 0.85rem !important; color: #555; }
 .kouban-order { font-weight: bold; }
 .kouban-month-note { color: #c62828; font-weight: bold; }
 .kouban-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }

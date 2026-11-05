@@ -78,16 +78,20 @@
     <p class="kouban-hint">交番の<strong>自分の行</strong>を見て、休みの日をタップしてください。実際の勤務指定表ではなく交番から入れます。年休などが入っているとずれます。1回入れれば、あとは「交番」を押すだけで月ごとに休みが入ります。</p>
     <div class="kouban-fields">
       <label>一周の日数 <input type="number" id="kouban-cycle" min="7" max="99" step="1" inputmode="numeric"> 日</label>
+      <label>入力する月 <input type="month" id="kouban-month"></label>
     </div>
-    <p id="kouban-month-note" class="kouban-month-note"></p>
+    <p class="kouban-month-note">※本番の月で入力してください。</p>
     <p id="kouban-order" class="kouban-order"></p>
     <div id="kouban-cal" class="kouban-cal"></div>
     <div class="actions"><button id="kouban-clear" type="button">全部消す</button></div>
     <fieldset>
-      <legend>予備の月 押して選びます</legend>
-      <div id="kouban-months" class="kouban-months"></div>
+      <legend>予備の月</legend>
       <label><input type="radio" name="kouban-spare" id="kouban-spare-on"> 予備の月も休みを入れる</label>
       <label><input type="radio" name="kouban-spare" id="kouban-spare-none"> 予備の月は何もしない</label>
+      <div id="kouban-months-box" hidden>
+        <p class="kouban-months-note">何もしない月を押して選びます</p>
+        <div id="kouban-months" class="kouban-months"></div>
+      </div>
     </fieldset>
     <p id="kouban-settings-error" class="error" hidden></p>
     <div class="actions">

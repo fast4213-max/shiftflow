@@ -3681,7 +3681,7 @@ await check("交番表: 並びが無ければ ⚙ が開く。タップで な�
   assert.equal(await page.isVisible("#kouban"), true); // どの区所にも出る
   await page.click("#kouban");
   await page.waitForSelector("#kouban-settings-dialog[open]");
-  assert.ok((await page.textContent("#kouban-month-note")).startsWith("※本番の月で入力してください"));
+  assert.equal(await page.textContent(".kouban-month-note"), "※本番の月で入力してください。");
   assert.equal(await page.locator("#kouban-start").count(), 0); // 始まりの日の欄は無い(表示している月の1日から)
   assert.equal(await page.inputValue("#kouban-cycle"), "30");
   assert.equal(await page.textContent("#kouban-order"), "タップするたびに: なし → 特休 → 公休 → なし");
@@ -3696,13 +3696,25 @@ await check("交番表: 並びが無ければ ⚙ が開く。タップで な�
   assert.equal(await day(14).locator(".c").textContent(), "特休");
   for (let n = 0; n < 3; n++) await day(20).click(); // 3回で なし に戻る
   assert.equal(await day(20).locator(".c").textContent(), "");
-  // 予備の月(2・5・8・11)
+  // 入力する月を次の月にすると、カレンダーはその月の1日から。戻すと元のまま(タップした日付は変わらない)
+  assert.equal(await page.inputValue("#kouban-month"), kDay(1).slice(0, 7));
+  const next = thisMonth.m === 12 ? `${thisMonth.y + 1}-01` : `${thisMonth.y}-${String(thisMonth.m + 1).padStart(2, "0")}`;
+  await page.fill("#kouban-month", next);
+  await page.dispatchEvent("#kouban-month", "change");
+  assert.ok((await day(0).textContent()).startsWith(Number(next.slice(5)) + "/1"));
+  await page.fill("#kouban-month", kDay(1).slice(0, 7));
+  await page.dispatchEvent("#kouban-month", "change");
+  assert.equal(await day(2).locator(".c").textContent(), "特休");
+  // 予備の月のボタンは「何もしない」のときだけ出る(2・5・8・11)
+  assert.equal(await page.isVisible("#kouban-months"), false);
+  await page.check("#kouban-spare-none");
+  assert.equal(await page.isVisible("#kouban-months"), true);
   for (const m of [2, 5, 8, 11]) await page.click(`#kouban-months button:text-is("${m}月")`);
   assert.equal(await page.locator('#kouban-months button[aria-pressed="true"]').count(), 4);
   await page.screenshot({ path: OUT + "kouban-settings.png", fullPage: true });
   await page.click("#kouban-settings-save");
   await page.waitForFunction(() => document.getElementById("status").textContent.includes("設定を保存"));
-  assert.deepEqual(kSaved(be), { start: kDay(1), cycle: 30, days: { 2: "特休", 3: "公休", 14: "特休" }, spareMonths: [2, 5, 8, 11], spareOff: true });
+  assert.deepEqual(kSaved(be), { start: kDay(1), cycle: 30, days: { 2: "特休", 3: "公休", 14: "特休" }, spareMonths: [2, 5, 8, 11], spareOff: false });
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -3748,6 +3760,7 @@ await check("交番表: 予備の月で「何もしない」なら入れない�
   await page.click("#kouban-settings");
   await page.waitForSelector("#kouban-settings-dialog[open]");
   assert.equal(await page.isChecked("#kouban-spare-none"), true);
+  assert.equal(await page.isVisible("#kouban-months"), true);
   // 1日から出す。2日(2つ目)が特休
   assert.ok((await page.locator("#kouban-cal button").nth(0).textContent()).startsWith(thisMonth.m + "/1"));
   assert.equal(await page.locator("#kouban-cal button").nth(1).locator(".c").textContent(), "特休");
@@ -3756,14 +3769,16 @@ await check("交番表: 予備の月で「何もしない」なら入れない�
   await page.dispatchEvent("#kouban-cycle", "change");
   assert.equal(await page.locator("#kouban-cal button").count(), 7);
   await page.check("#kouban-spare-on");
+  assert.equal(await page.isVisible("#kouban-months"), false);
   await page.click("#kouban-settings-save");
   await page.waitForFunction(() => document.getElementById("status").textContent.includes("設定を保存"));
-  assert.deepEqual(kSaved(be), { start: kDay(1), cycle: 7, days: { 1: "特休" }, spareMonths: [thisMonth.m], spareOff: true });
+  // 「休みを入れる」なら予備の月は覚えない
+  assert.deepEqual(kSaved(be), { start: kDay(1), cycle: 7, days: { 1: "特休" }, spareMonths: [], spareOff: true });
   assert.equal(asked.length, 0);
   // 予備の月でも休みを入れる → 2日・9日・16日…
   await page.click("#kouban");
   await page.waitForFunction(() => document.getElementById("status").textContent.includes("交番:"));
-  assert.ok(asked[0].includes("予備の月ですが、休みを入れる設定です"), asked[0]);
+  assert.ok(asked[0].includes("交番で設定した休みを") && !asked[0].includes("予備"), asked[0]);
   const codes = await codeTexts(page);
   assert.equal(codes[1], "特休");
   assert.equal(codes[8], "特休");

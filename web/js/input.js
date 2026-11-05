@@ -870,11 +870,10 @@ $("kouban").addEventListener("click", () => {
     setStatus("この月に入れる休みがありません。" + skipNote, !skipNote);
     return;
   }
-  const spare = isSpareMonth(k, month) ? "\n" + month + "月は予備の月ですが、休みを入れる設定です。" : "";
   if (!confirm(year + "年" + month + "月に、交番で設定した休みを" + put.size + "日分入れます。" +
     "\n休みの日だけ上書きし、ほかの日はそのままです。" +
     (replaced.length ? "\n今の番号を休みに変える日: " + days(replaced) : "") +
-    (skipped.length ? "\n非番なので入れない日: " + days(skipped) : "") + spare + "\nよろしいですか？")) {
+    (skipped.length ? "\n非番なので入れない日: " + days(skipped) : "") + "\nよろしいですか？")) {
     setStatus("交番をやめました。");
     return;
   }
@@ -954,17 +953,22 @@ function renderKoubanMonths() {
   }
 }
 
-// カレンダーは、勤務入力で表示している月の1日から一周分。覚えている並びは、その日から数え直して出す
-// (始まりの日はこちらで決める。本人が選ぶ欄は置かない)
+// 予備の月のボタンは「何もしない」のときだけ出す(「休みを入れる」なら、ほかの月と同じなので選ぶ意味が無い)
+function renderKoubanSpare() {
+  $("kouban-months-box").hidden = !$("kouban-spare-none").checked;
+}
+
+// カレンダーは、選んだ月(はじめは勤務入力で表示している月)の1日から一周分。覚えている並びは、その日から数え直して出す
 function openKoubanSettings() {
   const k = state.kouban;
   const start = dateKey(state.year, state.month, 1);
   koubanDraft = k
     ? { start, cycle: k.cycle, days: moveStart(k.days, k.start, start, k.cycle), spareMonths: [...k.spareMonths], spareOff: k.spareOff }
     : { start, cycle: DEFAULT_CYCLE, days: {}, spareMonths: [], spareOff: true };
-  $("kouban-month-note").textContent = "※本番の月で入力してください。カレンダーは" + state.year + "年" + state.month + "月1日からです。";
+  $("kouban-month").value = start.slice(0, 7);
   $("kouban-cycle").value = String(koubanDraft.cycle);
   $(koubanDraft.spareOff ? "kouban-spare-on" : "kouban-spare-none").checked = true;
+  renderKoubanSpare();
   settingsError("");
   renderKoubanCal();
   renderKoubanMonths();
@@ -979,6 +983,21 @@ $("kouban-settings").addEventListener("click", () => {
   }
   openKoubanSettings();
 });
+
+// 入力する月を変えても、タップした日(本当の日付)の休みはそのまま。カレンダーはその月の1日から
+$("kouban-month").addEventListener("change", () => {
+  const m = $("kouban-month").value.match(/^(\d{4})-(\d{2})$/);
+  if (!m) {
+    settingsError("入力する月を選んでください。");
+    return;
+  }
+  settingsError("");
+  const start = m[1] + "-" + m[2] + "-01";
+  koubanDraft.days = moveStart(koubanDraft.days, koubanDraft.start, start, koubanDraft.cycle);
+  koubanDraft.start = start;
+  renderKoubanCal();
+});
+["kouban-spare-on", "kouban-spare-none"].forEach((id) => $(id).addEventListener("change", renderKoubanSpare));
 
 // 一周の日数を短くして、入れた休みが外に出るときは確かめてから消す
 $("kouban-cycle").addEventListener("change", () => {
@@ -1009,6 +1028,9 @@ $("kouban-settings-cancel").addEventListener("click", () => $("kouban-settings-d
 
 $("kouban-settings-save").addEventListener("click", async () => {
   koubanDraft.spareOff = $("kouban-spare-on").checked;
+  if ($("kouban-month").value !== koubanDraft.start.slice(0, 7)) return settingsError("入力する月を選んでください。");
+  // 「休みを入れる」なら予備の月は使わないので覚えない(確認に「予備の月ですが」が出ないように)
+  if (koubanDraft.spareOff) koubanDraft.spareMonths = [];
   if (Number($("kouban-cycle").value) !== koubanDraft.cycle) return settingsError("一周の日数は " + MIN_CYCLE + "〜" + MAX_CYCLE + " 日にしてください。");
   const value = koubanValue(koubanDraft);
   $("kouban-settings-save").disabled = true;
