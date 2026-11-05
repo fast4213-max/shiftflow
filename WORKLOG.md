@@ -30,9 +30,9 @@ shiftflow の「いま」と「決めたこと」を短く持つファイル。�
 - **様子を見ているもの**: 「登録・リセットが遅くなった気がする」(10-15)。調べた範囲では、その日の変更は原因ではない(5章)。遅いままなら、かかった秒数を聞いて調べ直す
 - **次の migration の名前**: `20261105000000` より大きい番号にする(小さいと本番への反映が止まる。2章「マイグレーション」)
 - **期限**: GitHub Actions の Ubuntu 26 への切り替え(10-19〜11-19)、Supabase の旧方式の鍵の廃止(2026年末。コードは新方式に移行済み。あとはダッシュボードで旧方式を無効にして確かめるだけ)、Supabase のアクセストークン(2027-09-29)→ 4-1
-- **次にやること**: 自作カレンダーの**実機チェック**([`docs/mycalendar/CHECKLIST.md`](docs/mycalendar/CHECKLIST.md) の 8: iPhone の HEIC・写真の向き・Android の Enter と戻るボタン・スクロールの感触・スタンプのドラッグ・画像の見た目と共有・帯の文字の上下中央・アイコン)。設計は [`docs/mycalendar/DESIGN.md`](docs/mycalendar/DESIGN.md)、本番に出す手順は [`RELEASE.md`](docs/mycalendar/RELEASE.md)
+- **次にやること**: 交番の**実機の確認**(4-3。休みが PDF と合うか・入力する月を変えてもずれないか・予備の月)。自作カレンダーの**実機チェック**([`docs/mycalendar/CHECKLIST.md`](docs/mycalendar/CHECKLIST.md) の 8: iPhone の HEIC・写真の向き・Android の Enter と戻るボタン・スクロールの感触・スタンプのドラッグ・画像の見た目と共有・帯の文字の上下中央・アイコン)。設計は [`docs/mycalendar/DESIGN.md`](docs/mycalendar/DESIGN.md)、本番に出す手順は [`RELEASE.md`](docs/mycalendar/RELEASE.md)
 - **提出用の書類(4つ)**: 改善提案書([`docs/proposal/`](docs/proposal/README.md))・セキュリティシート・管理者の手引き・使い方([`docs/sheets/`](docs/sheets/README.md))。使い方・設定・管理画面・SECURITY.md を変えたら、文面を直して作り直す。共通パスワード入りの印刷用は、コミットせずに手元で作る(作り方は proposal の README)
-- **次のダイヤ改正の日が決まったら**: 管理画面の「マスタ」で「＋ 次のマスタ」(全部の区所にまとめて)→ 区所ごとに CSV → 4-3 の「マスタの切替」を確かめる
+- **次のダイヤ改正の日が決まったら**: 管理画面の「マスタ」で「＋ 次のマスタ」(全部の区所にまとめて)→ 区所ごとに CSV → 4-3 の「マスタの切替」を確かめる。交番の並びが変わる人は、利用者が「⚙」で入れ直す(使い方に書いてある)
 
 ## 1. いまの状態
 

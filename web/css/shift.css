@@ -79,9 +79,8 @@ html, body { overscroll-behavior-y: none; }
 
 /* 写真取込(勤務表の写真を Claude で読み取ったもの)。設計は docs/photo/DESIGN.md */
 .import-bar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; padding: 8px 0 4px; }
-/* 交番表(左に寄せる) */
+/* 交番(左に寄せる) */
 .import-bar .kouban-bar { display: flex; gap: 6px; margin-right: auto; }
-.import-bar .kouban-bar[hidden] { display: none; }
 .import-bar button.kouban { color: var(--accent); border-color: var(--accent); font-weight: bold; }
 .import-bar .button, .import-bar button {
   font-size: 0.95rem; padding: 7px 12px; border: 1px solid #bbb; border-radius: 6px; background: #fff;
@@ -106,7 +105,7 @@ html, body { overscroll-behavior-y: none; }
 .period-note p.error { color: var(--danger); font-weight: bold; }
 .shift tr.period-error td { background: #fdecea; }
 
-/* 交番表: 休みの並びの設定 */
+/* 交番: 休みの並びの設定(⚙) */
 #kouban-settings-dialog { width: min(480px, 96vw); padding: 12px; }
 #kouban-settings-dialog h2 { margin: 0 0 8px; font-size: 1rem; }
 #kouban-settings-dialog p { margin: 0 0 8px; font-size: 0.9rem; }

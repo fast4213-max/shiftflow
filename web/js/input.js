@@ -40,7 +40,7 @@ const state = {
   saving: false,
   imported: new Set(), // 写真取込で入れた日("yyyy-MM-dd")。保存・登録・月の移動で消す
   userId: null,
-  kouban: null, // 交番表の休みの並び(user_settings.kouban。まだ無ければ null)
+  kouban: null, // 交番の休みの並び(user_settings.kouban。まだ無ければ null)
 };
 
 // 今月より前には戻れない(今月かそれ以前の月を見ているとき)
@@ -777,7 +777,7 @@ async function applyImport(text) {
   setStatus("写真取込: " + (who ? "「" + who + "」の行の" : "") + days.size + "日分を入れました。" + filledNote(unsureNote));
 }
 
-// 写真取込・交番表で入れたあとの案内: 保存・登録の案内、extra、一覧(マスタ)にない番号、時間の無い日。
+// 写真取込・交番で入れたあとの案内: 保存・登録の案内、extra、一覧(マスタ)にない番号、時間の無い日。
 // 休みの番号が一覧にないと、登録で勤務用カレンダーに入るので知らせる(L3)
 function filledNote(extra) {
   const needTime = document.querySelectorAll("#list tr.needtime").length;
@@ -816,7 +816,7 @@ $("paste-run").addEventListener("click", () => {
   applyImport(text);
 });
 
-// ---------- 交番表 ----------
+// ---------- 交番 ----------
 // ⚙ で覚えた休みの並び(始まりの日から一周分)で、表示している月の休みの日に休みを入れる(まだ保存・登録はしない)。
 // 休みの日だけ上書きし、ほかの日はそのまま。設計は docs/kouban/DESIGN.md
 
@@ -891,7 +891,7 @@ $("kouban").addEventListener("click", () => {
   setStatus("交番: " + month + "月に休みを" + put.size + "日分入れました。" + filledNote(skipNote));
 });
 
-// ---------- 交番表の設定(⚙) ----------
+// ---------- 交番の設定(⚙) ----------
 let koubanDraft = null; // ダイアログで直している並び { start, cycle, days, spareMonths, spareOff }
 
 function settingsError(text) {
