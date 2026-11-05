@@ -2541,15 +2541,15 @@ await check("カレンダー(TODO): 追加(Enter)・チェックで「済み」�
   await page.waitForFunction(() => document.querySelectorAll(".trow[data-tid]").length === 2);
   assert.deepEqual(be.st.cal.cal_todos.map((t) => [t.text, t.sort]), [["牛乳を買う", 1], ["<b>パン</b>", 2]]);
   assert.equal(await page.locator("#panel b").count(), 0);
-  // 直す
-  await page.fill('[data-tin]:nth-of-type(1)', "牛乳を2本買う").catch(() => {});
-  await page.locator(".trow[data-tid] .tin").first().fill("牛乳を2本買う");
-  await page.locator(".trow[data-tid] .tin").first().blur();
+  // 直す(押す・書く欄は TODO の id で決める。「いちばん上」だと、作り直された一覧で別の TODO を押すことがあるため。AM4)
+  const [id1, id2] = be.st.cal.cal_todos.map((t) => t.id);
+  await page.locator(`.trow[data-tid="${id1}"] .tin`).fill("牛乳を2本買う");
+  await page.locator(`.trow[data-tid="${id1}"] .tin`).blur();
   await page.waitForFunction(() => true);
   await page.waitForTimeout(200);
   assert.equal(be.st.cal.cal_todos[0].text, "牛乳を2本買う");
   // 済み
-  await page.locator('.trow[data-tid] .tck').first().check();
+  await page.locator(`.trow[data-tid="${id1}"] .tck`).check();
   await page.waitForSelector(".trow.done");
   assert.equal(be.st.cal.cal_todos[0].done, true);
   assert.ok((await page.textContent(".tdh")).includes("済み 1件"));
@@ -2557,7 +2557,7 @@ await check("カレンダー(TODO): 追加(Enter)・チェックで「済み」�
   await page.waitForFunction(() => !document.querySelector(".trow.done"));
   assert.equal(be.st.cal.cal_todos.length, 1);
   // まとめて消す
-  await page.locator('.trow[data-tid] .tck').first().check();
+  await page.locator(`.trow[data-tid="${id2}"] .tck`).check();
   await page.click('[data-act="todo-clear"]');
   await page.waitForFunction(() => !document.querySelector(".trow[data-tid]"));
   assert.equal(be.st.cal.cal_todos.length, 0);
@@ -3819,6 +3819,46 @@ await check("交番表: ⚙ は保存した月で開く(表示している月で
   assert.equal(await page.locator("#kouban-cal button").nth(4).locator(".c").textContent(), "公休");
   assert.deepEqual(errors, []);
   await ctx.close();
+});
+
+await check("交番表: 別の端末の ⚙ で直した並びを、「交番」と ⚙ を押したときに読み直して使う(AM1)", async () => {
+  const asked = [];
+  const old = { start: kDay(1), cycle: 30, days: { 2: "特休" }, spareMonths: [], spareOff: true };
+  const { page, ctx, be, errors } = await kOpen({ settings: { kouban: old } }, asked);
+  await page.waitForSelector("#register:not([disabled])");
+  // 開いたあとに、別の端末で 3日・4日の2日に直した
+  be.st.settingsPatch = { kouban: { start: kDay(1), cycle: 30, days: { 2: "特休", 3: "公休" }, spareMonths: [], spareOff: true } };
+  await page.click("#kouban");
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("交番:"));
+  assert.ok(asked[0].includes("2日分"), asked[0]);
+  // ⚙ も新しい並びで開く。読めないときは、今の並びのまま開く
+  be.st.settingsPatch = { kouban: { start: kDay(1), cycle: 30, days: { 9: "公休" }, spareMonths: [], spareOff: true } };
+  await page.click("#kouban-settings");
+  await page.waitForSelector("#kouban-settings-dialog[open]");
+  assert.equal(await page.locator("#kouban-cal button.off").count(), 1);
+  assert.equal(await page.locator("#kouban-cal button").nth(9).locator(".c").textContent(), "公休");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("交番表: マスタに特休・公休が無い区所では ⚙ に赤字で知らせる(AM2)", async () => {
+  const asked = [];
+  const a = await kOpen({ master: K_MASTER.filter((r) => r.code !== "公休") }, asked);
+  await a.page.waitForSelector("#register:not([disabled])");
+  await a.page.click("#kouban-settings");
+  await a.page.waitForSelector("#kouban-settings-dialog[open]");
+  assert.equal(await a.page.isVisible("#kouban-master-note"), true);
+  const note = await a.page.textContent("#kouban-master-note");
+  assert.ok(note.includes("「公休」がありません") && !note.includes("特休"), note);
+  assert.deepEqual(a.errors, []);
+  await a.ctx.close();
+  const b = await kOpen({}, asked);
+  await b.page.waitForSelector("#register:not([disabled])");
+  await b.page.click("#kouban-settings");
+  await b.page.waitForSelector("#kouban-settings-dialog[open]");
+  assert.equal(await b.page.isVisible("#kouban-master-note"), false);
+  assert.deepEqual(b.errors, []);
+  await b.ctx.close();
 });
 
 await check("交番表: 一周を短くして休みが外に出るときは確かめる(やめると元のまま)", async () => {

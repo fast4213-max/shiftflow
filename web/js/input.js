@@ -833,15 +833,35 @@ function koubanReady() {
   return true;
 }
 
-$("kouban").addEventListener("click", () => {
-  if (!koubanReady()) return;
+// 交番の設定を DB から読み直す(別の端末の ⚙ で直したときも、新しい並びを使うため。AM1)。
+// 読めなければ、今持っている設定のまま続ける(圏外などで「交番」が使えなくならないように)
+let koubanLoading = false;
+async function reloadKouban() {
+  try {
+    const { data, error } = await supabase.from("user_settings").select("kouban").eq("user_id", state.userId).maybeSingle();
+    if (!error && data) state.kouban = readKouban(data.kouban);
+  } catch (_) {
+    // 今の設定のまま
+  }
+}
+
+$("kouban").addEventListener("click", async () => {
+  if (!koubanReady() || koubanLoading) return;
+  const { year, month } = state;
+  koubanLoading = true;
+  try {
+    await reloadKouban();
+  } finally {
+    koubanLoading = false;
+  }
+  // 読み直しているあいだに月を移動した・登録が始まった
+  if (state.year !== year || state.month !== month || !koubanReady()) return;
   const k = state.kouban;
   if (!hasPattern(k)) {
     setStatus("先に「⚙」で、交番の休みを入れてください。");
     openKoubanSettings();
     return;
   }
-  const { year, month } = state;
   if (isSpareMonth(k, month) && !k.spareOff) {
     setStatus(month + "月は予備の月なので、休みは入れません。「⚙」で変えられます。");
     return;
@@ -899,7 +919,19 @@ function settingsError(text) {
   $("kouban-settings-error").hidden = !text;
 }
 
+// 入力する月のマスタに、タップで入れる休み(特休・公休)が無ければ赤字で知らせる(AM2)。
+// 無いと手入力の番号として入り、Google に登録すると勤務用カレンダーに入るため
+function renderKoubanMasterNote() {
+  const missing = OFF_ORDER.filter((c) => !masterCodeOf(c, koubanDraft.start));
+  $("kouban-master-note").hidden = !missing.length;
+  $("kouban-master-note").textContent = missing.length
+    ? "※この区所の番号の一覧に「" + missing.join("」「") + "」がありません。入れると手入力の番号になり、" +
+      (state.googleSync ? "Googleカレンダーでは勤務用に入ります。" : "休みとして扱われません。") + "管理者に一覧への追加を頼んでください。"
+    : "";
+}
+
 function renderKoubanCal() {
+  renderKoubanMasterNote();
   const cal = $("kouban-cal");
   cal.innerHTML = "";
   const order = OFF_ORDER;
@@ -981,12 +1013,19 @@ function openKoubanSettings() {
   $("kouban-settings-dialog").scrollTop = 0;
 }
 
-$("kouban-settings").addEventListener("click", () => {
+$("kouban-settings").addEventListener("click", async () => {
   if (!state.master.periods.length || !$("list").children.length) {
     setStatus("画面の読み込みが終わってから、もう一度押してください。", true);
     return;
   }
-  openKoubanSettings();
+  if (koubanLoading) return;
+  koubanLoading = true;
+  try {
+    await reloadKouban(); // 別の端末で直した設定で開く(AM1)
+  } finally {
+    koubanLoading = false;
+  }
+  if (!$("kouban-settings-dialog").open) openKoubanSettings();
 });
 
 // 入力する月を変えても、タップした日(本当の日付)の休みはそのまま。カレンダーはその月の1日から
