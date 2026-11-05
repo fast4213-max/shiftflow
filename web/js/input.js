@@ -962,10 +962,11 @@ function renderKoubanSpare() {
   $("kouban-months-box").hidden = !$("kouban-spare-none").checked;
 }
 
-// カレンダーは、選んだ月(はじめは勤務入力で表示している月)の1日から一周分。覚えている並びは、その日から数え直して出す
+// カレンダーは、入力する月の1日から一周分。はじめは保存した月(まだ無ければ勤務入力で表示している月)。
+// 開くたびに表示している月に変わると、設定した月がどこか分からなくなるため(AL4)
 function openKoubanSettings() {
   const k = state.kouban;
-  const start = dateKey(state.year, state.month, 1);
+  const start = k ? k.start.slice(0, 8) + "01" : dateKey(state.year, state.month, 1);
   koubanDraft = k
     ? { start, cycle: k.cycle, days: moveStart(k.days, k.start, start, k.cycle), spareMonths: [...k.spareMonths], spareOff: k.spareOff }
     : { start, cycle: DEFAULT_CYCLE, days: {}, spareMonths: [], spareOff: true };

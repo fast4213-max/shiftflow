@@ -3806,6 +3806,21 @@ await check("交番表: 予備の月で「何もしない」なら入れない�
   await ctx.close();
 });
 
+await check("交番表: ⚙ は保存した月で開く(表示している月ではない。AL4)", async () => {
+  const asked = [];
+  const next = thisMonth.m === 12 ? `${thisMonth.y + 1}-01` : `${thisMonth.y}-${String(thisMonth.m + 1).padStart(2, "0")}`;
+  const kouban = { start: next + "-01", cycle: 30, days: { 4: "公休" }, spareMonths: [], spareOff: true };
+  const { page, ctx, errors } = await kOpen({ settings: { kouban } }, asked);
+  await page.waitForSelector("#register:not([disabled])");
+  await page.click("#kouban-settings");
+  await page.waitForSelector("#kouban-settings-dialog[open]");
+  assert.equal(await page.inputValue("#kouban-month"), next);
+  assert.ok((await page.locator("#kouban-cal button").nth(0).textContent()).startsWith(Number(next.slice(5)) + "/1"));
+  assert.equal(await page.locator("#kouban-cal button").nth(4).locator(".c").textContent(), "公休");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await check("交番表: 一周を短くして休みが外に出るときは確かめる(やめると元のまま)", async () => {
   const asked = [];
   const kouban = { start: kDay(1), cycle: 30, days: { 2: "特休", 20: "公休" }, spareMonths: [], spareOff: true };
