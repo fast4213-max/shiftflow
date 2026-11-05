@@ -3683,7 +3683,7 @@ await check("交番表: 並びが無ければ ⚙ が開く。タップで な�
   assert.equal(await page.isVisible("#kouban"), true); // どの区所にも出る
   await page.click("#kouban");
   await page.waitForSelector("#kouban-settings-dialog[open]");
-  assert.equal(await page.textContent(".kouban-month-note"), "※本番の月で入力してください。");
+  assert.equal(await page.textContent(".kouban-month-note"), "※設定した一周の日数分、入力してください。(月をまたいでも)");
   assert.equal(await page.locator("#kouban-start").count(), 0); // 始まりの日の欄は無い(表示している月の1日から)
   assert.equal(await page.inputValue("#kouban-cycle"), "30");
   assert.equal(await page.textContent("#kouban-order"), "タップするたびに: なし → 特休 → 公休 → なし");
