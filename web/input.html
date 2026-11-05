@@ -21,8 +21,8 @@
   </div>
   <main class="shift">
     <div class="import-bar">
-      <!-- 交番表から自動入力(区所の名前に「天王寺車掌区」が入っている人だけ。docs/kouban/DESIGN.md) -->
-      <span id="kouban-bar" class="kouban-bar" hidden>
+      <!-- 交番表から休みを自動入力(docs/kouban/DESIGN.md) -->
+      <span id="kouban-bar" class="kouban-bar">
         <button id="kouban" type="button" class="kouban">交番表</button>
         <button id="kouban-settings" type="button" aria-label="交番表の設定" title="交番表の設定">⚙</button>
       </span>
@@ -73,30 +73,23 @@
     </div>
   </dialog>
 
-  <dialog id="kouban-pos-dialog">
-    <h2 id="kouban-pos-title">交番表の自分の位置</h2>
-    <p id="kouban-pos-note">交番表で、自分の名前があるマスをタップしてください(名前は出していません)。欄の上は、この月の組です。</p>
-    <div class="kouban-grid-wrap"><table id="kouban-grid" class="kouban-grid"></table></div>
-    <p id="kouban-pos-preview" class="kouban-preview">マスを選ぶと、この月の自分の並びが出ます。</p>
-    <div class="actions">
-      <button id="kouban-pos-cancel" type="button">やめる</button>
-      <button id="kouban-pos-ok" type="button" class="primary" disabled>この位置にする</button>
-    </div>
-  </dialog>
-
   <dialog id="kouban-settings-dialog">
-    <h2>交番表の設定</h2>
-    <fieldset>
-      <legend>交番表で入れるもの</legend>
-      <label><input type="radio" name="kouban-routes" id="kouban-routes-all" value="all"> 行路も入れる(①〜⑩ を行路番号で入れる)</label>
-      <label><input type="radio" name="kouban-routes" id="kouban-routes-off" value="off"> 休みだけ入れる</label>
-    </fieldset>
-    <label class="check"><input type="checkbox" id="kouban-spare-off"> 予備・M組の月も、休みを入れる</label>
-    <p id="kouban-pos-now" class="kouban-pos-now"></p>
-    <p id="kouban-settings-error" class="error" hidden></p>
-    <div class="actions">
-      <button id="kouban-repos" type="button">位置を選び直す</button>
+    <h2>交番表の設定(休みの並び)</h2>
+    <p class="kouban-hint">交番表の<strong>自分の行</strong>を見て、休みの日をタップしてください(実際の勤務指定表ではなく交番表から。年休などが入っているとずれます)。1回入れれば、あとは「交番表」を押すだけで月ごとに休みが入ります。</p>
+    <div class="kouban-fields">
+      <label>始まりの日 <input type="date" id="kouban-start"></label>
+      <label>一周の日数 <input type="number" id="kouban-cycle" min="7" max="99" step="1" inputmode="numeric"> 日</label>
     </div>
+    <p id="kouban-order" class="kouban-order"></p>
+    <div id="kouban-cal" class="kouban-cal"></div>
+    <div class="actions"><button id="kouban-clear" type="button">全部消す</button></div>
+    <fieldset>
+      <legend>予備の月(押して選ぶ。M組なども、休みの扱いを変えたい月はここ)</legend>
+      <div id="kouban-months" class="kouban-months"></div>
+      <label><input type="radio" name="kouban-spare" id="kouban-spare-on"> 予備の月も休みを入れる</label>
+      <label><input type="radio" name="kouban-spare" id="kouban-spare-none"> 予備の月は何もしない</label>
+    </fieldset>
+    <p id="kouban-settings-error" class="error" hidden></p>
     <div class="actions">
       <button id="kouban-settings-cancel" type="button">やめる</button>
       <button id="kouban-settings-save" type="button" class="primary">保存</button>

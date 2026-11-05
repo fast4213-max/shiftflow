@@ -123,22 +123,6 @@
               </div>
             </div>
 
-            <div id="kouban-admin" hidden>
-              <h3>交番表</h3>
-              <p id="kouban-admin-state" class="muted"></p>
-              <div class="row">
-                <button id="kouban-admin-download">JSONで保存</button>
-                <button id="kouban-admin-delete">消す</button>
-              </div>
-              <label for="kouban-admin-text">交番表の JSON を貼る(またはファイルを選ぶ)。この切替日の交番表を丸ごと入れ替えます</label>
-              <textarea id="kouban-admin-text" rows="4" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
-              <input type="file" id="kouban-admin-file" accept=".json,application/json,text/plain">
-              <label id="kouban-admin-all-label" class="check"><input type="checkbox" id="kouban-admin-all" checked> <span id="kouban-admin-all-text"></span></label>
-              <div class="row"><button id="kouban-admin-apply" class="primary">確かめて入れる</button></div>
-              <p class="muted">勤務入力の「交番表」で使います(区所の名前に「天王寺車掌区」が入っている人だけ)。切替日(ダイヤ改正・ダイヤ修正)ごとに入れます。新しい切替日の交番表が無い日は、利用者の勤務入力に入りません。JSON の形は <code>docs/kouban/DESIGN.md</code> の4章。PDF から作るときは Claude に頼みます。<strong>名前は入れないでください。</strong></p>
-              <p id="kouban-admin-message" class="message" aria-live="polite"></p>
-            </div>
-
             <h3>マスタ表 <span id="master-count" class="muted"></span></h3>
             <p id="master-diff" class="muted"></p>
             <div class="scroll-x"><table class="list master"><thead></thead><tbody id="master"></tbody></table></div>

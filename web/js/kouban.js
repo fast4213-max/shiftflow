@@ -1,20 +1,14 @@
-// 交番表から自動入力(計算だけ。画面に関係しない部分)。設計は docs/kouban/DESIGN.md
-// 交番表の中身は DB(kouban_tables)にあり、ここには置かない(公開リポジトリのため)。
+// 交番表から休みを自動入力(計算だけ。画面に関係しない部分)。設計は docs/kouban/DESIGN.md
+// 本人が ⚙ で覚えた休みの並び(始まりの日から一周分)を、日ごとに繰り返す。交番表のデータは持たない。
+//
+// 覚える形(user_settings.kouban):
+//   { "start": "2026-11-01", "cycle": 30, "days": { "3": "特休", "4": "公休" }, "spareMonths": [2, 5, 8, 11], "spareOff": true }
+//   days は「始まりの日から何日目(0 から)」→ 休みの番号。spareOff は、予備の月も休みを入れるか
 
-// この文字が区所の名前に入っている人だけ、勤務入力に「交番表」を出す
-export const KOUBAN_OFFICE_WORD = "天王寺車掌区";
-
-export const MAX_JSON = 100000; // 交番表の JSON の上限(文字数。DB でも見る)
-
-const CIRCLED = /^[①-⑳]$/; // ①〜⑳
-
-export function isCircled(cell) {
-  return CIRCLED.test(cell);
-}
-
-export function officeHasKouban(name) {
-  return String(name || "").includes(KOUBAN_OFFICE_WORD);
-}
+export const MIN_CYCLE = 7;
+export const MAX_CYCLE = 99;
+export const DEFAULT_CYCLE = 30;
+const MAX_CODE = 30;
 
 // ---------- 日付(plan.js に頼らない。node のテストでそのまま読めるように) ----------
 
@@ -23,161 +17,102 @@ function dayNumber(key) {
   return Math.round(Date.UTC(y, m - 1, d) / 86400000);
 }
 
-function isDateKey(s) {
+export function isDateKey(s) {
   if (typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
   const [y, m, d] = s.split("-").map(Number);
   const t = new Date(Date.UTC(y, m - 1, d));
   return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
 }
 
-// ---------- 確かめ ----------
-
-function fail(text) {
-  throw new Error("交番表の形が違います: " + text);
+export function isCycle(n) {
+  return Number.isInteger(n) && n >= MIN_CYCLE && n <= MAX_CYCLE;
 }
 
-function str(value, max, what) {
-  if (typeof value !== "string") fail(what + "が文字ではありません");
+// 番号: 改行・制御文字は空白にして前後の空白を除く。長すぎるもの・空は ""
+export function cleanCode(value) {
+  if (typeof value !== "string") return "";
   const s = value.replace(/[\u0000-\u001f\u007f]/g, " ").trim();
-  if (s.length > max) fail(what + "は" + max + "文字までです(" + s.slice(0, 20) + "…)");
-  return s;
+  return s.length > MAX_CODE ? "" : s;
 }
 
-function isObject(v) {
-  return v && typeof v === "object" && !Array.isArray(v);
-}
+// ---------- 読み込み ----------
 
-// 管理画面で貼った文字(JSON)を読んで確かめる。だめなら Error(日本語の理由)
-export function parseKouban(text) {
-  const t = String(text || "").trim();
-  if (!t) fail("空です");
-  if (t.length > MAX_JSON) fail("長すぎます(" + MAX_JSON + "文字まで)");
-  let data;
-  try {
-    data = JSON.parse(t);
-  } catch (_) {
-    fail("JSON として読めません(貼り付けが途中で切れていないか確かめてください)");
+// user_settings.kouban を読みやすい形に。まだ無い・おかしいときは null。
+// おかしな日・番号・月は捨てる(DB の値を手で直した・前の版の形などでも、画面が止まらないように)
+export function readKouban(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (!isDateKey(value.start) || !isCycle(value.cycle)) return null;
+  const days = {};
+  if (value.days && typeof value.days === "object" && !Array.isArray(value.days)) {
+    Object.entries(value.days).forEach(([i, code]) => {
+      const n = Number(i);
+      const c = cleanCode(code);
+      if (/^\d+$/.test(i) && n < value.cycle && c) days[n] = c;
+    });
   }
-  return checkKouban(data);
+  const spareMonths = [...new Set((Array.isArray(value.spareMonths) ? value.spareMonths : [])
+    .filter((m) => Number.isInteger(m) && m >= 1 && m <= 12))].sort((a, b) => a - b);
+  return { start: value.start, cycle: value.cycle, days, spareMonths, spareOff: value.spareOff !== false };
 }
 
-// 中身を確かめて、整えたもの(前後の空白などを除いた新しいオブジェクト)を返す
-export function checkKouban(data) {
-  if (!isObject(data)) fail("{ } で囲まれていません");
-  if (data.v !== 1) fail("v が 1 ではありません");
-  if (!isDateKey(data.start)) fail("start(1列目の日)は 2026-10-01 の形にしてください");
-  const days = data.days;
-  if (!Number.isInteger(days) || days < 1 || days > 62) fail("days(列の数)は 1〜62 にしてください");
-
-  if (!isObject(data.off)) fail("off(休みのマス)がありません");
-  const off = {};
-  Object.entries(data.off).forEach(([k, v]) => {
-    const key = str(k, 10, "off のマス");
-    if (!key || isCircled(key)) fail("off のマス「" + k + "」は使えません");
-    const code = str(v, 30, "off の番号");
-    if (!code) fail("off の「" + key + "」の番号が空です");
-    off[key] = code;
+// 保存する形(readKouban で読める形)
+export function koubanValue(k) {
+  const days = {};
+  Object.keys(k.days).map(Number).sort((a, b) => a - b).forEach((i) => {
+    if (i >= 0 && i < k.cycle && cleanCode(k.days[i])) days[i] = cleanCode(k.days[i]);
   });
+  return { start: k.start, cycle: k.cycle, days, spareMonths: [...k.spareMonths].sort((a, b) => a - b), spareOff: k.spareOff !== false };
+}
 
-  if (!Array.isArray(data.cells) || !data.cells.length || data.cells.length > 60) fail("cells(マス)は 1〜60 行にしてください");
-  const used = new Set();
-  const cells = data.cells.map((row, i) => {
-    if (!Array.isArray(row) || row.length !== days) fail((i + 1) + "行目のマスが " + days + " 個ではありません");
-    return row.map((c, j) => {
-      const s = str(c == null ? "" : c, 10, "マス");
-      if (s && !isCircled(s) && !off[s]) fail((i + 1) + "行目 " + (j + 1) + "列目の「" + s + "」は、丸の数字でも off にあるものでもありません");
-      if (isCircled(s)) used.add(s);
-      return s;
-    });
-  });
-
-  const rowsIn = Array.isArray(data.rows) ? data.rows : [];
-  if (rowsIn.length !== cells.length) fail("rows(行の見出し)の数が cells の行の数と違います");
-  const rows = rowsIn.map((r) => str(String(r), 20, "行の見出し"));
-
-  const routes = {};
-  if (!isObject(data.routes) || !Object.keys(data.routes).length) fail("routes(行路の表)がありません");
-  Object.entries(data.routes).forEach(([g, map]) => {
-    const group = str(g, 10, "routes の組");
-    if (!group) fail("routes の組の名前が空です");
-    if (!isObject(map)) fail("routes の「" + group + "」が { } ではありません");
-    const out = {};
-    Object.entries(map).forEach(([k, v]) => {
-      const key = str(k, 10, "routes のマス");
-      if (!isCircled(key)) fail("routes の「" + group + "」の「" + k + "」は丸の数字ではありません");
-      const code = str(String(v), 30, "行路番号");
-      if (!code) fail("routes の「" + group + "」の" + key + "の行路番号が空です");
-      out[key] = code;
-    });
-    const missing = [...used].filter((c) => !out[c]).sort();
-    if (missing.length) fail("routes の「" + group + "」に " + missing.join("") + " がありません");
-    routes[group] = out;
-  });
-
-  if (!Array.isArray(data.cols) || !data.cols.length || data.cols.length > 12) fail("cols(名前の欄)は 1〜12 個にしてください");
-  const cols = data.cols.map((col, i) => {
-    if (!isObject(col)) fail("cols の " + (i + 1) + "つ目が { } ではありません");
-    const label = str(col.label == null ? "" : String(col.label), 20, "名前の欄の見出し");
-    if (!isObject(col.groups)) fail("cols の " + (i + 1) + "つ目に groups(月 → 組)がありません");
-    const groups = {};
-    for (let m = 1; m <= 12; m++) {
-      const g = col.groups[String(m)];
-      if (g == null) fail("cols の " + (i + 1) + "つ目の groups に " + m + "月がありません");
-      groups[m] = str(String(g), 10, "組");
-      if (!groups[m]) fail("cols の " + (i + 1) + "つ目の " + m + "月の組が空です");
-    }
-    return { label: label || String(i + 1), groups };
-  });
-
-  return { v: 1, start: data.start, days, rows, cells, cols, routes, off };
+export function hasPattern(k) {
+  return !!k && Object.keys(k.days).length > 0;
 }
 
 // ---------- 日ごと ----------
 
-// その日が何列目か(0 から)。start より前の日も、days 日ごとに繰り返す
-export function columnOn(table, key) {
-  const n = dayNumber(key) - dayNumber(table.start);
-  return ((n % table.days) + table.days) % table.days;
+// その日が並びの何日目か(0 から)。始まりの日より前の日も、一周ごとに繰り返す
+export function indexOn(k, key) {
+  const n = dayNumber(key) - dayNumber(k.start);
+  return ((n % k.cycle) + k.cycle) % k.cycle;
 }
 
-// 名前の欄 c の、その日(の月)の組
-export function groupOn(table, c, key) {
-  const col = table.cols[c];
-  return col ? col.groups[Number(key.slice(5, 7))] || "" : "";
+export function isSpareMonth(k, month) {
+  return k.spareMonths.includes(Number(month));
 }
 
-// 予備(行路の表が無い組。特予・近予・M組)か
-export function isSpare(table, group) {
-  return !table.routes[group];
+// その日に入れる休みの番号("" なら入れない)。予備の月で「何もしない」なら ""
+export function offOn(k, key) {
+  if (!k.spareOff && isSpareMonth(k, Number(key.slice(5, 7)))) return "";
+  return k.days[indexOn(k, key)] || "";
 }
 
-export function validPos(table, pos) {
-  return !!pos && Number.isInteger(pos.r) && Number.isInteger(pos.c) &&
-    pos.r >= 0 && pos.r < table.cells.length && pos.c >= 0 && pos.c < table.cols.length;
+// ---------- 設定の画面で使うもの ----------
+
+// タップで切り替える次の休み。order は区所のマスタの休日の番号(並び順)。
+// なし → order[0] → … → 最後 → なし。今の番号が order に無ければ(マスタが変わったなど)、なし に戻す
+export function nextOff(order, current) {
+  if (!current) return order[0] || "";
+  const i = order.indexOf(current);
+  return i < 0 || i === order.length - 1 ? "" : order[i + 1];
 }
 
-// その日の番号。opts: { routes: 行路も入れる, spareOff: 予備・M組のとき休を入れる }
-// 戻り値 { code, cell, group, spare }。code が "" なら何も入れない日
-export function koubanCode(table, pos, key, opts = {}) {
-  const routesOn = opts.routes !== false;
-  const spareOff = opts.spareOff !== false;
-  const cell = table.cells[pos.r][columnOn(table, key)] || "";
-  const group = groupOn(table, pos.c, key);
-  const spare = isSpare(table, group);
-  let code = "";
-  if (table.off[cell]) code = !spare || spareOff ? table.off[cell] : "";
-  else if (isCircled(cell) && routesOn && !spare) code = table.routes[group][cell] || "";
-  return { code, cell, group, spare };
+// 始まりの日を変えたとき: タップした日(本当の日付)が変わらないよう、日を数え直す
+export function moveStart(days, oldStart, newStart, cycle) {
+  const shift = dayNumber(oldStart) - dayNumber(newStart);
+  const out = {};
+  Object.entries(days).forEach(([i, code]) => {
+    out[(((Number(i) + shift) % cycle) + cycle) % cycle] = code;
+  });
+  return out;
 }
 
-// 位置の設定(user_settings.kouban)を読みやすい形に。おかしな値は捨てる
-export function readPrefs(value) {
-  const v = isObject(value) ? value : {};
-  const pos = {};
-  if (isObject(v.pos)) {
-    Object.entries(v.pos).forEach(([id, p]) => {
-      if (/^\d+$/.test(id) && isObject(p) && Number.isInteger(p.r) && Number.isInteger(p.c) && p.r >= 0 && p.c >= 0) pos[id] = { r: p.r, c: p.c };
-    });
-  }
-  return { pos, routes: v.routes !== false, spareOff: v.spareOff !== false };
+// 一周の日数を変えたとき: 一周の外に出る日(消える日の数)と、残る日
+export function fitCycle(days, cycle) {
+  const kept = {};
+  let dropped = 0;
+  Object.entries(days).forEach(([i, code]) => {
+    if (Number(i) < cycle) kept[i] = code;
+    else dropped++;
+  });
+  return { days: kept, dropped };
 }

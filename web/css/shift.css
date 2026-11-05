@@ -106,23 +106,29 @@ html, body { overscroll-behavior-y: none; }
 .period-note p.error { color: var(--danger); font-weight: bold; }
 .shift tr.period-error td { background: #fdecea; }
 
-/* 交番表: 自分の位置を選ぶ・設定 */
-#kouban-pos-dialog, #kouban-settings-dialog { width: min(520px, 96vw); padding: 12px; }
-#kouban-pos-dialog h2, #kouban-settings-dialog h2 { margin: 0 0 8px; font-size: 1rem; }
-#kouban-pos-dialog p, #kouban-settings-dialog p { margin: 0 0 8px; font-size: 0.9rem; }
-.kouban-grid-wrap { max-height: 52vh; overflow: auto; border: 1px solid #ccc; border-radius: 6px; }
-.kouban-grid { border-collapse: collapse; width: 100%; font-size: 0.8rem; }
-.kouban-grid th, .kouban-grid td { border: 1px solid #ddd; padding: 0; text-align: center; }
-.kouban-grid thead th { position: sticky; top: 0; background: #f4f6fa; padding: 3px 2px; font-weight: normal; line-height: 1.3; z-index: 1; }
-.kouban-grid thead th .grp { display: block; font-weight: bold; color: var(--accent); }
-.kouban-grid tbody th { background: #f4f6fa; padding: 0 4px; white-space: nowrap; font-weight: normal; }
-.kouban-grid tr.block-start > * { border-top: 2px solid #555; }
-.kouban-grid td button { width: 100%; min-width: 34px; height: 30px; border: 0; background: #fff; border-radius: 0; padding: 0; font-size: 0.75rem; color: #888; }
-.kouban-grid td button.selected { background: var(--accent); color: #fff; font-weight: bold; }
-.kouban-preview { font-size: 0.8rem; line-height: 1.6; margin-top: 8px !important; word-break: break-all; }
-.kouban-preview .off { color: #c62828; font-weight: bold; }
-#kouban-pos-dialog .actions, #kouban-settings-dialog .actions { display: flex; gap: 8px; margin-top: 10px; }
-#kouban-pos-dialog .actions button, #kouban-settings-dialog .actions button { flex: 1; padding: 10px 0; }
-#kouban-settings-dialog fieldset { border: 1px solid #ddd; border-radius: 6px; margin: 0 0 8px; padding: 6px 10px; }
-#kouban-settings-dialog fieldset label, #kouban-settings-dialog label.check { display: block; padding: 6px 0; font-size: 0.95rem; }
-.kouban-pos-now { color: #555; }
+/* 交番表: 休みの並びの設定 */
+#kouban-settings-dialog { width: min(480px, 96vw); padding: 12px; }
+#kouban-settings-dialog h2 { margin: 0 0 8px; font-size: 1rem; }
+#kouban-settings-dialog p { margin: 0 0 8px; font-size: 0.9rem; }
+.kouban-hint { color: #555; }
+.kouban-fields { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 8px; font-size: 0.95rem; }
+.kouban-fields input { font-size: 1rem; padding: 4px 6px; }
+.kouban-fields input[type="number"] { width: 4.5em; }
+.kouban-order { font-weight: bold; }
+.kouban-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.kouban-cal .wd { text-align: center; font-size: 0.75rem; color: #666; }
+.kouban-cal .wd.sun { color: #c62828; }
+.kouban-cal .wd.sat { color: #1565c0; }
+.kouban-cal button { min-width: 0; padding: 2px 0; height: 46px; border: 1px solid #ccc; border-radius: 6px; background: #fff; font-size: 0.8rem; line-height: 1.25; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.kouban-cal button .d { font-weight: bold; }
+.kouban-cal button .c { font-size: 0.72rem; min-height: 1em; white-space: nowrap; overflow: hidden; max-width: 100%; }
+.kouban-cal button.first { border-color: #555; border-width: 2px; }
+.kouban-cal button.off { background: #fdecea; border-color: #e57373; color: #c62828; }
+#kouban-settings-dialog fieldset { border: 1px solid #ddd; border-radius: 6px; margin: 10px 0 8px; padding: 6px 10px; }
+#kouban-settings-dialog legend { font-size: 0.85rem; }
+#kouban-settings-dialog fieldset > label { display: block; padding: 5px 0; font-size: 0.95rem; }
+.kouban-months { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin: 4px 0 6px; }
+.kouban-months button { padding: 6px 0; min-width: 0; border: 1px solid #bbb; border-radius: 6px; background: #fff; font-size: 0.9rem; }
+.kouban-months button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: bold; }
+#kouban-settings-dialog .actions { display: flex; gap: 8px; margin-top: 10px; }
+#kouban-settings-dialog .actions button { flex: 1; padding: 10px 0; }

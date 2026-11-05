@@ -6,8 +6,6 @@ import { initContactAdmin } from "./admin-contact.js?v=dev";
 import { initNoticesAdmin } from "./admin-notices.js?v=dev";
 import { initGuideAdmin } from "./admin-guide.js?v=dev";
 import { initIconsAdmin } from "./admin-icons.js?v=dev";
-import { renderKoubanAdmin } from "./admin-kouban.js?v=dev";
-import { officeHasKouban } from "./kouban.js?v=dev";
 import { addDays, periodLabel, shortDate } from "./plan.js?v=dev";
 
 const MASTER_COLUMNS = [
@@ -636,11 +634,6 @@ function renderMasterPane() {
   $("period-csv").hidden = isNew;
   $("period-save").textContent = isNew ? "作る" : "切替日を保存";
   $("copy-prev").hidden = isNew || !p || isBase;
-  // 交番表(天王寺車掌区の区所だけ)。同じ切替日の、ほかの天王寺車掌区の区所にもまとめて入れられる
-  renderKoubanAdmin(office, isNew ? null : p, isNew || !p ? [] : stats.offices
-    .filter((o) => o.id !== office.id && officeHasKouban(o.name))
-    .map((o) => ({ office: o, period: periodsOf(o).find((x) => x.from === p.from) }))
-    .filter((o) => o.period));
   if (isNew || !p) return;
 
   if (masterRows === null || masterRowsOfficeId !== office.id) {
