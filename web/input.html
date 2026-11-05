@@ -23,8 +23,8 @@
     <div class="import-bar">
       <!-- 交番表から休みを自動入力(docs/kouban/DESIGN.md) -->
       <span id="kouban-bar" class="kouban-bar">
-        <button id="kouban" type="button" class="kouban">交番表</button>
-        <button id="kouban-settings" type="button" aria-label="交番表の設定" title="交番表の設定">⚙</button>
+        <button id="kouban" type="button" class="kouban">交番</button>
+        <button id="kouban-settings" type="button" aria-label="交番の設定" title="交番の設定">⚙</button>
       </span>
       <a id="photo-import" class="button" href="#" rel="noopener" hidden>写真取込</a>
       <button id="paste-import" type="button">貼り付けで取込</button>
@@ -74,17 +74,17 @@
   </dialog>
 
   <dialog id="kouban-settings-dialog">
-    <h2>交番表の設定(休みの並び)</h2>
-    <p class="kouban-hint">交番表の<strong>自分の行</strong>を見て、休みの日をタップしてください(実際の勤務指定表ではなく交番表から。年休などが入っているとずれます)。1回入れれば、あとは「交番表」を押すだけで月ごとに休みが入ります。</p>
+    <h2>交番の設定</h2>
+    <p class="kouban-hint">交番の<strong>自分の行</strong>を見て、休みの日をタップしてください。実際の勤務指定表ではなく交番から入れます。年休などが入っているとずれます。1回入れれば、あとは「交番」を押すだけで月ごとに休みが入ります。</p>
     <div class="kouban-fields">
-      <label>始まりの日 <input type="date" id="kouban-start"></label>
       <label>一周の日数 <input type="number" id="kouban-cycle" min="7" max="99" step="1" inputmode="numeric"> 日</label>
     </div>
+    <p id="kouban-month-note" class="kouban-month-note"></p>
     <p id="kouban-order" class="kouban-order"></p>
     <div id="kouban-cal" class="kouban-cal"></div>
     <div class="actions"><button id="kouban-clear" type="button">全部消す</button></div>
     <fieldset>
-      <legend>予備の月(押して選ぶ。M組なども、休みの扱いを変えたい月はここ)</legend>
+      <legend>予備の月 押して選びます</legend>
       <div id="kouban-months" class="kouban-months"></div>
       <label><input type="radio" name="kouban-spare" id="kouban-spare-on"> 予備の月も休みを入れる</label>
       <label><input type="radio" name="kouban-spare" id="kouban-spare-none"> 予備の月は何もしない</label>

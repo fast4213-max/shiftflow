@@ -115,6 +115,7 @@ html, body { overscroll-behavior-y: none; }
 .kouban-fields input { font-size: 1rem; padding: 4px 6px; }
 .kouban-fields input[type="number"] { width: 4.5em; }
 .kouban-order { font-weight: bold; }
+.kouban-month-note { color: #c62828; font-weight: bold; }
 .kouban-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
 .kouban-cal .wd { text-align: center; font-size: 0.75rem; color: #666; }
 .kouban-cal .wd.sun { color: #c62828; }

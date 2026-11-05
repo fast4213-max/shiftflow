@@ -7,7 +7,7 @@ import {
 import { PHOTO_IMPORT_URL } from "./config.js?v=dev";
 import { captureImportFromHash, decodeImport, stashImport, takePendingImport } from "./photo-import.js?v=dev";
 import {
-  DEFAULT_CYCLE, fitCycle, hasPattern, isCycle, isDateKey, isSpareMonth, koubanValue, MAX_CYCLE, MIN_CYCLE, moveStart, nextOff, OFF_ORDER, offOn, readKouban,
+  DEFAULT_CYCLE, fitCycle, hasPattern, isCycle, isSpareMonth, koubanValue, MAX_CYCLE, MIN_CYCLE, moveStart, nextOff, OFF_ORDER, offOn, readKouban,
 } from "./kouban.js?v=dev";
 
 // 写真取込のリンク(input.html#import=…)で開いたときは、ログインを確かめる前に取込の文字を覚えて、アドレスから消す
@@ -833,23 +833,17 @@ function koubanReady() {
   return true;
 }
 
-// 「11月1日から30日の並び」
-function koubanLabel(k) {
-  const [, m, d] = k.start.split("-").map(Number);
-  return m + "月" + d + "日からの" + k.cycle + "日の並び";
-}
-
 $("kouban").addEventListener("click", () => {
   if (!koubanReady()) return;
   const k = state.kouban;
   if (!hasPattern(k)) {
-    setStatus("先に「⚙」で、交番表の休みの並びを入れてください。");
+    setStatus("先に「⚙」で、交番の休みを入れてください。");
     openKoubanSettings();
     return;
   }
   const { year, month } = state;
   if (isSpareMonth(k, month) && !k.spareOff) {
-    setStatus(month + "月は予備の月なので、交番表の休みは入れません(「⚙」で変えられます)。");
+    setStatus(month + "月は予備の月なので、休みは入れません。「⚙」で変えられます。");
     return;
   }
   const offduty = offdutyDays();
@@ -867,21 +861,21 @@ $("kouban").addEventListener("click", () => {
     }
     const code = masterCodeOf(raw, key) || raw;
     const now = ((state.entries[key] || {}).code || "").trim();
-    if (now && now !== code) replaced.push(d + "日(" + now + ")");
+    if (now && now !== code) replaced.push(d);
     put.set(key, code);
   }
   const days = (list) => list.map((d) => typeof d === "number" ? d + "日" : d).join("・");
-  const skipNote = skipped.length ? days(skipped) + "は非番(前の日が泊)なので入れませんでした。" : "";
+  const skipNote = skipped.length ? days(skipped) + "は非番なので入れませんでした。" : "";
   if (!put.size) {
     setStatus("この月に入れる休みがありません。" + skipNote, !skipNote);
     return;
   }
-  const spare = isSpareMonth(k, month) ? "\n(" + month + "月は予備の月です。予備の月も休みを入れる設定です)" : "";
-  if (!confirm(year + "年" + month + "月に、交番表の休みを" + put.size + "日分入れます(" + koubanLabel(k) + ")。" +
-    "\n休みの日だけ上書きし、ほかの日はそのままです(まだ保存・登録はしません)。" +
-    (replaced.length ? "\n今の番号を休みに変える日: " + replaced.join("・") : "") +
+  const spare = isSpareMonth(k, month) ? "\n" + month + "月は予備の月ですが、休みを入れる設定です。" : "";
+  if (!confirm(year + "年" + month + "月に、交番で設定した休みを" + put.size + "日分入れます。" +
+    "\n休みの日だけ上書きし、ほかの日はそのままです。" +
+    (replaced.length ? "\n今の番号を休みに変える日: " + days(replaced) : "") +
     (skipped.length ? "\n非番なので入れない日: " + days(skipped) : "") + spare + "\nよろしいですか？")) {
-    setStatus("交番表をやめました。");
+    setStatus("交番をやめました。");
     return;
   }
   if (state.year !== year || state.month !== month || state.registering || state.saving) return;
@@ -891,7 +885,7 @@ $("kouban").addEventListener("click", () => {
   put.forEach((_, key) => state.imported.add(key));
   codeChanged(); // 休みにした日の翌日が非番でなくなったときの片付け
   window.scrollTo(0, 0);
-  setStatus("交番表: " + month + "月に休みを" + put.size + "日分入れました(" + koubanLabel(k) + ")。" + filledNote(skipNote));
+  setStatus("交番: " + month + "月に休みを" + put.size + "日分入れました。" + filledNote(skipNote));
 });
 
 // ---------- 交番表の設定(⚙) ----------
@@ -960,12 +954,15 @@ function renderKoubanMonths() {
   }
 }
 
+// カレンダーは、勤務入力で表示している月の1日から一周分。覚えている並びは、その日から数え直して出す
+// (始まりの日はこちらで決める。本人が選ぶ欄は置かない)
 function openKoubanSettings() {
   const k = state.kouban;
+  const start = dateKey(state.year, state.month, 1);
   koubanDraft = k
-    ? { start: k.start, cycle: k.cycle, days: { ...k.days }, spareMonths: [...k.spareMonths], spareOff: k.spareOff }
-    : { start: dateKey(state.year, state.month, 1), cycle: DEFAULT_CYCLE, days: {}, spareMonths: [], spareOff: true };
-  $("kouban-start").value = koubanDraft.start;
+    ? { start, cycle: k.cycle, days: moveStart(k.days, k.start, start, k.cycle), spareMonths: [...k.spareMonths], spareOff: k.spareOff }
+    : { start, cycle: DEFAULT_CYCLE, days: {}, spareMonths: [], spareOff: true };
+  $("kouban-month-note").textContent = "※本番の月で入力してください。カレンダーは" + state.year + "年" + state.month + "月1日からです。";
   $("kouban-cycle").value = String(koubanDraft.cycle);
   $(koubanDraft.spareOff ? "kouban-spare-on" : "kouban-spare-none").checked = true;
   settingsError("");
@@ -981,19 +978,6 @@ $("kouban-settings").addEventListener("click", () => {
     return;
   }
   openKoubanSettings();
-});
-
-// 始まりの日を変えても、タップした日(本当の日付)の休みはそのまま
-$("kouban-start").addEventListener("change", () => {
-  const value = $("kouban-start").value;
-  if (!isDateKey(value)) {
-    settingsError("始まりの日を選んでください。");
-    return;
-  }
-  settingsError("");
-  koubanDraft.days = moveStart(koubanDraft.days, koubanDraft.start, value, koubanDraft.cycle);
-  koubanDraft.start = value;
-  renderKoubanCal();
 });
 
 // 一周の日数を短くして、入れた休みが外に出るときは確かめてから消す
@@ -1025,7 +1009,6 @@ $("kouban-settings-cancel").addEventListener("click", () => $("kouban-settings-d
 
 $("kouban-settings-save").addEventListener("click", async () => {
   koubanDraft.spareOff = $("kouban-spare-on").checked;
-  if (!isDateKey($("kouban-start").value) || $("kouban-start").value !== koubanDraft.start) return settingsError("始まりの日を選んでください。");
   if (Number($("kouban-cycle").value) !== koubanDraft.cycle) return settingsError("一周の日数は " + MIN_CYCLE + "〜" + MAX_CYCLE + " 日にしてください。");
   const value = koubanValue(koubanDraft);
   $("kouban-settings-save").disabled = true;
@@ -1035,9 +1018,9 @@ $("kouban-settings-save").addEventListener("click", async () => {
     state.kouban = readKouban(value);
     $("kouban-settings-dialog").close();
     const n = Object.keys(value.days).length;
-    setStatus("交番表の設定を保存しました(" + koubanLabel(state.kouban) + "・休み" + n + "日" +
-      (value.spareMonths.length ? "・予備の月 " + value.spareMonths.join("・") + "月は" + (value.spareOff ? "休みを入れる" : "何もしない") : "") +
-      ")。" + (n ? "「交番表」を押すと、表示している月に休みが入ります。" : ""));
+    setStatus("交番の設定を保存しました。休みは" + n + "日です。" +
+      (value.spareMonths.length ? "予備の月 " + value.spareMonths.join("・") + "月は" + (value.spareOff ? "休みを入れます。" : "何もしません。") : "") +
+      (n ? "「交番」を押すと、表示している月に休みが入ります。" : ""));
   } catch (err) {
     settingsError(friendlyText(err.message || String(err)));
   } finally {

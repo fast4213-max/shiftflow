@@ -3681,7 +3681,8 @@ await check("交番表: 並びが無ければ ⚙ が開く。タップで な�
   assert.equal(await page.isVisible("#kouban"), true); // どの区所にも出る
   await page.click("#kouban");
   await page.waitForSelector("#kouban-settings-dialog[open]");
-  assert.equal(await page.inputValue("#kouban-start"), kDay(1));
+  assert.ok((await page.textContent("#kouban-month-note")).startsWith("※本番の月で入力してください"));
+  assert.equal(await page.locator("#kouban-start").count(), 0); // 始まりの日の欄は無い(表示している月の1日から)
   assert.equal(await page.inputValue("#kouban-cycle"), "30");
   assert.equal(await page.textContent("#kouban-order"), "タップするたびに: なし → 特休 → 公休 → なし");
   assert.equal(await page.locator("#kouban-cal button").count(), 30);
@@ -3714,8 +3715,9 @@ await check("交番表: 休みの日だけ上書きし、ほかの日はその�
   const { page, ctx, errors } = await kOpen({ records, settings: { kouban } }, asked);
   await page.waitForSelector("#register:not([disabled])");
   await page.click("#kouban");
-  await page.waitForFunction(() => document.getElementById("status").textContent.includes("交番表:"));
-  assert.ok(asked[0].includes("3日分") && asked[0].includes("6日(25)") && asked[0].includes("非番なので入れない日: 4日"), asked[0]);
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("交番:"));
+  assert.ok(asked[0].includes("交番で設定した休みを3日分入れます。") && asked[0].includes("今の番号を休みに変える日: 6日") && asked[0].includes("非番なので入れない日: 4日"), asked[0]);
+  assert.ok(!/[()(]/.test(asked[0]), "確認に括弧がある: " + asked[0]);
   const codes = await codeTexts(page);
   assert.equal(codes[2], "1");
   assert.equal(codes[3], "非番");
@@ -3732,39 +3734,40 @@ await check("交番表: 休みの日だけ上書きし、ほかの日はその�
   await ctx.close();
 });
 
-await check("交番表: 予備の月で「何もしない」なら入れない。始まりの日を変えても、タップした日付はそのまま", async () => {
+await check("交番表: 予備の月で「何もしない」なら入れない。⚙ は表示している月の1日から出し、覚えた日付は変わらない", async () => {
   const asked = [];
-  const kouban = { start: kDay(1), cycle: 30, days: { 2: "特休" }, spareMonths: [thisMonth.m], spareOff: false };
+  // 2日に特休(2日から始まる並びで覚えていた)
+  const kouban = { start: kDay(2), cycle: 30, days: { 0: "特休" }, spareMonths: [thisMonth.m], spareOff: false };
   const { page, ctx, be, errors } = await kOpen({ settings: { kouban } }, asked);
   await page.waitForSelector("#register:not([disabled])");
+  assert.equal(await page.textContent("#kouban"), "交番");
   await page.click("#kouban");
   await page.waitForFunction(() => document.getElementById("status").textContent.includes("予備の月"));
   assert.equal(asked.length, 0);
-  assert.equal((await codeTexts(page))[2], "");
-  // 始まりの日を2日にすると、3日の特休は2日目(0から1)になる
+  assert.equal((await codeTexts(page))[1], "");
   await page.click("#kouban-settings");
   await page.waitForSelector("#kouban-settings-dialog[open]");
   assert.equal(await page.isChecked("#kouban-spare-none"), true);
-  await page.fill("#kouban-start", kDay(2));
-  await page.dispatchEvent("#kouban-start", "change");
+  // 1日から出す。2日(2つ目)が特休
+  assert.ok((await page.locator("#kouban-cal button").nth(0).textContent()).startsWith(thisMonth.m + "/1"));
   assert.equal(await page.locator("#kouban-cal button").nth(1).locator(".c").textContent(), "特休");
-  // 一周を7日にすると、外に出る休みは無い(1日目)。確かめは出ない
+  // 一周を7日にしても、外に出る休みは無い。確かめは出ない
   await page.fill("#kouban-cycle", "7");
   await page.dispatchEvent("#kouban-cycle", "change");
   assert.equal(await page.locator("#kouban-cal button").count(), 7);
   await page.check("#kouban-spare-on");
   await page.click("#kouban-settings-save");
   await page.waitForFunction(() => document.getElementById("status").textContent.includes("設定を保存"));
-  assert.deepEqual(kSaved(be), { start: kDay(2), cycle: 7, days: { 1: "特休" }, spareMonths: [thisMonth.m], spareOff: true });
+  assert.deepEqual(kSaved(be), { start: kDay(1), cycle: 7, days: { 1: "特休" }, spareMonths: [thisMonth.m], spareOff: true });
   assert.equal(asked.length, 0);
-  // 予備の月でも休みを入れる → 3日・10日・17日…
+  // 予備の月でも休みを入れる → 2日・9日・16日…
   await page.click("#kouban");
-  await page.waitForFunction(() => document.getElementById("status").textContent.includes("交番表:"));
-  assert.ok(asked[0].includes("予備の月"));
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("交番:"));
+  assert.ok(asked[0].includes("予備の月ですが、休みを入れる設定です"), asked[0]);
   const codes = await codeTexts(page);
-  assert.equal(codes[2], "特休");
-  assert.equal(codes[9], "特休");
-  assert.equal(codes[3], "");
+  assert.equal(codes[1], "特休");
+  assert.equal(codes[8], "特休");
+  assert.equal(codes[2], "");
   assert.deepEqual(errors, []);
   await ctx.close();
 });
