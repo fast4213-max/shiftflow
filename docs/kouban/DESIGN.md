@@ -1,6 +1,6 @@
 # 交番表から休みを自動入力(設計・第2版)
 
-状態: **実装済み・未反映(2026-11-05。ブランチ `ccr-28bdd29d-n83bm3`。main にはまだ入れていない)**。7章は本人が決めた。テスト: `docs/kouban/test/kouban.test.mjs`(計算9件)・`docs/contact/test/e2e.mjs` の「交番表」(画面5項目)・`db_assert.sql`(列の権限と check)
+状態: **実装済み・main に反映(2026-11-05)**。7章は本人が決めた。テスト: `docs/kouban/test/kouban.test.mjs`(計算9件)・`docs/contact/test/e2e.mjs` の「交番表」(画面5項目)・`db_assert.sql`(列の権限と check)
 
 公開リポジトリなので、交番表の中身・名前は置かない(第2版は、そもそも交番表のデータを持たない)。
 
