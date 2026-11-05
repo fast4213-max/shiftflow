@@ -846,23 +846,27 @@ $("kouban").addEventListener("click", () => {
     setStatus(month + "月は予備の月なので、休みは入れません。「⚙」で変えられます。");
     return;
   }
-  const offduty = offdutyDays();
   const put = new Map();  // 入れる日 → 番号
   const skipped = [];      // 非番で入れなかった日
   const replaced = [];     // 今の番号を休みに変える日
+  // 非番の日(前日が泊)は入れない(登録してもサーバーが非番の日の番号は使わないため)。
+  // 非番かどうかは、休みを入れた「あと」の前日の番号で決める(offdutyDays と同じ数え方)。
+  // 今の入力の非番で決めると、泊の日を休みに変えた翌日の休みまで「非番」として入れなくなるため(AL1)
+  let prevCode = state.prevLastCode;
   for (let d = 1; d <= daysInMonth(year, month); d++) {
     const key = dateKey(year, month, d);
-    const raw = offOn(k, key);
-    if (!raw) continue;
-    // 非番の日(前日が泊)は入れない(登録してもサーバーが非番の日の番号は使わないため)
-    if (offduty.has(key)) {
-      skipped.push(d);
-      continue;
-    }
-    const code = masterCodeOf(raw, key) || raw;
+    const prevMaster = masterAt(addDays(key, -1))[prevCode];
+    const offduty = !!(prevMaster && prevMaster.type === "泊");
     const now = ((state.entries[key] || {}).code || "").trim();
-    if (now && now !== code) replaced.push(d);
-    put.set(key, code);
+    let code = now;
+    const raw = offOn(k, key);
+    if (raw && offduty) skipped.push(d);
+    else if (raw) {
+      code = masterCodeOf(raw, key) || raw;
+      if (now && now !== code) replaced.push(d);
+      put.set(key, code);
+    }
+    prevCode = offduty ? "" : code;
   }
   const days = (list) => list.map((d) => typeof d === "number" ? d + "日" : d).join("・");
   const skipNote = skipped.length ? days(skipped) + "は非番なので入れませんでした。" : "";
@@ -1029,14 +1033,16 @@ $("kouban-settings-cancel").addEventListener("click", () => $("kouban-settings-d
 $("kouban-settings-save").addEventListener("click", async () => {
   koubanDraft.spareOff = $("kouban-spare-on").checked;
   if ($("kouban-month").value !== koubanDraft.start.slice(0, 7)) return settingsError("入力する月を選んでください。");
-  // 「休みを入れる」なら予備の月は使わないので覚えない(確認に「予備の月ですが」が出ないように)
-  if (koubanDraft.spareOff) koubanDraft.spareMonths = [];
   if (Number($("kouban-cycle").value) !== koubanDraft.cycle) return settingsError("一周の日数は " + MIN_CYCLE + "〜" + MAX_CYCLE + " 日にしてください。");
-  const value = koubanValue(koubanDraft);
+  // 「休みを入れる」なら予備の月は使わないので覚えない。ダイアログの中の選びは消さない
+  // (保存に失敗して「何もしない」に戻したとき、選んだ月が消えないように。AL2)
+  const value = koubanValue({ ...koubanDraft, spareMonths: koubanDraft.spareOff ? [] : koubanDraft.spareMonths });
   $("kouban-settings-save").disabled = true;
   try {
-    const { error } = await supabase.from("user_settings").update({ kouban: value }).eq("user_id", state.userId);
+    // 更新できた行を返してもらい、0行(設定の行が無い・ログインが切れた)なら保存できなかったと出す(AL3)
+    const { data, error } = await supabase.from("user_settings").update({ kouban: value }).eq("user_id", state.userId).select("user_id");
     if (error) throw error;
+    if (!data || !data.length) throw new Error("保存できませんでした。画面を読み直して、もう一度保存してください。");
     state.kouban = readKouban(value);
     $("kouban-settings-dialog").close();
     const n = Object.keys(value.days).length;

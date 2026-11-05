@@ -70,7 +70,9 @@ function backend(opts = {}) {
       if (req.method() === "PATCH") {
         // カレンダーの「出すもの」の保存(update): 送った値を覚えて、次に読むときに返す
         for (const k of Object.keys(body || {})) if (k.startsWith("cal_") || k === "kouban") st.settingsPatch[k] = body[k];
-        return json({ ...row, ...body, verified_at: null });
+        // 本物と同じく、.single() のとき(Accept に vnd.pgrst.object)は1件、それ以外は配列で返す
+        const one = { ...row, ...body, verified_at: null };
+        return json(/vnd\.pgrst\.object/.test(req.headers()["accept"] || "") ? one : [one]);
       }
       if (req.method() === "POST" && body && body.user_id) {
         // 本物は、利用者が user_id を書き換える権限を持たないので、upsert(merge-duplicates)は「permission denied」になる
@@ -3742,6 +3744,23 @@ await check("交番表: 休みの日だけ上書きし、ほかの日はその�
   assert.equal(await page.locator("#list tr.imported").count(), 3);
   assert.equal(await page.isDisabled("#save"), false);
   await page.screenshot({ path: OUT + "kouban-filled.png" });
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("交番表: 泊の日を休みに変えると、その翌日の休みも入る(今の非番で決めない。AL1)", async () => {
+  const asked = [];
+  // 3日が泊(4日は非番)。並びの休みは 3日・4日
+  const records = [{ date: kDay(3), code: "1", memo: "" }];
+  const kouban = { start: kDay(1), cycle: 30, days: { 2: "特休", 3: "公休" }, spareMonths: [], spareOff: true };
+  const { page, ctx, errors } = await kOpen({ records, settings: { kouban } }, asked);
+  await page.waitForSelector("#register:not([disabled])");
+  await page.click("#kouban");
+  await page.waitForFunction(() => document.getElementById("status").textContent.includes("交番:"));
+  assert.ok(asked[0].includes("2日分") && asked[0].includes("今の番号を休みに変える日: 3日") && !asked[0].includes("非番"), asked[0]);
+  const codes = await codeTexts(page);
+  assert.equal(codes[2], "特休");
+  assert.equal(codes[3], "公休");
   assert.deepEqual(errors, []);
   await ctx.close();
 });
