@@ -305,23 +305,24 @@ export function createExtras(env) {
     mode.def = null;
     renderTray();
     render();
-    await keepInside(data);
   }
 
-  // 横に長い文字のスタンプが、カレンダーの左右の端からはみ出すときは、はみ出す分だけ内側に寄せる(はみ出した所は画面の外で見えず、文字が切れて見えるため)
-  async function keepInside(st) {
-    const el = document.querySelector(`.stamp[data-sid="${CSS.escape(st.id)}"]`);
+  // 横に長い文字のスタンプが、カレンダーの左右の端からはみ出すときは、はみ出す分だけ内側にずらして描く(はみ出した所は画面の外で見えず、文字が切れて見えるため)。
+  // 保存してある位置は変えない(位置の範囲は DB で -1〜2 マスに決めてあり、大きいスタンプを端まで寄せると、その範囲を超えるため。AN1)。
+  // 描くたびに測り直すので、前に置いたもの・種類の文字を長くしたもの・大きさを変えたもの・画面の幅が変わったときも、端で切れない(AN2)
+  function fitStamps(els) {
     const box = $("weeks");
-    if (!el || !box || !el.classList.contains("st-tx")) return;
-    const r = el.getBoundingClientRect(), b = box.getBoundingClientRect(), cw = el.parentElement.clientWidth;
-    if (!cw || r.width >= b.width) return; // カレンダーより広いときは、寄せても入らないので、そのまま
-    const shift = r.left < b.left ? b.left - r.left : r.right > b.right ? b.right - r.right : 0;
-    if (Math.abs(shift) < 1) return;
-    const prevX = st.x;
-    st.x = prevX + shift / cw;
-    render();
-    const { error } = await supabase.from("cal_stamps").update({ x: st.x }).eq("id", st.id);
-    if (error) { st.x = prevX; render(); env.fail(error); }
+    if (!box) return;
+    const list = [...(els || box.querySelectorAll(".stamp.st-tx"))].filter((el) => el.classList.contains("st-tx") && box.contains(el));
+    if (!list.length) return;
+    for (const el of list) el.style.removeProperty("--dx"); // 先に全部戻してから、まとめて測る(測るたびに画面を組み直さないように)
+    const b = box.getBoundingClientRect();
+    const shifts = list.map((el) => {
+      const r = el.getBoundingClientRect();
+      if (!r.width || r.width >= b.width) return 0; // カレンダーより広いときは、ずらしても入らないので、そのまま
+      return r.left < b.left ? b.left - r.left : r.right > b.right ? b.right - r.right : 0;
+    });
+    list.forEach((el, i) => { if (Math.abs(shifts[i]) >= 1) el.style.setProperty("--dx", `${shifts[i]}px`); });
   }
 
   // 日付のマスをタップしたとき。スタンプの画面なら、ここで受ける(true)
@@ -358,7 +359,7 @@ export function createExtras(env) {
         // 文字のスタンプは横長。高さ・最小の幅はカレンダーのマスの幅から決めているので、画面の上に出す影では、今の大きさをそのまま写す
         if (drag.el.classList.contains("st-tx")) { g.style.width = drag.el.offsetWidth + "px"; g.style.height = drag.el.offsetHeight + "px"; g.style.minWidth = "0"; }
         g.style.fontSize = getComputedStyle(drag.el).fontSize;
-        g.style.removeProperty("left"); g.style.removeProperty("top");
+        g.style.removeProperty("left"); g.style.removeProperty("top"); g.style.removeProperty("--dx"); // 影は指の真下に出す
         document.body.appendChild(g);
         drag.ghost = g;
         drag.el.style.opacity = ".25";
@@ -388,8 +389,7 @@ export function createExtras(env) {
       Object.assign(st, { date: cell.dataset.date, x, y });
       render();
       const { error } = await supabase.from("cal_stamps").update({ date: st.date, x, y }).eq("id", st.id);
-      if (error) { Object.assign(st, prev); render(); env.fail(error); return; }
-      await keepInside(st);
+      if (error) { Object.assign(st, prev); render(); env.fail(error); }
     };
     weeks.addEventListener("pointerup", (ev) => end(ev, false));
     weeks.addEventListener("pointercancel", (ev) => end(ev, true));
@@ -422,7 +422,7 @@ export function createExtras(env) {
   }
   function liveStamp(st) {
     const el = document.querySelector(`.stamp[data-sid="${CSS.escape(st.id)}"]`);
-    if (el) { el.style.setProperty("--s", st.size); el.style.setProperty("--r", st.rotation + "deg"); }
+    if (el) { el.style.setProperty("--s", st.size); el.style.setProperty("--r", st.rotation + "deg"); fitStamps([el]); }
   }
   async function saveStampFields(st) {
     const { error } = await supabase.from("cal_stamps").update({ size: st.size, rotation: st.rotation }).eq("id", st.id);
@@ -697,7 +697,7 @@ export function createExtras(env) {
 
   return {
     upload, removeFiles, uuid,
-    load, hydrate, stampsLayer, cellTap, bindDrag, trayClick, renderTray,
+    load, hydrate, stampsLayer, fitStamps, cellTap, bindDrag, trayClick, renderTray,
     openTodo, openImportant, openGallery, toggleStampMode,
     panelClick, panelChange, panelInput, panelKey,
     stampMode: () => mode.on,

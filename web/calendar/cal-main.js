@@ -264,6 +264,7 @@ function render() {
   $("weeks").innerHTML = weeks.map((ws) => weekHtml(ws, events, maxLanes)).join("");
   cal.scrollTop = keep;
   extras.hydrate($("weeks"));
+  extras.fitStamps(); // 横に長い文字のスタンプが、左右の端で切れないように(AN1・AN2)
 }
 
 // 日付の週を、上から rowsAbove 段目に置く
@@ -600,7 +601,12 @@ function readDraftField(el) {
   else if (f === "start" || f === "end") {
     if (f === "start") { const end = $("f-end"); if (end) end.value = draft.end; }
     // コピーの元の日(選べない日)は、開始日に合わせる。開始日と同じ日を選んでいたら外す
-    if (draft.pick && /^\d{4}-\d\d-\d\d$/.test(draft.start)) { draft.pick.base = draft.start; draft.pick.sel = draft.pick.sel.filter((x) => x !== draft.start); }
+    if (draft.pick && /^\d{4}-\d\d-\d\d$/.test(draft.start)) {
+      draft.pick.base = draft.start;
+      draft.pick.sel = draft.pick.sel.filter((x) => x !== draft.start);
+      // まだ日を選んでいなければ、開始日の月を出す(選んでいる途中なら、今の月のまま。AN4)
+      if (!draft.pick.sel.length) { draft.pick.y = Number(draft.start.slice(0, 4)); draft.pick.m = Number(draft.start.slice(5, 7)); }
+    }
     refreshPhotoBlock(); // 日付を変えると、写真を付けられるか(期限)が変わる。入力中の欄は作り直さず、写真の欄だけ入れ替える
     refreshCopyBlock();
   }
@@ -686,11 +692,11 @@ async function saveDraft() {
 // 選んだ日に、同じ内容(タイトル・ラベル・終日/時刻・メモ)の、繰り返しなしの予定を作る。何日かにまたがる予定は、選んだ日から同じ長さ。写真はコピーしない
 
 const COPY_MAX = 31; // 1回でコピーできる日の数
-let pick = null;     // 今出ている日の選び { y, m, base(元の日・選べない), sel(選んだ日), msg, onChange }
+let pick = null;     // 今出ている日の選び { y, m, base(元の日・選べない), sel(選んだ日), msg, onChange, busy(保存中) }
 let copyFrom = null; // 詳細からのコピー { uid, e(その回の予定) }
 
 function newPick(base, onChange) {
-  return { y: Number(base.slice(0, 4)), m: Number(base.slice(5, 7)), base, sel: [], msg: "", onChange };
+  return { y: Number(base.slice(0, 4)), m: Number(base.slice(5, 7)), base, sel: [], msg: "", onChange, busy: false };
 }
 
 function pickHtml(p) {
@@ -715,7 +721,7 @@ function pickHtml(p) {
 
 function pickAct(act, el) {
   const p = pick;
-  if (!p) return;
+  if (!p || p.busy) return; // 保存している間は、選びを変えない(押せなくしたボタンが、また押せるようにならないように。AN3)
   p.msg = "";
   if (act === "pk-prev" || act === "pk-next") { const t = addMonths(p.y, p.m, act === "pk-prev" ? -1 : 1); p.y = t.y; p.m = t.m; }
   else if (act === "pk-day") {
@@ -779,12 +785,13 @@ function openCopy(uid) {
 }
 async function saveCopy() {
   const c = copyFrom, p = pick;
-  if (!c || !p || !p.sel.length) return;
+  if (!c || !p || !p.sel.length || p.busy) return;
   const e = c.e;
   const src = { title: e.title, labelId: e.labelId, start: e.start, end: e.end, allDay: e.allDay, startTime: e.startTime, endTime: e.endTime, memo: e.memo, repeat: "none", until: "", yearsLabel: "" };
   const rows = p.sel.map((s) => { const sp = shiftSpan(e.start, e.end, s); return rowFromDraft(src, { start_date: sp.start, end_date: sp.end }); });
   const btn = $("copy-save");
   if (btn) btn.disabled = true;
+  p.busy = true;
   try {
     const { error } = await supabase.from("cal_events").insert(rows).select();
     if (error) throw error;
@@ -796,6 +803,7 @@ async function saveCopy() {
     if (reloadErr) setNotice(`コピーしました。ただ、画面を読み直せませんでした(${esc(friendlyText(reloadErr.message || String(reloadErr)))})。電波の良いところで、画面を開き直してください。`);
     else setNotice(`「${esc(e.title || "（タイトルなし）")}」を、${done.length}日にコピーしました(${esc(datesText(done, e.start.slice(0, 4)))})。`);
   } catch (err) {
+    p.busy = false;
     if (copyFrom && S.panel) { setPanel(copyHtml(friendlyText(err.message || String(err)))); }
     else fail(err);
   }

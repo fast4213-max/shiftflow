@@ -118,7 +118,15 @@ export function createImager(env) {
     g.save(); g.beginPath(); g.rect(P, GY, GW, RH * nW); g.clip();
     for (const s of sts) {
       const d = defOf(s.stamp_def_id), k = diffDays(start, s.date), wi = Math.floor(k / 7), c = k % 7;
-      const cx = P + CW * (c + s.x), cy = GY + RH * (wi + s.y), sw = s.size * CW;
+      const cy = GY + RH * (wi + s.y), sw = s.size * CW;
+      let cx = P + CW * (c + s.x);
+      // 横に長い文字のスタンプは、カレンダーの左右の端で切れないように、内側にずらして描く(画面と同じ。保存してある位置は変えない。AN2)
+      if (d.kind === "text") {
+        const fs = sw * 0.34; g.font = F(700, fs);
+        const bw = g.measureText(d.text).width + fs * 1.1, bh = fs * 1.5, a = (s.rotation || 0) * Math.PI / 180;
+        const half = (Math.abs(bw * Math.cos(a)) + Math.abs(bh * Math.sin(a))) / 2;
+        if (half * 2 < GW) cx = Math.min(Math.max(cx, P + half), P + GW - half);
+      }
       g.save(); g.translate(cx, cy); g.rotate((s.rotation || 0) * Math.PI / 180);
       if (d.kind === "emoji") {
         g.font = F(400, sw * 0.8); g.textAlign = "center"; g.textBaseline = "middle"; g.fillStyle = INK; g.fillText(d.emoji, 0, sw * 0.04);

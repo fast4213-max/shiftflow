@@ -4079,15 +4079,15 @@ await check("カレンダー(スタンプ): 長い文字(ウエハースなど)�
   await page.waitForSelector("#tray .tk");
   assert.ok(await notClipped("#tray .tk .tx"), "トレーで切れない");
   await page.click("#tray .tk >> nth=0");
-  await page.click(`.cell[data-date="${today}"]`, { position: { x: 4, y: 4 } });
+  const sun = await page.evaluate((t) => { const d = new Date(t + "T00:00:00Z"); return new Date(d.getTime() - d.getUTCDay() * 864e5).toISOString().slice(0, 10); }, today);
+  await page.click(`.cell[data-date="${sun}"]`, { position: { x: 4, y: 4 } });
   await page.waitForSelector(".stamp.st-tx");
   assert.ok(await notClipped(".stamp.st-tx .tx"), "置いたスタンプの文字が切れない");
   const [sw, tw, cellW] = await page.evaluate(() => { const s = document.querySelector(".stamp.st-tx"); return [s.offsetWidth, s.querySelector(".tx").offsetWidth, s.parentElement.clientWidth]; });
   assert.ok(sw >= tw && sw > 0.6 * cellW + 1, `横に伸びる: スタンプ ${sw} / 文字 ${tw} / マス ${cellW}`);
-  // 日曜(左端)のマスの端に置いても、カレンダーの左の端からはみ出さないように、内側に寄せる(寄せた位置を保存する)
-  const sun = await page.evaluate((t) => { const d = new Date(t + "T00:00:00Z"); return new Date(d.getTime() - d.getUTCDay() * 864e5).toISOString().slice(0, 10); }, today);
+  // 日曜(左端)のマスの端に置いても、カレンダーの左の端からはみ出さないように、内側にずらして描く(位置は保存し直さない)
   await page.waitForFunction(() => { const s = document.querySelector(".stamp.st-tx"), w = document.getElementById("weeks"); return s.getBoundingClientRect().left >= w.getBoundingClientRect().left - 1; });
-  if (sun === today) assert.ok(be.st.calls.some((c) => c.path === "/rest/v1/cal_stamps" && c.method === "PATCH" && typeof c.body.x === "number" && c.body.x > 0.12), "寄せた位置を保存");
+  assert.equal(be.st.calls.filter((c) => c.path === "/rest/v1/cal_stamps" && c.method === "PATCH").length, 0, "位置を保存し直さない");
   await page.screenshot({ path: OUT + "calendar-stamp-long.png" });
   assert.deepEqual(errors, []);
   await ctx.close();
@@ -4106,6 +4106,102 @@ await check("カレンダー(スタンプ): 長い文字(ウエハースなど)�
   assert.ok(!(await w.page.textContent("#d-prevnote")).includes("小さくして"), "入るときは、実際の大きさの説明に戻る");
   assert.deepEqual(w.errors, []);
   await w.ctx.close();
+});
+
+
+// ---------- 2026-11-08(32回目のデバッグ): AN1〜AN4 ----------
+const stampInside = (page) => page.evaluate(() => {
+  const w = document.getElementById("weeks").getBoundingClientRect();
+  return [...document.querySelectorAll(".stamp.st-tx")].map((s) => { const r = s.getBoundingClientRect(); return r.left >= w.left - 1 && r.right <= w.right + 1; });
+});
+
+await check("デバッグ AN1・AN2: 大きくて長い文字スタンプを日曜・土曜の端に置いても、端で切れない(描くときに内側にずらす。位置は DB の範囲 -1〜2 のまま)。前から置いてあるもの・大きさを変えたもの・幅が変わったときも", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-stamp");
+  await page.click('#tray [data-act="df-new"]');
+  await page.check('input[name="dkind"][value="text"]', { force: true });
+  await page.fill("#d-text", "ウエハースチョコ");
+  await page.locator("#d-size").evaluate((el) => { el.value = "2"; el.dispatchEvent(new Event("input", { bubbles: true })); });
+  await page.click('[data-act="df-save"]');
+  await page.waitForSelector(".lrow[data-did]");
+  await page.click('[data-act="close"]');
+  const sun = await page.evaluate((t) => { const d = new Date(t + "T00:00:00Z"); return new Date(d.getTime() - d.getUTCDay() * 864e5).toISOString().slice(0, 10); }, today);
+  const sat = isoAdd(sun, 6);
+  await page.click("#tray .tk >> nth=0");
+  await page.click(`.cell[data-date="${sun}"]`, { position: { x: 4, y: 4 } });
+  await page.waitForFunction(() => document.querySelectorAll(".stamp.st-tx").length === 1);
+  await page.click("#tray .tk >> nth=0");
+  const satBox = await page.locator(`.cell[data-date="${sat}"]`).boundingBox();
+  await page.click(`.cell[data-date="${sat}"]`, { position: { x: satBox.width - 4, y: 4 } });
+  await page.waitForFunction(() => document.querySelectorAll(".stamp.st-tx").length === 2);
+  assert.deepEqual(await stampInside(page), [true, true], "日曜・土曜とも、端からはみ出さない");
+  for (const st of be.st.cal.cal_stamps) assert.ok(st.x >= -1 && st.x <= 2, "保存する位置は DB の範囲の中: " + st.x);
+  assert.equal(be.st.calls.filter((c) => c.path === "/rest/v1/cal_stamps" && c.method === "PATCH").length, 0);
+  // 前から置いてある(この修正の前に置いた)長い文字のスタンプも、開き直すと端で切れない
+  const def = be.st.cal.cal_stamp_defs[0];
+  be.st.cal.cal_stamps.push({ id: "OLD1", user_id: "u1", date: sat, stamp_def_id: def.id, x: 0.88, y: 0.5, size: 1.2, rotation: 0, notes: [], created_at: "2026-11-01T00:00:00Z" });
+  await page.reload();
+  await page.waitForFunction(() => document.querySelectorAll(".stamp.st-tx").length === 3);
+  assert.deepEqual(await stampInside(page), [true, true, true], "前から置いてあるものも");
+  // 置いたスタンプの大きさを編集で変えても(保存の前の、動かしている途中も)、端で切れない
+  await page.click('.stamp[data-sid="OLD1"]');
+  await page.waitForSelector("#panel:not([hidden]) input[type=range]");
+  await page.locator("#panel input[type=range] >> nth=0").evaluate((el) => { el.value = el.max; el.dispatchEvent(new Event("input", { bubbles: true })); });
+  assert.deepEqual(await stampInside(page), [true, true, true], "大きさを変えても");
+  await page.click('#panel [data-act="close"]');
+  // 画面の幅が変わっても(スマホを横にしたなど)
+  await page.setViewportSize({ width: 700, height: 600 });
+  await page.waitForTimeout(400);
+  assert.deepEqual(await stampInside(page), [true, true, true], "幅が変わっても");
+  assert.deepEqual(errors, []);
+  await page.screenshot({ path: OUT + "calendar-stamp-edge.png" });
+  await ctx.close();
+});
+
+await check("デバッグ AN3: 詳細からのコピーで、保存している間に日をタップしても、選びは変わらず、ボタンは押せないまま(2回入らない)", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-new");
+  await page.fill("#f-title", "床屋");
+  await page.click("#f-save");
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  // 予定を入れる通信を遅くする
+  await page.route(SB + "/rest/v1/cal_events*", async (r) => { if (r.request().method() === "POST") await new Promise((res) => setTimeout(res, 1000)); await r.fallback(); });
+  await page.click('.bar:text-is("床屋")');
+  await page.click('#panel [data-act="copy"]');
+  const d1 = nextMonthDay(today, 3), d2 = nextMonthDay(today, 4);
+  await page.click('[data-act="pk-next"]');
+  await page.click(`.pkd[data-date="${d1}"]`);
+  await page.click("#copy-save");
+  await page.click(`.pkd[data-date="${d2}"]`); // 保存中のタップ
+  assert.equal(await page.locator("#copy-save").isDisabled(), true, "保存中はボタンが押せないまま");
+  assert.equal(await page.locator(".pkd.on").count(), 1, "選びは変わらない");
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  const posts = evPosts(be);
+  assert.equal(posts.length, 2, "入れたのは、元の予定とコピーの1回ずつ");
+  assert.deepEqual(posts[1].map((r) => r.start_date), [d1]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("デバッグ AN4: 予定の追加で開始日を別の月に変えると、まだ日を選んでいなければ、コピーのカレンダーもその月を出す。選んでいる途中なら、今の月のまま", async () => {
+  const { page, ctx, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-new");
+  await page.click('[data-act="cp-open"]');
+  const head = () => page.textContent(".pkh b");
+  const ym = (s) => `${Number(s.slice(0, 4))}年${Number(s.slice(5, 7))}月`;
+  assert.equal(await head(), ym(today));
+  const next = nextMonthDay(today, 15);
+  await page.fill("#f-start", next);
+  assert.equal(await head(), ym(next), "開始日の月に変わる");
+  assert.equal(await page.locator(`.pkd.base[data-date="${next}"]`).count(), 1, "元の日の印が見える");
+  await page.click(`.pkd[data-date="${nextMonthDay(today, 20)}"]`);
+  await page.fill("#f-start", today);
+  assert.equal(await head(), ym(next), "選んでいる途中なら、今の月のまま");
+  assert.deepEqual(errors, []);
+  await ctx.close();
 });
 
 await browser.close();
