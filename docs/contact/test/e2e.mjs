@@ -4388,6 +4388,72 @@ await check("カレンダー(アナウンス): 上に流すのは10件まで(一
   await ctx.close();
 });
 
+
+// ---------- 33回目のデバッグ: AO2・AO3・AO4・AO6 ----------
+await check("デバッグ AO2: 古い HTML(アナウンスの行が無い)と新しい JS が組み合わさっても、カレンダーは止まらずに出る", async () => {
+  const { page, ctx, errors } = await calOpen({
+    beforeLoad: async (p) => {
+      p.removeAllListeners("dialog"); p.on("dialog", (d) => d.accept().catch(() => {}));
+      await p.route(BASE + "/calendar/index.html", async (route) => { const res = await route.fetch(); await route.fulfill({ response: res, body: (await res.text()).replace(/<div class="ann"[^>]*><\/div>/, "") }); });
+    },
+  });
+  await page.waitForSelector(".bar");
+  assert.equal(await page.locator("#ann").count(), 0, "アナウンスの行が無い HTML");
+  assert.equal(await page.locator("#boot").isHidden(), true, "読み込みの失敗が出ない");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("デバッグ AO3・AO4・AO6: アナウンスは切り替えてもボタンを作り直さない(押せる)。重要メモで過ぎた日付を入れると、保存して知らせる。隠したラベルの予定で「アナウンスに出す」が別の端末とぶつかっても、案内を出したまま", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  // AO4: 過ぎた日付
+  await page.click("#btn-imp");
+  await page.click('[data-act="imp-new"]');
+  await page.fill("#im-t", "過ぎた手続き");
+  await page.check("#im-ann");
+  await page.fill("#im-anndate", isoAdd(today, -2));
+  await page.click('[data-act="imp-save"]');
+  await page.waitForSelector("#imp-note");
+  assert.ok((await page.textContent("#imp-note")).includes("過ぎているので、アナウンスには出ません"));
+  assert.equal(be.st.cal.cal_importants.length, 1, "保存はする");
+  // AO3: 2件で切り替え。ボタンは同じもののまま、中の文字だけ変わる
+  for (const t of ["鍵の場所", "ゴミの日"]) {
+    await page.click('[data-act="imp-new"]');
+    await page.fill("#im-t", t);
+    await page.check("#im-ann");
+    await page.check('input[name="im-annk"][value="plain"]');
+    await page.click('[data-act="imp-save"]');
+    await page.waitForFunction((n) => document.querySelectorAll(".icard .abadge").length === n, t === "鍵の場所" ? 2 : 3);
+  }
+  await page.click('[data-act="close"]');
+  await page.waitForFunction(() => document.querySelector("#ann .ann-n") && document.querySelector("#ann .ann-n").textContent.trim().endsWith("/2"));
+  await page.evaluate(() => { window.__annBtn = document.querySelector("#ann .ann-t"); window.__annNum = document.querySelector("#ann .ann-n"); });
+  const t1 = await page.textContent("#ann .ann-m");
+  await page.waitForFunction((a) => document.querySelector("#ann .ann-m").textContent !== a, t1, { timeout: 6000 });
+  assert.equal(await page.evaluate(() => window.__annBtn === document.querySelector("#ann .ann-t") && window.__annNum === document.querySelector("#ann .ann-n")), true, "ボタンは作り直さない");
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector("#ann .ann-w")).pointerEvents), "none", "押したのは、いつもボタン");
+  // AO6: 隠したラベルの予定。別の端末で変わっていたら、案内を出したまま(閉じない)
+  await page.click("#tab-new");
+  await page.fill("#f-title", "家族旅行");
+  await page.fill("#f-start", isoAdd(today, 3));
+  await page.fill("#f-end", isoAdd(today, 3));
+  await page.check("#f-ann");
+  await page.click("#f-save");
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  await page.click('#chips .chip:has-text("その他")'); // その予定のラベルを隠す
+  await page.waitForFunction(() => !document.querySelector('.bar') || ![...document.querySelectorAll(".bar")].some((b) => b.textContent === "家族旅行"));
+  await page.click("#ann .ann-n");
+  await page.click('#panel [data-act="ann-open"]:has-text("家族旅行")');
+  await page.waitForSelector('#panel [data-act="ann-toggle"]');
+  be.st.cal.cal_events.find((e) => e.title === "家族旅行").version += 1; // 別の端末で変わった
+  await page.click('#panel [data-act="ann-toggle"]');
+  await page.waitForFunction(() => (document.getElementById("detail-msg") || {}).textContent && document.getElementById("detail-msg").textContent.includes("別の端末で変更"));
+  assert.equal(await page.evaluate(() => !document.getElementById("panel").hidden), true, "画面は閉じない");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await browser.close();
 server.kill();
 console.log(failures.length ? `\n${failures.length} NG` : "\nall ok");

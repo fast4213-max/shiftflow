@@ -271,7 +271,7 @@ details.more > p { margin-top: 4px; }
 .ann { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 6px 0 10px; background: var(--head); border-top: 1px solid var(--line); font-size: 13px; font-weight: 700; }
 .ann-t { flex: 1; min-width: 0; height: 100%; text-align: left; color: var(--text); display: flex; align-items: center; gap: 6px; }
 .ann-t::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--sun); }
-.ann-w { flex: 1; min-width: 0; height: 100%; overflow: hidden; position: relative; display: flex; align-items: center; white-space: nowrap; }
+.ann-w { flex: 1; min-width: 0; height: 100%; overflow: hidden; position: relative; display: flex; align-items: center; white-space: nowrap; pointer-events: none; }
 .ann-i { display: inline-block; white-space: nowrap; }
 .ann-i.in { animation: annin .35s ease-out; }
 .ann-m { display: inline-block; white-space: nowrap; }

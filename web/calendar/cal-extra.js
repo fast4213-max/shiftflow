@@ -172,8 +172,8 @@ export function createExtras(env) {
   }
 
   // ====================== 重要メモ ======================
-  function impListHtml() {
-    return `${head("重要メモ")}<div class="pb"><button class="btn pri" data-act="imp-new">＋ メモを追加</button>
+  function impListHtml(note = "") {
+    return `${head("重要メモ")}<div class="pb"><button class="btn pri" data-act="imp-new">＋ メモを追加</button>${note ? `<p class="msg err" id="imp-note">${esc(note)}</p>` : ""}
       ${S.importants.length ? S.importants.map((m) => `<button class="icard" data-act="imp-edit" data-id="${esc(m.id)}"><div class="t">${esc(m.title)}${annBadge(m)}</div><div class="m">${esc(m.body)}</div></button>`).join("") : '<p class="sub">忘れたくないこと(連絡先・保管場所・ゴミの日など)を書いておけます。</p>'}</div>`;
   }
   // アナウンスに出しているメモの印(日付ありなら日付も)
@@ -219,7 +219,9 @@ export function createExtras(env) {
       if (error) return say("x-msg", errText(error));
       S.importants.push(data);
     }
-    setPanel(impListHtml());
+    // 日付ありで、もう過ぎた日付なら、保存はして、流れないことを知らせる(気づかずに待たないように。AO4)
+    const past = row.announce === "dated" && row.announce_on && row.announce_on < S.today;
+    setPanel(impListHtml(past ? `「${title}」を保存しました。アナウンスの日付(${Number(row.announce_on.slice(5, 7))}/${Number(row.announce_on.slice(8, 10))})が過ぎているので、アナウンスには出ません。出したいときは、日付を今日より後にしてください。` : ""));
     if (env.onImportantsChange) env.onImportantsChange();
   });
   async function impDel() {

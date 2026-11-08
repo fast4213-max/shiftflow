@@ -9,17 +9,30 @@ const MARQUEE_PX_PER_S = 45; // 長い文字を横に流す速さ
 const MARQUEE_WAIT_MS = 1200; // 流し始める前と、流し終わったあとに止めておく時間
 
 export function createAnnouncer({ el, esc, onOpen, onList }) {
+  // 公開の直後に、古い HTML(アナウンスの行が無い)と新しい JS が組み合わさったときは、アナウンスだけ出さない(カレンダーは動かす。AO2)
+  if (!el) return { set() {}, all: () => [] };
   let all = [], items = [], idx = 0, key = "", timer = 0;
+  let btn = null, wrap = null, num = null;
   const reduced = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (_) { return false; } };
 
+  // ボタンは最初に1回だけ作り、切り替えるときは中の文字と「1/3」だけを入れ替える(切り替わる瞬間に押しても、押したことになるように。
+  // 押している途中で押した所が作り直されると、押したことにならなかった。AO3)。中の文字は押せない(押したのは、いつもボタン)
+  function build() {
+    if (btn && el.contains(btn)) return;
+    el.innerHTML = '<button type="button" class="ann-t" data-ann="open"><span class="ann-w"></span></button><button type="button" class="ann-n" data-ann="list"></button>';
+    btn = el.querySelector(".ann-t"); wrap = el.querySelector(".ann-w"); num = el.querySelector(".ann-n");
+  }
   function show(animate) {
     clearTimeout(timer);
     const it = items[idx];
     if (!it) return;
-    el.innerHTML = `<button type="button" class="ann-t" data-ann="open" aria-label="アナウンス: ${esc(it.text)}"><span class="ann-w"><span class="ann-i${animate && !reduced() ? " in" : ""}"><span class="ann-m">${esc(it.text)}</span></span></span></button>`
-      + `<button type="button" class="ann-n" data-ann="list" aria-label="アナウンスの一覧(${items.length}件中${idx + 1}件目)">${idx + 1}/${items.length}</button>`;
+    build();
+    btn.setAttribute("aria-label", `アナウンス: ${it.text}`);
+    wrap.innerHTML = `<span class="ann-i${animate && !reduced() ? " in" : ""}"><span class="ann-m">${esc(it.text)}</span></span>`;
+    num.textContent = `${idx + 1}/${items.length}`;
+    num.setAttribute("aria-label", `アナウンスの一覧(${items.length}件中${idx + 1}件目)`);
     let stay = STEP_MS;
-    const w = el.querySelector(".ann-w"), m = el.querySelector(".ann-m");
+    const w = wrap, m = wrap.querySelector(".ann-m");
     const over = m && w ? m.scrollWidth - w.clientWidth : 0;
     if (over > 2 && !reduced()) {
       const move = Math.round((over / MARQUEE_PX_PER_S) * 1000);
@@ -44,7 +57,7 @@ export function createAnnouncer({ el, esc, onOpen, onList }) {
     idx = keep >= 0 ? keep : 0;
     el.hidden = !items.length;
     clearTimeout(timer);
-    if (items.length) show(false); else el.innerHTML = "";
+    if (items.length) show(false); else { el.innerHTML = ""; btn = wrap = num = null; }
   }
 
   el.addEventListener("click", (ev) => {

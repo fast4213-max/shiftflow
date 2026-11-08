@@ -1027,9 +1027,10 @@ async function toggleAnnounce(uid) {
     const { data, error } = await supabase.from("cal_events").update({ announce: next }).eq("id", base.id).eq("version", base.version).select();
     if (error) throw error;
     await reloadAll({ keepShifts: true });
-    if (!data || !data.length) { openEvent(uid); return say("別の端末で変更されています。読み直しました。もう一度押してください。"); }
+    // 隠したラベルの予定は、読み直したあとの画面の予定に入らないので、入れてから開く(入れないと、案内を出す前に画面が閉じていた。AO6)
     if (!S.byUid.has(uid)) S.byUid.set(uid, e);
     openEvent(uid);
+    if (!data || !data.length) say("別の端末で変更されています。読み直しました。もう一度押してください。");
   } catch (err) {
     say(friendlyText(err.message || String(err)));
   }
