@@ -252,10 +252,12 @@ export function createExtras(env) {
     if (d.kind === "image") { const u = freshUrl(d.image_path); return `<img data-path="${esc(d.image_path)}" alt="" decoding="sync"${u ? ` src="${esc(u)}"` : ""}>`; }
     return `<span class="tx r-${esc(d.shape)}" style="${txStyle(d)}">${esc(d.text)}</span>`;
   }
+  // 文字のスタンプは、枠を正方形にせず、文字の長さに合わせて横に伸ばす(正方形のままだと、長い文字の両端が切れていた)
+  const txCls = (d) => (d && d.kind === "text" ? " st-tx" : "");
   function stampEl(st) {
     const d = defOf(st.stamp_def_id);
     if (!d) return "";
-    return `<span class="stamp${st.id === selSid ? " sel" : ""}" data-sid="${esc(st.id)}" style="left:${st.x * 100}%;top:${st.y * 100}%;--s:${st.size};--r:${st.rotation}deg">${defInner(d)}</span>`;
+    return `<span class="stamp${txCls(d)}${st.id === selSid ? " sel" : ""}" data-sid="${esc(st.id)}" style="left:${st.x * 100}%;top:${st.y * 100}%;--s:${st.size};--r:${st.rotation}deg">${defInner(d)}</span>`;
   }
   // その週の7日ぶんのスタンプの層
   function stampsLayer(dates) {
@@ -265,7 +267,7 @@ export function createExtras(env) {
   }
 
   function trayHtml() {
-    const items = S.stampDefs.map((d) => `<button class="tk${mode.def === d.id ? " on" : ""}" data-act="st-pick" data-id="${esc(d.id)}" aria-label="スタンプ">${defInner(d)}</button>`).join("");
+    const items = S.stampDefs.map((d) => `<button class="tk${d.kind === "text" ? " tk-tx" : ""}${mode.def === d.id ? " on" : ""}" data-act="st-pick" data-id="${esc(d.id)}" aria-label="スタンプ">${defInner(d)}</button>`).join("");
     const msg = !S.stampDefs.length ? '<span class="tmsg">スタンプを作りましょう →</span>' : mode.def ? '<span class="tmsg">置きたい日をタップ(置いたスタンプを動かすときは、選びを外す)</span>' : '<span class="tmsg">スタンプを選ぶ(置いたスタンプは、タップで編集・ドラッグで移動)</span>';
     return `${items}<button class="btn tadd" data-act="df-new">＋ 作る</button><button class="btn tadd" data-act="df-list">管理</button>${msg}<button class="btn tadd" data-act="st-off">閉じる</button>`;
   }
@@ -303,6 +305,23 @@ export function createExtras(env) {
     mode.def = null;
     renderTray();
     render();
+    await keepInside(data);
+  }
+
+  // 横に長い文字のスタンプが、カレンダーの左右の端からはみ出すときは、はみ出す分だけ内側に寄せる(はみ出した所は画面の外で見えず、文字が切れて見えるため)
+  async function keepInside(st) {
+    const el = document.querySelector(`.stamp[data-sid="${CSS.escape(st.id)}"]`);
+    const box = $("weeks");
+    if (!el || !box || !el.classList.contains("st-tx")) return;
+    const r = el.getBoundingClientRect(), b = box.getBoundingClientRect(), cw = el.parentElement.clientWidth;
+    if (!cw || r.width >= b.width) return; // カレンダーより広いときは、寄せても入らないので、そのまま
+    const shift = r.left < b.left ? b.left - r.left : r.right > b.right ? b.right - r.right : 0;
+    if (Math.abs(shift) < 1) return;
+    const prevX = st.x;
+    st.x = prevX + shift / cw;
+    render();
+    const { error } = await supabase.from("cal_stamps").update({ x: st.x }).eq("id", st.id);
+    if (error) { st.x = prevX; render(); env.fail(error); }
   }
 
   // 日付のマスをタップしたとき。スタンプの画面なら、ここで受ける(true)
@@ -336,6 +355,8 @@ export function createExtras(env) {
         const g = drag.el.cloneNode(true);
         g.classList.add("ghost");
         g.style.width = drag.el.getBoundingClientRect().width + "px";
+        // 文字のスタンプは横長。高さ・最小の幅はカレンダーのマスの幅から決めているので、画面の上に出す影では、今の大きさをそのまま写す
+        if (drag.el.classList.contains("st-tx")) { g.style.width = drag.el.offsetWidth + "px"; g.style.height = drag.el.offsetHeight + "px"; g.style.minWidth = "0"; }
         g.style.fontSize = getComputedStyle(drag.el).fontSize;
         g.style.removeProperty("left"); g.style.removeProperty("top");
         document.body.appendChild(g);
@@ -367,7 +388,8 @@ export function createExtras(env) {
       Object.assign(st, { date: cell.dataset.date, x, y });
       render();
       const { error } = await supabase.from("cal_stamps").update({ date: st.date, x, y }).eq("id", st.id);
-      if (error) { Object.assign(st, prev); render(); env.fail(error); }
+      if (error) { Object.assign(st, prev); render(); env.fail(error); return; }
+      await keepInside(st);
     };
     weeks.addEventListener("pointerup", (ev) => end(ev, false));
     weeks.addEventListener("pointercancel", (ev) => end(ev, true));
@@ -441,7 +463,7 @@ export function createExtras(env) {
   }
 
   // ---- スタンプの種類(作る・直す・並べ替え・消す) ----
-  function defPreview(d) { return `<span class="tk" style="display:inline-flex;width:52px;height:52px;border:1px solid var(--line);border-radius:10px;align-items:center;justify-content:center;font-size:30px">${defInner(d)}</span>`; }
+  function defPreview(d) { return `<span class="tk${d.kind === "text" ? " tk-tx" : ""}" style="display:inline-flex;${d.kind === "text" ? "min-width:52px;padding:0 4px" : "width:52px"};height:52px;border:1px solid var(--line);border-radius:10px;align-items:center;justify-content:center;font-size:30px;flex:none">${defInner(d)}</span>`; }
   function defListHtml(msg = "") {
     const rows = S.stampDefs.map((d, i) => `<div class="lrow" data-did="${esc(d.id)}">${defPreview(d)}<span class="in" style="border:0;flex:1"></span>
       <button class="btn sm" data-act="df-up" data-id="${esc(d.id)}"${i === 0 ? " disabled" : ""} aria-label="前へ">↑</button><button class="btn sm" data-act="df-down" data-id="${esc(d.id)}"${i === S.stampDefs.length - 1 ? " disabled" : ""} aria-label="後ろへ">↓</button>
@@ -454,7 +476,7 @@ export function createExtras(env) {
     const prev = dd.kind === "image" ? (dd.blobUrl ? `<img src="${esc(dd.blobUrl)}" alt="">` : dd.image_path ? `<img data-path="${esc(dd.image_path)}" alt="">` : "") : defInner(dd);
     return `${head(dd.id ? "スタンプを直す" : "スタンプを作る")}<div class="pb">
       <div class="seg" role="radiogroup">${kinds.map(([v, t]) => `<label><input type="radio" name="dkind" value="${v}" data-df="kind"${dd.kind === v ? " checked" : ""}><span>${t}</span></label>`).join("")}</div>
-      <div class="stc d-stage" id="d-stage"><span class="stamp" id="d-prev" style="--s:${Number(dd.default_size) || 0.34};--r:0deg">${prev}</span></div>
+      <div class="stc d-stage" id="d-stage"><span class="stamp${txCls(dd)}" id="d-prev" style="--s:${Number(dd.default_size) || 0.34};--r:0deg">${prev}</span></div>
       <p class="sub" id="d-prevnote">カレンダーに置いたときの実際の大きさで出ています。</p>
       ${dd.kind === "emoji" ? `<div class="fld"><label class="lb" for="d-emoji">絵文字</label><input class="in" id="d-emoji" data-df="emoji" maxlength="8" value="${esc(dd.emoji)}"></div>` : ""}
       ${dd.kind === "text" ? `<div class="fld"><label class="lb" for="d-text">文字(8文字まで)</label><input class="in" id="d-text" data-df="text" maxlength="8" value="${esc(dd.text)}"></div>
@@ -475,6 +497,7 @@ export function createExtras(env) {
   function refreshDefPreview() {
     const p = $("d-prev");
     if (!p) return;
+    p.className = "stamp" + txCls(dd);
     p.innerHTML = dd.kind === "image" ? (dd.blobUrl ? `<img src="${esc(dd.blobUrl)}" alt="">` : dd.image_path ? `<img data-path="${esc(dd.image_path)}" alt="">` : "") : defInner(dd);
     hydrate(p);
     sizeDefPreview();
@@ -489,6 +512,12 @@ export function createExtras(env) {
     const size = Number(dd.default_size) || 0.34;
     p.style.setProperty("--s", String(size * cw / pw));
     stage.style.height = Math.min(Math.max(size * cw + 24, 96), 360) + "px";
+    // 文字が長くて、横に伸ばした札が箱に入りきらないときは、入る大きさまで縮めて出す(そのことを知らせる)
+    const note = $("d-prevnote");
+    const room = stage.clientWidth - 16, w = p.offsetWidth;
+    const fit = dd.kind === "text" && w > room && room > 0;
+    if (fit) p.style.setProperty("--s", String((size * cw / pw) * room / w));
+    if (note) note.textContent = fit ? "長いので、小さくして出しています(カレンダーには、もっと大きく出ます)。" : "カレンダーに置いたときの実際の大きさで出ています。";
   }
   const saveDef = once("saveDef", async function saveDef() {
     const row = { kind: dd.kind, emoji: dd.kind === "emoji" ? dd.emoji.trim() : "", text: dd.kind === "text" ? dd.text.trim() : "", text_color: dd.text_color, bg_color: dd.bg_color, shape: dd.shape, default_size: Number(dd.default_size) };

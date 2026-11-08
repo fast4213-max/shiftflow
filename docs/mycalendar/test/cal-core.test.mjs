@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  addDays, addMonths, addMonthsIso, resolveCalView, compareForDay, oldestDate, photosClosed, diffDays, expandEvent, gridRange, layoutWeek, monthLimits, textOn, todayJst, weekday, whenText, yearsText,
+  addDays, addMonths, addMonthsIso, resolveCalView, compareForDay, datesText, oldestDate, photosClosed, diffDays, expandEvent, gridRange, layoutWeek, monthLimits, shiftSpan, textOn, todayJst, weekday, whenText, yearsText,
 } from "../../../web/calendar/cal-core.js";
 
 test("日付の計算は月・年をまたぐ", () => {
@@ -123,4 +123,16 @@ test("カレンダーに出すもの: 自動(null)は Google の設定から決�
   // 自分で決めた値が先
   assert.deepEqual(resolveCalView({ google_sync: true, holiday_calendar_id: "", cal_show_off: true, cal_offduty_label: true, cal_show_duty: false }), { duty: false, off: true, offduty: true });
   assert.deepEqual(resolveCalView({ google_sync: true, holiday_calendar_id: "h", offduty_calendar_id: "o", cal_show_off: false, cal_offduty_label: false }), { duty: true, off: false, offduty: false });
+});
+
+test("別の日にコピー: 選んだ日から同じ長さ。月・年をまたいでも数える。終了日が前なら1日の予定", () => {
+  assert.deepEqual(shiftSpan("2026-11-10", "2026-11-10", "2026-11-20"), { start: "2026-11-20", end: "2026-11-20" });
+  assert.deepEqual(shiftSpan("2026-11-10", "2026-11-11", "2026-11-30"), { start: "2026-11-30", end: "2026-12-01" }); // 泊など2日間
+  assert.deepEqual(shiftSpan("2026-11-10", "2026-11-12", "2027-02-27"), { start: "2027-02-27", end: "2027-03-01" });
+  assert.deepEqual(shiftSpan("2026-11-10", "2026-11-09", "2026-11-15"), { start: "2026-11-15", end: "2026-11-15" });
+});
+
+test("別の日にコピー: 日付の並びは日付の順。年が違う日だけ年を付ける", () => {
+  assert.equal(datesText(["2026-11-15", "2026-11-12", "2027-01-05"], "2026"), "11/12・11/15・2027/1/5");
+  assert.equal(datesText([], 2026), "");
 });

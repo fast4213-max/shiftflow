@@ -354,7 +354,7 @@ async function check(name, fn) {
     console.log("ok  " + name);
   } catch (err) {
     failures.push(name);
-    console.log("NG  " + name + "\n    " + String(err.stack || err).split("\n").slice(0, 4).join("\n    "));
+    console.log("NG  " + name + "\n    " + String(err.stack || err).split("\n").slice(0, process.env.LONG ? 30 : 4).join("\n    "));
   }
 }
 
@@ -2053,6 +2053,10 @@ await check("カレンダー: 予定を追加(終日)・時間指定(分単位)�
   assert.equal(inserts.length, 2);
   assert.deepEqual([inserts[1].all_day, inserts[1].start_time, inserts[1].end_time], [false, "09:07", "10:43"]);
   assert.equal(inserts[0].all_day, true);
+  // 帯は、時間つきの予定でもタイトルだけ(開始時刻を付けない。2026-11-08 の要望)
+  const bars2 = await page.locator(".bar").allTextContents();
+  assert.ok(bars2.includes("会議"), bars2.join());
+  assert.ok(!bars2.some((t) => t.includes("9:07")), "帯に開始時刻を出さない: " + bars2.join());
   await page.click(`.cell[data-date="${today}"]`, { position: { x: 4, y: 4 } });
   await page.waitForSelector("#panel:not([hidden]) .erow");
   const text = await page.textContent("#panel");
@@ -3893,6 +3897,215 @@ await check("交番表: 幅320pxでもボタンが画面に収まる", async () 
   await page.screenshot({ path: OUT + "kouban-320.png" });
   assert.deepEqual(errors, []);
   await ctx.close();
+});
+
+
+// ---------- 2026-11-08: 別の日にコピー・下に引いて閉じる・長い文字のスタンプ ----------
+const isoAdd = (s, n) => { const d = new Date(s + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const nextMonthDay = (s, day) => { const y = Number(s.slice(0, 4)), m = Number(s.slice(5, 7)); const ny = m === 12 ? y + 1 : y, nm = m === 12 ? 1 : m + 1; return `${ny}-${String(nm).padStart(2, "0")}-${String(day).padStart(2, "0")}`; };
+const evPosts = (be) => be.st.calls.filter((c) => c.path === "/rest/v1/cal_events" && c.method === "POST").map((c) => c.body);
+
+await check("カレンダー(コピー): 予定の追加で「別の日にもコピー」→ 日をタップで選ぶ(もう一度で外す・元の日は選べない・次の月も選べる)→「保存(3日分)」で、同じ内容を1回でまとめて入れる。何日かの予定は同じ長さ", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-new");
+  await page.fill("#f-title", "研修会");
+  await page.uncheck("#f-allday");
+  await page.fill("#f-st", "13:05");
+  await page.fill("#f-et", "15:00");
+  const end2 = isoAdd(today, 1);
+  await page.fill("#f-end", end2); // 2日間の予定
+  assert.equal((await page.textContent("#f-save")).trim(), "保存");
+  await page.click('[data-act="cp-open"]');
+  await page.waitForSelector(".pk");
+  assert.ok((await page.textContent("#cp-wrap")).includes("同じ長さ(2日間)"));
+  // 元の日(開始日)は選べない
+  assert.equal(await page.locator(`.pkd[data-date="${today}"]`).isDisabled(), true);
+  const d1 = today.slice(8) === "03" ? `${today.slice(0, 8)}04` : `${today.slice(0, 8)}03`;
+  const d2 = nextMonthDay(today, 5);
+  await page.click(`.pkd[data-date="${d1}"]`);
+  await page.click(`.pkd[data-date="${d1}"]`); // もう一度で外す
+  assert.equal(await page.locator(".pkd.on").count(), 0);
+  await page.click(`.pkd[data-date="${d1}"]`);
+  await page.click('[data-act="pk-next"]');
+  await page.click(`.pkd[data-date="${d2}"]`);
+  assert.equal((await page.textContent("#f-save")).trim(), "保存(3日分)");
+  assert.ok((await page.textContent("#pk-note")).includes("ほかに2日"));
+  // 入力中のタイトルは、日を選んでも消えない
+  assert.equal(await page.inputValue("#f-title"), "研修会");
+  await page.waitForTimeout(300);
+  await page.locator("#cp-wrap").screenshot({ path: OUT + "calendar-copy-picker.png" });
+  await page.click("#f-save");
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  const posts = evPosts(be);
+  assert.equal(posts.length, 1, "1回で送る");
+  assert.ok(Array.isArray(posts[0]) && posts[0].length === 3, JSON.stringify(posts[0]));
+  const spans = posts[0].map((r) => [r.start_date, r.end_date]).sort();
+  assert.deepEqual(spans, [[d1, isoAdd(d1, 1)], [today, end2], [d2, isoAdd(d2, 1)]].sort());
+  for (const r of posts[0]) assert.deepEqual([r.title, r.all_day, r.start_time, r.end_time, r.repeat_rule], ["研修会", false, "13:05", "15:00", "none"]);
+  assert.ok((await page.textContent("#banner")).includes("ほかに2日"), await page.textContent("#banner"));
+  // 繰り返しを選ぶと、コピーの欄は出ない
+  await page.click("#tab-new");
+  await page.selectOption("#f-rep", "weekly");
+  assert.equal(await page.locator('[data-act="cp-open"]').count(), 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("カレンダー(コピー): 予定の詳細の「別の日にコピー」で、その予定を選んだ日にコピー(写真・繰り返しは付けない)。「やめる」で詳細に戻る。勤務の予定には出ない", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-new");
+  await page.fill("#f-title", "歯医者");
+  await page.uncheck("#f-allday");
+  await page.fill("#f-st", "10:30");
+  await page.fill("#f-et", "11:00");
+  await page.fill("#f-memo", "保険証");
+  await page.click("#f-save");
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  await page.click('.bar:text-is("歯医者")');
+  await page.waitForSelector('#panel [data-act="copy"]');
+  await page.click('#panel [data-act="copy"]');
+  await page.waitForSelector(".pk");
+  assert.equal(await page.locator("#copy-save").isDisabled(), true, "日を選ぶまでは押せない");
+  await page.click('[data-act="copy-back"]');
+  await page.waitForSelector('#panel [data-act="edit"]');
+  await page.click('#panel [data-act="copy"]');
+  const d1 = isoAdd(today, 7).slice(0, 7) === today.slice(0, 7) ? isoAdd(today, 7) : isoAdd(today, -7);
+  const d2 = nextMonthDay(today, 10);
+  await page.click(`.pkd[data-date="${d1}"]`);
+  await page.click('[data-act="pk-next"]');
+  await page.click(`.pkd[data-date="${d2}"]`);
+  assert.equal((await page.textContent("#copy-save")).trim(), "コピー(2日分)");
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: OUT + "calendar-copy-detail.png" });
+  await page.click("#copy-save");
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  const posts = evPosts(be);
+  assert.equal(posts.length, 2);
+  const rows = posts[1];
+  assert.ok(Array.isArray(rows) && rows.length === 2);
+  assert.deepEqual(rows.map((r) => r.start_date).sort(), [d1, d2].sort());
+  for (const r of rows) assert.deepEqual([r.title, r.start_time, r.end_time, r.memo, r.repeat_rule, r.start_date === r.end_date], ["歯医者", "10:30", "11:00", "保険証", "none", true]);
+  assert.ok((await page.textContent("#banner")).includes("2日にコピーしました"));
+  // 勤務の予定には、コピーのボタンが出ない
+  await page.click('.bar:text-is("25")');
+  await page.waitForSelector("#panel:not([hidden])");
+  assert.equal(await page.locator('#panel [data-act="copy"]').count(), 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// 指で引く(TouchEvent)。sel の要素の上から、dy だけ ms かけて動かす
+const touchDrag = (page, sel, dy, ms = 300) => page.evaluate(async ([sel, dy, ms]) => {
+  const el = document.querySelector(sel);
+  const r = el.getBoundingClientRect();
+  const x = r.left + r.width / 2, y0 = r.top + Math.min(10, r.height / 2);
+  const tp = (y) => new Touch({ identifier: 1, target: el, clientX: x, clientY: y });
+  const fire = (type, y, on = true) => el.dispatchEvent(new TouchEvent(type, { touches: on ? [tp(y)] : [], targetTouches: on ? [tp(y)] : [], changedTouches: [tp(y)], bubbles: true, cancelable: true }));
+  fire("touchstart", y0);
+  const steps = 10;
+  for (let i = 1; i <= steps; i++) { await new Promise((res) => setTimeout(res, ms / steps)); fire("touchmove", y0 + (dy * i) / steps); }
+  fire("touchend", y0 + dy, false);
+  await new Promise((res) => setTimeout(res, 300));
+}, [sel, dy, ms]);
+
+await check("カレンダー(閉じる): ポップアップは、上(見出し・つまみ)から下に引くと閉じる。少しだけなら戻る。速くはじけば短くても閉じる。入力欄の上・中身をスクロールした途中からは閉じない。広い画面では使わない", async () => {
+  const { page, ctx, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  const isOpen = () => page.evaluate(() => !document.getElementById("panel").hidden);
+  // つまみが出る
+  await page.click("#tab-new");
+  const handle = await page.evaluate(() => getComputedStyle(document.querySelector("#panel .ph"), "::before").content);
+  assert.notEqual(handle, "none");
+  // 少しだけ引く → 戻る
+  await touchDrag(page, "#panel .ph h2", 50);
+  assert.equal(await isOpen(), true, "50px では閉じない");
+  assert.equal(await page.evaluate(() => document.getElementById("panel").style.transform), "", "元の位置に戻る");
+  // 入力欄の上から引いても閉じない
+  await touchDrag(page, "#f-title", 220);
+  assert.equal(await isOpen(), true, "入力欄からは閉じない");
+  // 見出しから 150px 引く → 閉じる
+  await touchDrag(page, "#panel .ph h2", 150);
+  assert.equal(await isOpen(), false, "150px で閉じる");
+  // 速くはじく(60px を 60ms) → 閉じる
+  await page.click("#tab-new");
+  await touchDrag(page, "#panel .ph h2", 60, 60);
+  assert.equal(await isOpen(), false, "速くはじくと閉じる");
+  // 中身をスクロールした途中から、中身の上で下に引いても閉じない(上へスクロールするだけ)。いちばん上なら閉じる
+  await page.click("#tab-settings");
+  await page.waitForSelector("#about");
+  await page.evaluate(() => { document.getElementById("panel").scrollTop = 300; });
+  await touchDrag(page, "#about h3", 200);
+  assert.equal(await isOpen(), true, "スクロールの途中では閉じない");
+  await page.evaluate(() => { document.getElementById("panel").scrollTop = 0; });
+  await touchDrag(page, "#about h3", 200);
+  assert.equal(await isOpen(), false, "いちばん上なら、中身から引いても閉じる");
+  // 閉じたあとに開き直しても、ずれていない
+  await page.click("#tab-new");
+  assert.equal(await page.evaluate(() => document.getElementById("panel").style.transform + document.getElementById("scrim").style.opacity), "");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+  // 広い画面(右に出る形)では、引いても閉じない
+  const w = await calOpen({ viewport: { width: 900, height: 800 } });
+  await w.page.waitForSelector(".bar");
+  await w.page.click("#tab-new");
+  await touchDrag(w.page, "#panel .ph h2", 200);
+  assert.equal(await w.page.evaluate(() => !document.getElementById("panel").hidden), true);
+  assert.deepEqual(w.errors, []);
+  await w.ctx.close();
+});
+
+await check("カレンダー(スタンプ): 長い文字(ウエハースなど)の文字スタンプは、両端が切れない。置いたスタンプは横に伸び、トレー・一覧も切れない。左右の端に置くと内側に寄せる。プレビューに入りきらないときは小さくして知らせる", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-stamp");
+  await page.click('#tray [data-act="df-new"]');
+  await page.check('input[name="dkind"][value="text"]', { force: true });
+  await page.fill("#d-text", "ウエハース");
+  await page.locator("#d-size").evaluate((el) => { el.value = "2"; el.dispatchEvent(new Event("input", { bubbles: true })); });
+  const notClipped = (sel) => page.locator(sel).first().evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
+  assert.ok(await notClipped("#d-prev .tx"), "プレビューの文字が切れない");
+  const [stage, prev] = await Promise.all([page.locator("#d-stage").boundingBox(), page.locator("#d-prev .tx").boundingBox()]);
+  assert.ok(prev.x >= stage.x - 1 && prev.x + prev.width <= stage.x + stage.width + 1, "プレビューの箱に入る: " + JSON.stringify([stage, prev]));
+  await page.fill("#d-text", "ウエハースチョコ");
+  assert.ok(await notClipped("#d-prev .tx"), "8文字でも切れない");
+  assert.ok(!(await page.textContent("#d-prevnote")).includes("小さくして"), "スマホの幅なら、最大の大きさでも箱に入る");
+  await page.locator("#d-size").evaluate((el) => { el.value = "0.6"; el.dispatchEvent(new Event("input", { bubbles: true })); });
+  await page.click('[data-act="df-save"]');
+  await page.waitForSelector('.lrow[data-did]');
+  assert.ok(await notClipped(".lrow .tk .tx"), "一覧で切れない");
+  await page.click('[data-act="close"]');
+  await page.waitForSelector("#tray .tk");
+  assert.ok(await notClipped("#tray .tk .tx"), "トレーで切れない");
+  await page.click("#tray .tk >> nth=0");
+  await page.click(`.cell[data-date="${today}"]`, { position: { x: 4, y: 4 } });
+  await page.waitForSelector(".stamp.st-tx");
+  assert.ok(await notClipped(".stamp.st-tx .tx"), "置いたスタンプの文字が切れない");
+  const [sw, tw, cellW] = await page.evaluate(() => { const s = document.querySelector(".stamp.st-tx"); return [s.offsetWidth, s.querySelector(".tx").offsetWidth, s.parentElement.clientWidth]; });
+  assert.ok(sw >= tw && sw > 0.6 * cellW + 1, `横に伸びる: スタンプ ${sw} / 文字 ${tw} / マス ${cellW}`);
+  // 日曜(左端)のマスの端に置いても、カレンダーの左の端からはみ出さないように、内側に寄せる(寄せた位置を保存する)
+  const sun = await page.evaluate((t) => { const d = new Date(t + "T00:00:00Z"); return new Date(d.getTime() - d.getUTCDay() * 864e5).toISOString().slice(0, 10); }, today);
+  await page.waitForFunction(() => { const s = document.querySelector(".stamp.st-tx"), w = document.getElementById("weeks"); return s.getBoundingClientRect().left >= w.getBoundingClientRect().left - 1; });
+  if (sun === today) assert.ok(be.st.calls.some((c) => c.path === "/rest/v1/cal_stamps" && c.method === "PATCH" && typeof c.body.x === "number" && c.body.x > 0.12), "寄せた位置を保存");
+  await page.screenshot({ path: OUT + "calendar-stamp-long.png" });
+  assert.deepEqual(errors, []);
+  await ctx.close();
+  // 広い画面(マスが大きい)で最大の大きさにすると、プレビューの箱(右の400px)に入りきらないので、小さくして出し、そのことを知らせる
+  const w = await calOpen({ viewport: { width: 1100, height: 800 } });
+  await w.page.waitForSelector(".bar");
+  await w.page.click("#tab-stamp");
+  await w.page.click('#tray [data-act="df-new"]');
+  await w.page.check('input[name="dkind"][value="text"]', { force: true });
+  await w.page.fill("#d-text", "ウエハースチョコ");
+  await w.page.locator("#d-size").evaluate((el) => { el.value = "2"; el.dispatchEvent(new Event("input", { bubbles: true })); });
+  assert.ok((await w.page.textContent("#d-prevnote")).includes("小さくして"), "入りきらないときは知らせる");
+  const [st2, pv2] = await Promise.all([w.page.locator("#d-stage").boundingBox(), w.page.locator("#d-prev .tx").boundingBox()]);
+  assert.ok(pv2.x >= st2.x - 1 && pv2.x + pv2.width <= st2.x + st2.width + 1, "縮めて箱に入る: " + JSON.stringify([st2, pv2]));
+  await w.page.locator("#d-size").evaluate((el) => { el.value = "0.3"; el.dispatchEvent(new Event("input", { bubbles: true })); });
+  assert.ok(!(await w.page.textContent("#d-prevnote")).includes("小さくして"), "入るときは、実際の大きさの説明に戻る");
+  assert.deepEqual(w.errors, []);
+  await w.ctx.close();
 });
 
 await browser.close();

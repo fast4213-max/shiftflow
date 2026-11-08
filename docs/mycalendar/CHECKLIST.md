@@ -105,6 +105,7 @@ create policy calendar_delete_own on storage.objects for delete to authenticated
   using (bucket_id = 'calendar' and (storage.foldername(name))[1] = auth.uid()::text and public.is_member());
 ```
 - [ ] 実機で確かめる(デバッグ 24回目の見送り): スタンプの画面で何も選ばずに予定の帯をタップしたとき画面が閉じる動きで困らないか(D5)・Android の画面のキーボードで TODO の「Enterで追加」が効くか[効かなくても＋ボタンで追加できる](D7)・パネルを開いて閉じたあとにページを再読み込みしても、戻るボタンを余分に押さずにアプリを離れられるか(D8)・iPhone で、写真が横向きにならないか(D6を直したあとの確認)
+- [ ] 実機で確かめる(2026-11-08 の修正と追加): 下から出る画面を上の部分から下に引いて閉じられるか・中身のスクロールや入力欄・スライダーの操作で誤って閉じないか(iPhone の Safari とホーム画面のアプリ・Android)・文字スタンプ「ウエハース」などが切れずに出るか・日曜/土曜の端に置いたとき内側に寄るか・「別の日にもコピー」の小さなカレンダーが押しやすいか
 - [x] 利用規約・説明の直し: [`TERMS-DRAFT.md`](TERMS-DRAFT.md) の案のとおりに、`web/terms.html`・`web/help.html`・`SECURITY.md` に反映した(2026-11-03)
 
 ## 9. 見た目の調整(2026-11-03・ご依頼: 家族カレンダーの見た目に寄せる)

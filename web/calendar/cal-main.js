@@ -6,8 +6,8 @@ import { createExtras, shrinkForEvent } from "./cal-extra.js?v=dev";
 import { createImager } from "./cal-image.js?v=dev";
 import * as appIcon from "./cal-icon.js?v=dev";
 import {
-  addDays, addMonths, compareForDay, dateKey, diffDays, expandEvent, resolveCalView, gridRange, layoutWeek, monthIndex, monthLimits, oldestDate, photosClosed, textOn, todayJst, weekday, whenText, WEEKDAYS,
-  yearsText,
+  addDays, addMonths, compareForDay, dateKey, datesText, daysInMonth, diffDays, expandEvent, resolveCalView, gridRange, layoutWeek, monthIndex, monthLimits, oldestDate, photosClosed, textOn, todayJst, weekday, whenText, WEEKDAYS,
+  shiftSpan, yearsText,
 } from "./cal-core.js?v=dev";
 
 const $ = (id) => document.getElementById(id);
@@ -216,8 +216,9 @@ function eventsBetween(a, b) {
 }
 
 const titleOf = (e) => e.title + (yearsText(e) ? ` ${yearsText(e)}` : "");
-// 帯の文字。「時間」の帯(出勤・退勤の時間。名前が時間そのもの)と勤務の予定(時間つきの設定でも番号だけ。時間は詳細に出る)は、名前だけ。自分の時間つきの予定は、時刻を添える
-const barText = (e) => titleOf(e) + (e.allDay || !e.startTime || e.kind === "time" || e.src === "shift" ? "" : ` ${e.startTime.replace(/^0/, "")}`);
+// 帯の文字は、名前だけ。自分の時間つきの予定にも、開始時刻は添えない(2026-11-08 の要望。時刻は、タップした詳細と日の一覧に出る)。
+// 勤務の予定(時間つきの設定でも番号だけ)と「時間」の帯(名前が時間そのもの)も、今までどおり名前だけ。画像にする(cal-image.js)ときも同じ文字
+const barText = (e) => titleOf(e);
 
 // ---------- 描画: 月の画面 ----------
 
@@ -332,6 +333,7 @@ function showPanel(onClose) {
   pushLayer(hidePanel);
 }
 function hidePanel() {
+  clearSheetDrag();
   closeViewerView();
   $("panel").hidden = true;
   $("scrim").hidden = true;
@@ -353,6 +355,69 @@ function closePanel() {
   if (!$("viewer").hidden) dropLayer(); // 大きな画像が開いていれば、先に閉じる
   hidePanel();
   dropLayer();
+}
+
+// 下から出るポップアップ(スマホの幅)を、指で下に引いて閉じる。閉じた結果は「✕」と同じ(書きかけは保存しない)。
+// 引けるのは、上のつまみ・見出しからと、中身がいちばん上までスクロールしているときに下へ引いたとき。
+// 入力欄・メモ・スライダー・選ぶ欄の上から始めた指は、閉じる操作にしない(文字を選ぶ・値を動かす邪魔をしないため)。
+// 広い画面(幅700px以上。右に出る形)では使わない
+const SHEET_CLOSE_PX = 100, SHEET_FLICK = 0.5; // 100px 以上引くか、速く(0.5px/ms 以上)はじいたら閉じる
+function clearSheetDrag() {
+  const p = $("panel"), sc = $("scrim");
+  p.style.transition = ""; p.style.transform = "";
+  sc.style.transition = ""; sc.style.opacity = "";
+}
+function bindSheetSwipe() {
+  const p = $("panel"), sc = $("scrim");
+  const isSheet = () => !window.matchMedia("(min-width: 700px)").matches;
+  const NO_DRAG = "input, textarea, select, [contenteditable], .noswipe";
+  let g = null;
+  p.addEventListener("touchstart", (ev) => {
+    g = null;
+    if (!S.panel || !isSheet() || ev.touches.length !== 1 || ev.target.closest(NO_DRAG)) return;
+    const t = ev.touches[0];
+    g = { x: t.clientX, y: t.clientY, y0: 0, head: !!ev.target.closest(".ph"), on: false, dy: 0, pts: [] };
+  }, { passive: true });
+  p.addEventListener("touchmove", (ev) => {
+    if (!g) return;
+    if (ev.touches.length !== 1) { g = null; clearSheetDrag(); return; }
+    const t = ev.touches[0];
+    const dx = t.clientX - g.x, dy = t.clientY - g.y;
+    const atTop = g.head || p.scrollTop <= 0;
+    if (!g.on) {
+      // 動きが小さいうちは、まだ決めない。ただ、引ける所から下へ動き始めたら、画面のスクロール(iPhone の引っぱり)を先に止めておく
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) { if (dy > 0 && atTop && ev.cancelable) ev.preventDefault(); return; }
+      if (Math.abs(dx) > Math.abs(dy) || dy < 0 || !atTop) { g = null; return; } // 横の動き・上へのスクロール・中身のスクロールは、そのまま
+      g.on = true;
+      g.y0 = t.clientY;
+      p.style.transition = "none"; sc.style.transition = "none";
+    }
+    if (ev.cancelable) ev.preventDefault();
+    g.dy = Math.max(0, t.clientY - g.y0);
+    p.style.transform = g.dy ? `translateY(${g.dy}px)` : "";
+    sc.style.opacity = String(Math.max(0.15, 1 - g.dy / Math.max(1, p.offsetHeight)));
+    const now = Date.now();
+    g.pts.push({ y: t.clientY, t: now });
+    while (g.pts.length > 2 && now - g.pts[0].t > 100) g.pts.shift(); // 速さは、最後の 0.1秒ほどの動きで見る
+  }, { passive: false });
+  const end = (cancelled) => {
+    const d = g;
+    g = null;
+    if (!d || !d.on) return;
+    const a = d.pts[0], b = d.pts[d.pts.length - 1];
+    const v = a && b && b.t > a.t ? (b.y - a.y) / (b.t - a.t) : 0;
+    if (!cancelled && (d.dy >= SHEET_CLOSE_PX || (d.dy > 30 && v >= SHEET_FLICK))) {
+      p.style.transition = "transform .18s ease-in"; sc.style.transition = "opacity .18s";
+      p.style.transform = "translateY(100%)"; sc.style.opacity = "0";
+      setTimeout(() => { if (S.panel) closePanel(); clearSheetDrag(); }, 180);
+    } else {
+      p.style.transition = "transform .2s ease"; sc.style.transition = "opacity .2s";
+      p.style.transform = ""; sc.style.opacity = "";
+      setTimeout(() => { if (!g) clearSheetDrag(); }, 220);
+    }
+  };
+  p.addEventListener("touchend", () => end(false));
+  p.addEventListener("touchcancel", () => end(true));
 }
 
 // 大きな画像
@@ -401,6 +466,8 @@ function openEvent(uid) {
   } else {
     actions = `<div class="btns"><button class="btn" data-act="edit" data-uid="${esc(uid)}" data-mode="all">編集</button><button class="btn dng" data-act="del" data-uid="${esc(uid)}" data-mode="all">削除</button></div>`;
   }
+  // 自分の予定は、同じ内容を別の日にコピーできる(繰り返しの予定は、この回の内容を1回だけの予定として)
+  if (e.src === "own") actions = `<div class="btns"><button class="btn" data-act="copy" data-uid="${esc(uid)}">別の日にコピー</button></div>` + actions;
   openPanel(`${head(e.title || "（タイトルなし）")}<div class="pb">
     <p class="sub">${esc(whenText(e))}</p>
     ${label ? `<p><span class="chip" style="--c:${esc(colorOf(e.labelId))}"><i></i>${esc(label.name)}</span></p>` : ""}
@@ -515,9 +582,11 @@ function renderForm(message = "") {
     <div class="fld"><label class="tg"><input type="checkbox" id="f-allday" data-f="allDay"${d.allDay ? " checked" : ""}> 終日</label></div>
     ${time}${rep}
     <div class="fld"><label class="lb" for="f-memo">メモ</label><textarea class="in" id="f-memo" data-f="memo" maxlength="1000">${esc(d.memo)}</textarea></div>
+    <div id="cp-wrap">${copyBlockHtml(d)}</div>
     <div id="photo-block">${photosFormHtml(d)}</div>
     <p class="msg err" id="form-msg">${esc(message)}</p>
-    <div class="btns"><button class="btn pri" data-act="save" id="f-save">保存</button><button class="btn" data-act="close">やめる</button></div></div>`;
+    <div class="btns"><button class="btn pri" data-act="save" id="f-save">${esc(saveLabel(d))}</button><button class="btn" data-act="close">やめる</button></div></div>`;
+  pick = d.pick || null;
   extras.hydrate($("panel"));
 }
 
@@ -530,7 +599,10 @@ function readDraftField(el) {
   if (f === "allDay" || f === "repeat") renderForm();
   else if (f === "start" || f === "end") {
     if (f === "start") { const end = $("f-end"); if (end) end.value = draft.end; }
+    // コピーの元の日(選べない日)は、開始日に合わせる。開始日と同じ日を選んでいたら外す
+    if (draft.pick && /^\d{4}-\d\d-\d\d$/.test(draft.start)) { draft.pick.base = draft.start; draft.pick.sel = draft.pick.sel.filter((x) => x !== draft.start); }
     refreshPhotoBlock(); // 日付を変えると、写真を付けられるか(期限)が変わる。入力中の欄は作り直さず、写真の欄だけ入れ替える
+    refreshCopyBlock();
   }
 }
 
@@ -561,10 +633,19 @@ async function saveDraft() {
   const d = draft;
   const err = draftError(d);
   if (err) return renderForm(err);
+  const copies = copyDates(d);
   $("f-save").disabled = true;
   let eventId = d.id;
   try {
-    if (d.mode === "new") {
+    if (d.mode === "new" && copies.length) {
+      // 別の日へのコピーも、1回でまとめて入れる(途中で失敗したときは、1件も入らない)。写真は元の予定(開始日)にだけ付ける
+      const rows = [rowFromDraft(d), ...copies.map((s) => { const sp = shiftSpan(d.start, d.end, s); return rowFromDraft(d, { start_date: sp.start, end_date: sp.end }); })];
+      const { data, error } = await supabase.from("cal_events").insert(rows).select();
+      if (error) throw error;
+      const base = (data || []).find((r) => r.start_date === d.start) || (data || [])[0];
+      if (!base) throw new Error("保存できませんでした。もう一度お試しください。");
+      eventId = base.id;
+    } else if (d.mode === "new") {
       const { data, error } = await supabase.from("cal_events").insert(rowFromDraft(d)).select().single();
       if (error) throw error;
       eventId = data.id;
@@ -593,9 +674,130 @@ async function saveDraft() {
     closePanel();
     if (reloadErr) setNotice(`予定は保存しました。ただ、画面を読み直せませんでした(${esc(friendlyText(reloadErr.message || String(reloadErr)))})。電波の良いところで、画面を開き直してください。`);
     else if (fails.length) setNotice(`予定は保存しました。写真${fails.length}件は保存できませんでした(${esc(fails[0])})。予定を開いて、もう一度付けてください。`);
+    else if (copies.length) setNotice(`同じ予定を、ほかに${copies.length}日に入れました(${esc(datesText(copies, d.start.slice(0, 4)))})。`);
   } catch (e) {
     if (draft) renderForm(friendlyText(e.message || String(e)));
     else fail(e);
+  }
+}
+
+// ---------- 別の日にコピー(日を選ぶ小さなカレンダー) ----------
+// 予定の追加のフォーム(新しい予定のときだけ)と、予定の詳細の「別の日にコピー」で使う。日をタップで選び、もう一度で外す。
+// 選んだ日に、同じ内容(タイトル・ラベル・終日/時刻・メモ)の、繰り返しなしの予定を作る。何日かにまたがる予定は、選んだ日から同じ長さ。写真はコピーしない
+
+const COPY_MAX = 31; // 1回でコピーできる日の数
+let pick = null;     // 今出ている日の選び { y, m, base(元の日・選べない), sel(選んだ日), msg, onChange }
+let copyFrom = null; // 詳細からのコピー { uid, e(その回の予定) }
+
+function newPick(base, onChange) {
+  return { y: Number(base.slice(0, 4)), m: Number(base.slice(5, 7)), base, sel: [], msg: "", onChange };
+}
+
+function pickHtml(p) {
+  const lim = monthLimits(S.today);
+  const oldest = oldestDate(S.today), last = dateKey(lim.max.y, lim.max.m, daysInMonth(lim.max.y, lim.max.m));
+  const first = dateKey(p.y, p.m, 1);
+  const cells = [];
+  for (let i = 0; i < weekday(first); i++) cells.push("<span></span>");
+  for (let d = 1; d <= daysInMonth(p.y, p.m); d++) {
+    const iso = dateKey(p.y, p.m, d), wd = weekday(iso);
+    const isBase = iso === p.base, on = p.sel.includes(iso), out = iso < oldest || iso > last;
+    const cls = ["pkd", on ? "on" : "", isBase ? "base" : "", iso === S.today ? "tdy" : "", wd === 0 || S.holidays.has(iso) ? "sun" : wd === 6 ? "sat" : ""].filter(Boolean).join(" ");
+    cells.push(`<button type="button" class="${cls}" data-act="pk-day" data-date="${iso}"${isBase || out ? " disabled" : ""} aria-pressed="${on}" aria-label="${p.m}月${d}日${isBase ? "(元の予定)" : ""}">${d}</button>`);
+  }
+  const mi = monthIndex(p.y, p.m);
+  const prevOk = mi > monthIndex(lim.min.y, lim.min.m), nextOk = mi < monthIndex(lim.max.y, lim.max.m);
+  const note = p.sel.length ? `ほかに${p.sel.length}日コピーします: ${datesText(p.sel, p.base.slice(0, 4))}` : "コピーしたい日をタップしてください(もう一度タップで外します)。";
+  return `<div class="pk"><div class="pkh"><button type="button" class="btn sm" data-act="pk-prev"${prevOk ? "" : " disabled"} aria-label="前の月">‹</button><b>${p.y}年${p.m}月</b><button type="button" class="btn sm" data-act="pk-next"${nextOk ? "" : " disabled"} aria-label="次の月">›</button></div>
+    <div class="pkg">${WEEKDAYS.map((w, i) => `<span class="pkw${i === 0 ? " sun" : i === 6 ? " sat" : ""}">${w}</span>`).join("")}${cells.join("")}</div>
+    <p class="sub" id="pk-note">${esc(note)}</p>${p.msg ? `<p class="msg err">${esc(p.msg)}</p>` : ""}</div>`;
+}
+
+function pickAct(act, el) {
+  const p = pick;
+  if (!p) return;
+  p.msg = "";
+  if (act === "pk-prev" || act === "pk-next") { const t = addMonths(p.y, p.m, act === "pk-prev" ? -1 : 1); p.y = t.y; p.m = t.m; }
+  else if (act === "pk-day") {
+    const d = el.dataset.date;
+    if (p.sel.includes(d)) p.sel = p.sel.filter((x) => x !== d);
+    else if (p.sel.length >= COPY_MAX) p.msg = `1回でコピーできるのは${COPY_MAX}日までです。`;
+    else p.sel = [...p.sel, d].sort();
+  }
+  const box = $("pk-block");
+  if (box) box.innerHTML = pickHtml(p);
+  if (p.onChange) p.onChange();
+}
+
+// 追加のフォームの中の「別の日にもコピー」(新しい予定で、繰り返しが「なし」のときだけ)
+const canCopy = (d) => d.mode === "new" && d.repeat === "none";
+const copyDates = (d) => (canCopy(d) && d.pick ? d.pick.sel.filter((x) => x !== d.start) : []);
+const saveLabel = (d) => { const n = copyDates(d).length; return n ? `保存(${n + 1}日分)` : "保存"; };
+function spanNote(start, end) {
+  const dur = diffDays(start, end);
+  return dur > 0 ? `<p class="sub">選んだ日から、同じ長さ(${dur + 1}日間)で入れます。</p>` : "";
+}
+function copyBlockHtml(d) {
+  if (!canCopy(d)) return "";
+  if (!d.pick) return '<div class="fld"><button type="button" class="btn" data-act="cp-open">＋ 別の日にもコピー</button></div>';
+  return `<div class="fld"><label class="lb">別の日にもコピー</label>${spanNote(d.start, d.end)}<div id="pk-block">${pickHtml(d.pick)}</div>
+    <p class="sub">写真は、元の予定にだけ付きます。</p><button type="button" class="btn sm" data-act="cp-cancel">コピーをやめる</button></div>`;
+}
+function refreshSaveLabel() { const b = $("f-save"); if (b && draft) b.textContent = saveLabel(draft); }
+function refreshCopyBlock() {
+  const el = $("cp-wrap");
+  if (el && draft) el.innerHTML = copyBlockHtml(draft);
+  refreshSaveLabel();
+}
+function copyFormAct(act) {
+  if (!draft) return;
+  if (act === "cp-open") draft.pick = newPick(/^\d{4}-\d\d-\d\d$/.test(draft.start) ? draft.start : S.today, refreshSaveLabel);
+  else draft.pick = null;
+  pick = draft.pick;
+  refreshCopyBlock();
+}
+
+// 予定の詳細の「別の日にコピー」
+function copyBtnText(n) { return n ? `コピー(${n}日分)` : "コピー"; }
+function copyHtml(msg = "") {
+  const { e, uid } = copyFrom;
+  const rep = e.repeat && e.repeat !== "none";
+  return `${head("別の日にコピー")}<div class="pb">
+    <p style="margin:0 0 2px"><b>${esc(e.title || "（タイトルなし）")}</b></p><p class="sub" style="margin-top:0">${esc(whenText(e))}</p>
+    ${rep ? '<p class="sub">繰り返しの予定は、この回の内容を、繰り返しなしの予定としてコピーします。</p>' : ""}${spanNote(e.start, e.end)}
+    <div id="pk-block">${pickHtml(pick)}</div>
+    <p class="sub">写真はコピーしません。</p>
+    <p class="msg err" id="copy-msg">${esc(msg)}</p>
+    <div class="btns"><button class="btn pri" data-act="copy-save" id="copy-save"${pick.sel.length ? "" : " disabled"}>${esc(copyBtnText(pick.sel.length))}</button><button class="btn" data-act="copy-back" data-uid="${esc(uid)}">やめる</button></div></div>`;
+}
+function openCopy(uid) {
+  const e = S.byUid.get(uid);
+  if (!e || e.src !== "own") return;
+  copyFrom = { uid, e };
+  pick = newPick(e.start, () => { const b = $("copy-save"); if (b) { b.disabled = !pick.sel.length; b.textContent = copyBtnText(pick.sel.length); } });
+  openPanel(copyHtml());
+}
+async function saveCopy() {
+  const c = copyFrom, p = pick;
+  if (!c || !p || !p.sel.length) return;
+  const e = c.e;
+  const src = { title: e.title, labelId: e.labelId, start: e.start, end: e.end, allDay: e.allDay, startTime: e.startTime, endTime: e.endTime, memo: e.memo, repeat: "none", until: "", yearsLabel: "" };
+  const rows = p.sel.map((s) => { const sp = shiftSpan(e.start, e.end, s); return rowFromDraft(src, { start_date: sp.start, end_date: sp.end }); });
+  const btn = $("copy-save");
+  if (btn) btn.disabled = true;
+  try {
+    const { error } = await supabase.from("cal_events").insert(rows).select();
+    if (error) throw error;
+    const done = p.sel.slice();
+    copyFrom = null;
+    let reloadErr = null;
+    try { await reloadAll({ keepShifts: true }); } catch (err) { reloadErr = err; }
+    closePanel();
+    if (reloadErr) setNotice(`コピーしました。ただ、画面を読み直せませんでした(${esc(friendlyText(reloadErr.message || String(reloadErr)))})。電波の良いところで、画面を開き直してください。`);
+    else setNotice(`「${esc(e.title || "（タイトルなし）")}」を、${done.length}日にコピーしました(${esc(datesText(done, e.start.slice(0, 4)))})。`);
+  } catch (err) {
+    if (copyFrom && S.panel) { setPanel(copyHtml(friendlyText(err.message || String(err)))); }
+    else fail(err);
   }
 }
 
@@ -655,7 +857,9 @@ function settingsHtml() {
         <li><b>できること</b>: 勤務入力で保存した勤務と、自分で作る予定を、月の画面で見られます。</li>
         <li><b>勤務の予定</b>は、勤務入力で直します(ここからは直せません)。名前や時間の付き方は、勤務入力の設定どおりです。</li>
         <li><b>上のラベルのボタン</b>を押すと、そのラベルの予定が消えます。もう一度押すと戻ります。色と並び順は、下の「ラベル」で決めます。</li>
-        <li><b>時刻</b>は分単位で入れられます。日をまたぐ予定は、終了日を次の日にします。</li>
+        <li><b>時刻</b>は分単位で入れられます。日をまたぐ予定は、終了日を次の日にします。カレンダーの帯には名前だけが出ます(時刻は、予定をタップすると出ます)。</li>
+        <li><b>別の日にコピー</b>: 予定の追加の「＋ 別の日にもコピー」か、予定をタップして「別の日にコピー」で、同じ予定を選んだ日にも入れられます。</li>
+        <li>下から出る画面は、「✕」のほかに、上の部分を下に引いても閉じます。</li>
         <li><b>見返せる期間</b>は、過去1年までです。予定の写真は、予定が終わって1か月で消えます(1つの予定に3枚まで)。</li>
         <li><b>1つのアカウントで1人分</b>のカレンダーです。家族に見せたいときは、このアプリのURLを教えて、その人が自分のアカウントでログインして使うか、勤務をGoogleカレンダーに登録して共有します。</li>
         <li><b>画像にする</b>: 下の「月のカレンダーを画像にする」と「選んだ日に〇をつけて画像にする」で、カレンダーを1枚の画像にして、LINEで送ったり印刷したりできます(画像は端末の中で作ります)。</li>
@@ -816,6 +1020,7 @@ function bind() {
   $("tray").addEventListener("click", (ev) => extras.trayClick(ev));
   $("viewer").addEventListener("click", closeViewer);
   extras.bindDrag();
+  bindSheetSwipe();
   // 暗い背景を押したら閉じる。ただし、背景を押し始めた(pointerdown)ときだけ。
   // スタンプをタップして編集を開いた直後、同じタップの click が出てきた背景に当たり、開いてすぐ閉じていた
   $("scrim").addEventListener("pointerdown", () => { scrimDown = true; });
@@ -913,6 +1118,11 @@ function bind() {
     if (act === "edit") return openForm(S.byUid.get(el.dataset.uid), null, el.dataset.mode);
     if (act === "del") return deleteEvent(el.dataset.uid, el.dataset.mode);
     if (act === "save") return saveDraft();
+    if (act === "copy") return openCopy(el.dataset.uid);
+    if (act === "copy-save") return saveCopy();
+    if (act === "copy-back") { copyFrom = null; return openEvent(el.dataset.uid); }
+    if (act === "cp-open" || act === "cp-cancel") return copyFormAct(act);
+    if (act.startsWith("pk-")) return pickAct(act, el);
     if (act.startsWith("l-")) return settingsAction(act, el);
     if (act.startsWith("img-") || act.startsWith("mark-")) return imager.act(act, el);
     if (act === "ph-view") {

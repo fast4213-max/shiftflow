@@ -207,3 +207,19 @@ export function resolveCalView(st) {
     offduty: s.cal_offduty_label ?? (has(s.offduty_calendar_id) || !!s.split_offduty_events),
   };
 }
+
+// ---------- 別の日にコピー ----------
+
+// start〜end の予定を、newStart から始まる同じ長さの予定にしたときの日付(終了日が開始日より前なら、1日の予定として扱う)
+export function shiftSpan(start, end, newStart) {
+  const dur = Math.max(0, diffDays(start, end));
+  return { start: newStart, end: addDays(newStart, dur) };
+}
+
+// コピーする日の短い並び(日付の順。年が baseYear と違う日だけ、年を付ける)。例: 11/12・11/15・2027/1/5
+export function datesText(dates, baseYear) {
+  return [...dates].sort().map((s) => {
+    const md = `${Number(s.slice(5, 7))}/${Number(s.slice(8, 10))}`;
+    return Number(s.slice(0, 4)) === Number(baseYear) ? md : `${Number(s.slice(0, 4))}/${md}`;
+  }).join("・");
+}

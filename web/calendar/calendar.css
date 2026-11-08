@@ -109,6 +109,12 @@ button:disabled { opacity: .35; cursor: default; }
 .panel { position: fixed; z-index: 11; left: 0; right: 0; bottom: 0; max-height: 90%; overflow-y: auto; background: var(--card); border-radius: 16px 16px 0 0; box-shadow: var(--shadow); padding-bottom: env(safe-area-inset-bottom); animation: panelup .22s ease; }
 @keyframes panelup { from { transform: translateY(40px); opacity: .4; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .panel { animation: none; } }
+/* 下から出る形のときは、上につまみを出す(下に引くと閉じる)。中身の引っぱりが、後ろの画面に伝わらないようにする */
+.panel { overscroll-behavior: contain; }
+@media (max-width: 699px) {
+  .ph { padding-top: 16px; }
+  .ph::before { content: ""; position: absolute; top: 6px; left: 50%; width: 38px; height: 4px; margin-left: -19px; border-radius: 2px; background: var(--muted); opacity: .45; }
+}
 .ph { position: sticky; top: 0; background: var(--card); display: flex; align-items: center; gap: 6px; padding: 12px 16px 8px; z-index: 1; }
 .ph h2 { margin: 0; font-size: 18px; font-weight: 800; line-height: 1.3; flex: 1; min-width: 0; }
 .ph .x { font-size: 20px; padding: 2px 8px; }
@@ -167,12 +173,17 @@ textarea.in { min-height: 90px; resize: vertical; }
 .stamp img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .stamp .tx { font-size: .36em; font-weight: 700; color: var(--fgc); background: var(--bgc); white-space: nowrap; max-width: 100%; overflow: hidden; line-height: 1; display: inline-flex; align-items: center; justify-content: center; padding: .25em .3em; }
 .stamp .tx.r-round { border-radius: 999px; } .stamp .tx.r-square { border-radius: 3px; } .stamp .tx.r-bubble { border-radius: 10px 10px 10px 2px; }
+/* 文字のスタンプ: 高さは今までの正方形と同じ。横は文字の長さに合わせて伸ばす(短い文字は今までどおりの正方形で、押せる広さも同じ) */
+.stamp.st-tx { width: max-content; min-width: calc(var(--s) * 100cqw); height: calc(var(--s) * 100cqw); aspect-ratio: auto; }
+.stamp.st-tx .tx { max-width: none; overflow: visible; }
 .stamp.sel { outline: 2px dashed var(--accent); outline-offset: 2px; }
 .stamp.ghost { position: fixed; z-index: 40; opacity: .85; pointer-events: none; }
 .cell.drop { box-shadow: inset 0 0 0 2px var(--accent); }
 .tray { display: flex; gap: 8px; align-items: center; overflow-x: auto; padding: 8px 12px; background: var(--head); border-top: 1px solid var(--line); }
 .tray .tk { flex: none; width: 46px; height: 46px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); display: flex; align-items: center; justify-content: center; font-size: 26px; position: relative; }
 .tray .tk .tx { display: inline-flex; align-items: center; justify-content: center; line-height: 1; font-size: 11px; font-weight: 700; padding: 4px 6px; color: var(--fgc); background: var(--bgc); max-width: 42px; overflow: hidden; white-space: nowrap; }
+.tray .tk.tk-tx { width: auto; min-width: 46px; padding: 0 3px; }
+.tray .tk.tk-tx .tx { max-width: none; }
 .tray .tk .tx.r-round { border-radius: 999px; } .tray .tk .tx.r-bubble { border-radius: 8px 8px 8px 2px; }
 .tray .tk img { width: 34px; height: 34px; object-fit: contain; }
 .tray .tk.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
@@ -217,6 +228,7 @@ textarea.in { min-height: 90px; resize: vertical; }
 .d-stage { position: relative; width: 100%; height: 96px; margin: 12px 0 4px; border: 1px dashed var(--line); border-radius: 12px; overflow: hidden; background: var(--alt); }
 .d-stage .stamp { left: 50%; top: 50%; cursor: default; pointer-events: none; }
 .lrow .tk .tx { font-size: 11px; max-width: 48px; overflow: hidden; }
+.lrow .tk.tk-tx .tx { max-width: none; overflow: visible; }
 .lrow .tk img { width: 38px; height: 38px; object-fit: contain; }
 
 /* 〇をつけて画像にする: 日を選んでいるあいだ(予定はそのまま見える) */
@@ -241,3 +253,16 @@ details.more > p { margin-top: 4px; }
 .ic img { border-radius: 12px; }
 .ic:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .ic:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 別の日にコピー: 日を選ぶ小さなカレンダー(タップで選ぶ・もう一度で外す。元の予定の日は点線で、選べない) */
+.pk { border: 1px solid var(--line); border-radius: 10px; padding: 8px; background: var(--card); }
+.pkh { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.pkh .btn { width: 40px; padding: 0; font-size: 18px; }
+.pkg { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.pkw { text-align: center; font-size: 11px; font-weight: 700; color: var(--wdc); padding: 2px 0; }
+.pkw.sun, .pkd.sun { color: var(--sun); } .pkw.sat, .pkd.sat { color: var(--sat); }
+.pkd { height: 38px; border-radius: 8px; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); background: var(--soft); }
+.pkd.tdy { box-shadow: inset 0 0 0 1px var(--muted); }
+.pkd.on { background: var(--accent); color: var(--accent-ink); }
+.pkd.base { background: transparent; box-shadow: inset 0 0 0 2px var(--accent); opacity: 1; font-weight: 800; }
+.pk .sub { margin: 6px 0 0; }
