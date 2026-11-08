@@ -144,12 +144,51 @@ export function createExtras(env) {
     $("td-new").focus();
   });
 
+  // ====================== アナウンスの欄(重要メモと予定で同じ形) ======================
+  // ☑ アナウンスに出す → ◉ 日付あり [日付] / ○ 日付なし。予定は日付の欄を出さない(予定の日を使う)。p は id の頭
+  function annFieldHtml(p, announce, date, withDate) {
+    const on = !!announce && announce !== "none";
+    const kind = announce === "plain" ? "plain" : "dated";
+    return `<div class="fld annf" id="${p}-annf"><label class="tg"><input type="checkbox" id="${p}-ann" data-annf="${p}"${on ? " checked" : ""}> アナウンスに出す</label>
+      <div class="annk" id="${p}-annk"${on ? "" : " hidden"}>
+        <label class="tg"><input type="radio" name="${p}-annk" value="dated" data-annf="${p}"${kind === "dated" ? " checked" : ""}> 日付あり${withDate ? "" : "(予定の日まで、あと何日かを出す)"}</label>
+        ${withDate ? `<input class="in" type="date" id="${p}-anndate" value="${esc(date)}" aria-label="アナウンスの日付"${kind === "dated" ? "" : " hidden"}>` : ""}
+        <label class="tg"><input type="radio" name="${p}-annk" value="plain" data-annf="${p}"${kind === "plain" ? " checked" : ""}> 日付なし(${withDate ? "題名" : "予定の名前"}だけ)</label>
+        <p class="sub">カレンダーの上に、1件ずつ切り替えて出します。${withDate ? "日付ありは、日付が過ぎたら出さなくなります(メモは残ります)。日付なしは、ここを外すまで出ます。" : "予定が終わったら、出さなくなります。"}</p>
+      </div></div>`;
+  }
+  function readAnnField(p) {
+    const on = $(`${p}-ann`) && $(`${p}-ann`).checked;
+    if (!on) return { announce: "none", announce_on: null };
+    const k = document.querySelector(`input[name="${p}-annk"]:checked`);
+    const d = $(`${p}-anndate`);
+    return { announce: k && k.value === "plain" ? "plain" : "dated", announce_on: d ? d.value || null : null };
+  }
+  function syncAnnField(p) {
+    const a = readAnnField(p), box = $(`${p}-annk`), d = $(`${p}-anndate`);
+    if (box) box.hidden = a.announce === "none";
+    if (d) d.hidden = a.announce !== "dated";
+    if (env.onAnnField) env.onAnnField(p, a);
+  }
+
   // ====================== 重要メモ ======================
   function impListHtml() {
     return `${head("重要メモ")}<div class="pb"><button class="btn pri" data-act="imp-new">＋ メモを追加</button>
-      ${S.importants.length ? S.importants.map((m) => `<button class="icard" data-act="imp-edit" data-id="${esc(m.id)}"><div class="t">${esc(m.title)}</div><div class="m">${esc(m.body)}</div></button>`).join("") : '<p class="sub">忘れたくないこと(連絡先・保管場所・ゴミの日など)を書いておけます。</p>'}</div>`;
+      ${S.importants.length ? S.importants.map((m) => `<button class="icard" data-act="imp-edit" data-id="${esc(m.id)}"><div class="t">${esc(m.title)}${annBadge(m)}</div><div class="m">${esc(m.body)}</div></button>`).join("") : '<p class="sub">忘れたくないこと(連絡先・保管場所・ゴミの日など)を書いておけます。</p>'}</div>`;
+  }
+  // アナウンスに出しているメモの印(日付ありなら日付も)
+  function annBadge(m) {
+    if (!m.announce || m.announce === "none") return "";
+    const d = m.announce === "dated" && m.announce_on ? ` ${Number(m.announce_on.slice(5, 7))}/${Number(m.announce_on.slice(8, 10))}` : "";
+    return ` <span class="abadge">アナウンス${esc(d)}</span>`;
   }
   function openImportant() { openPanel(impListHtml()); }
+  // アナウンスから、そのメモを開く(「やめる」で重要メモの一覧に戻る)
+  function openImportantMemo(id) {
+    if (!S.importants.some((x) => x.id === id)) return openImportant();
+    openPanel(impListHtml());
+    impForm(id);
+  }
   let impDraft = null;
   function impForm(id) {
     const m = id ? S.importants.find((x) => x.id === id) : null;
@@ -157,6 +196,7 @@ export function createExtras(env) {
     setPanel(`${head(m ? "重要メモを編集" : "重要メモを追加")}<div class="pb">
       <div class="fld"><label class="lb" for="im-t">題名</label><input class="in" id="im-t" maxlength="40" value="${esc(m ? m.title : "")}" autocomplete="off"></div>
       <div class="fld"><label class="lb" for="im-b">内容</label><textarea class="in" id="im-b" maxlength="1000" style="min-height:160px">${esc(m ? m.body : "")}</textarea></div>
+      ${annFieldHtml("im", m ? m.announce : "none", m ? m.announce_on || "" : "", true)}
       <p class="msg err" id="x-msg"></p>
       <div class="btns"><button class="btn pri" data-act="imp-save">保存</button><button class="btn" data-act="imp-back">やめる</button>${m ? '<button class="btn dng" data-act="imp-del">このメモを消す</button>' : ""}</div></div>`);
   }
@@ -164,19 +204,23 @@ export function createExtras(env) {
     const title = $("im-t").value.trim();
     if (!title) return say("x-msg", "題名を入れてください。");
     const body = $("im-b").value;
+    const ann = readAnnField("im");
+    if (ann.announce === "dated" && !ann.announce_on) return say("x-msg", "アナウンスの日付を入れてください(日付を付けないときは「日付なし」)。");
+    const row = { title, body, announce: ann.announce, announce_on: ann.announce === "dated" ? ann.announce_on : null };
     if (impDraft.id) {
-      const { error } = await supabase.from("cal_importants").update({ title, body }).eq("id", impDraft.id);
+      const { error } = await supabase.from("cal_importants").update(row).eq("id", impDraft.id);
       if (error) return say("x-msg", errText(error));
       const m = S.importants.find((x) => x.id === impDraft.id);
-      if (m) Object.assign(m, { title, body });
+      if (m) Object.assign(m, row);
     } else {
       if (S.importants.length >= 100) return say("x-msg", "重要メモは100件までです。");
       const sort = S.importants.reduce((m, x) => Math.max(m, x.sort || 0), 0) + 1;
-      const { data, error } = await supabase.from("cal_importants").insert({ title, body, sort }).select().single();
+      const { data, error } = await supabase.from("cal_importants").insert({ ...row, sort }).select().single();
       if (error) return say("x-msg", errText(error));
       S.importants.push(data);
     }
     setPanel(impListHtml());
+    if (env.onImportantsChange) env.onImportantsChange();
   });
   async function impDel() {
     if (!window.confirm("このメモを消します。よろしいですか？")) return;
@@ -184,6 +228,7 @@ export function createExtras(env) {
     if (error) return say("x-msg", errText(error));
     S.importants = S.importants.filter((x) => x.id !== impDraft.id);
     setPanel(impListHtml());
+    if (env.onImportantsChange) env.onImportantsChange();
   }
 
   // ====================== 画像の置き場 ======================
@@ -646,6 +691,7 @@ export function createExtras(env) {
   // 入力・変更: true なら受けた
   async function panelChange(el) {
     try {
+      if (el.dataset.annf) { syncAnnField(el.dataset.annf); return true; }
       if (el.id === "gal-file") { await addImages(el.files); el.value = ""; return true; }
       if (el.dataset.tin) {
         const t = S.todos.find((x) => x.id === el.dataset.tin);
@@ -697,8 +743,8 @@ export function createExtras(env) {
 
   return {
     upload, removeFiles, uuid,
-    load, hydrate, stampsLayer, fitStamps, cellTap, bindDrag, trayClick, renderTray,
-    openTodo, openImportant, openGallery, toggleStampMode,
+    load, hydrate, stampsLayer, fitStamps, cellTap, annFieldHtml, readAnnField, bindDrag, trayClick, renderTray,
+    openTodo, openImportant, openImportantMemo, openGallery, toggleStampMode,
     panelClick, panelChange, panelInput, panelKey,
     stampMode: () => mode.on,
     hasPick: () => !!mode.def,

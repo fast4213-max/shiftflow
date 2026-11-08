@@ -823,3 +823,80 @@ begin
   perform set_config('request.jwt.claim.sub', '', true);
 end
 $$;
+
+-- 予定のテンプレート(cal_templates)とアナウンス(cal_events.announce・cal_importants.announce/announce_on)。2026-11-08
+do $$
+declare
+  u1 uuid := 'dddddddd-0000-4000-8000-0000000000d1';
+  u2 uuid := 'dddddddd-0000-4000-8000-0000000000d2';
+  l1 uuid;
+  l2 uuid;
+  tp uuid;
+  n int;
+  ok boolean;
+begin
+  assert (select relrowsecurity from pg_class where oid = 'public.cal_templates'::regclass), 'cal_templates の RLS が無効';
+  assert not has_table_privilege('anon', 'public.cal_templates', 'select, insert, update, delete'), 'anon が cal_templates を触れる';
+  assert has_table_privilege('authenticated', 'public.cal_templates', 'select, insert, update, delete'), 'authenticated が cal_templates を使えない';
+  assert has_table_privilege('service_role', 'public.cal_templates', 'select, insert, update, delete'), 'service_role が cal_templates を触れない';
+  assert has_column_privilege('authenticated', 'public.cal_events', 'announce', 'update'), '予定のアナウンスを直せない';
+  assert has_column_privilege('authenticated', 'public.cal_importants', 'announce_on', 'update'), '重要メモのアナウンスの日付を直せない';
+
+  insert into auth.users (id) values (u1), (u2);
+  insert into public.profiles (user_id, employee_no, family_name, given_name) values (u1, '7000051', '型', '一'), (u2, '7000052', '型', '二');
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub', u1::text, true);
+  perform public.cal_ensure_default_labels();
+  select id into l1 from public.cal_labels where kind = 'custom' limit 1;
+  insert into public.cal_labels (name, color, sort) values ('通院', '#123456', 9) returning id into l2;
+
+  -- テンプレート: 作れる・時間つきなら開始時刻が要る・題名は空にできない・30個まで
+  insert into public.cal_templates (title, label_id, all_day, start_time, end_time, memo, sort) values ('歯医者', l2, false, '10:30', '11:00', '保険証', 1) returning id into tp;
+  ok := false;
+  begin insert into public.cal_templates (title, all_day) values ('x', false); exception when check_violation then ok := true; end;
+  assert ok, '時間つきのテンプレートが開始時刻なしで入る';
+  ok := false;
+  begin insert into public.cal_templates (title) values ('  '); exception when check_violation then ok := true; end;
+  assert ok, '題名が空のテンプレートが入る';
+  for n in 2..30 loop insert into public.cal_templates (title, sort) values ('型' || n, n); end loop;
+  ok := false;
+  begin insert into public.cal_templates (title) values ('31個目'); exception when check_violation then ok := true; end;
+  assert ok, 'テンプレートが31個入る';
+  -- ラベルを消すと、テンプレートは残ってラベルだけ空になる
+  delete from public.cal_labels where id = l2;
+  assert (select label_id from public.cal_templates where id = tp) is null, 'ラベルを消してもテンプレートのラベルが残る';
+  assert (select user_id from public.cal_templates where id = tp) = u1, 'ラベルを消すとテンプレートの持ち主が消える';
+
+  -- アナウンス: 最初は「出さない」。日付ありの重要メモは日付が要る。決めた値だけ
+  insert into public.cal_events (title, start_date, end_date, label_id) values ('旅行', '2026-12-01', '2026-12-02', l1);
+  assert (select announce from public.cal_events where title = '旅行') = 'none', '予定のアナウンスの最初が none でない';
+  update public.cal_events set announce = 'dated' where title = '旅行';
+  ok := false;
+  begin update public.cal_events set announce = 'loud' where title = '旅行'; exception when check_violation then ok := true; end;
+  assert ok, '予定のアナウンスに決めていない値が入る';
+  insert into public.cal_importants (title) values ('車検');
+  assert (select announce from public.cal_importants where title = '車検') = 'none' and (select announce_on from public.cal_importants where title = '車検') is null, '重要メモのアナウンスの最初が違う';
+  ok := false;
+  begin update public.cal_importants set announce = 'dated' where title = '車検'; exception when check_violation then ok := true; end;
+  assert ok, '日付ありのアナウンスが日付なしで入る';
+  update public.cal_importants set announce = 'dated', announce_on = '2026-11-13' where title = '車検';
+  update public.cal_importants set announce = 'plain', announce_on = null where title = '車検';
+
+  -- u2 には u1 のテンプレートが見えず、u1 のラベルも使えない
+  perform set_config('request.jwt.claim.sub', u2::text, true);
+  assert (select count(*) from public.cal_templates) = 0, 'u2 に u1 のテンプレートが見える';
+  update public.cal_templates set title = 'のっとり' where id = tp;
+  get diagnostics n = row_count;
+  assert n = 0, 'u2 が u1 のテンプレートを書き換えられる';
+  ok := false;
+  begin insert into public.cal_templates (title, label_id) values ('x', l1); exception when foreign_key_violation then ok := true; end;
+  assert ok, 'u2 が u1 のラベルでテンプレートを作れる';
+
+  reset role;
+  perform set_config('request.jwt.claim.sub', '', true);
+  -- 利用者を消すと、テンプレートも消える
+  delete from auth.users where id in (u1, u2);
+  delete from public.profiles where user_id in (u1, u2);
+  assert (select count(*) from public.cal_templates) = 0, '利用者を消しても、テンプレートが残る';
+end
+$$;

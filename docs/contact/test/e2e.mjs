@@ -158,7 +158,9 @@ function backend(opts = {}) {
             const last = new Date(Date.UTC(yy, mm + 1, 0)).getUTCDate();
             row.expires_on = ev && ev.repeat_rule === "none" ? new Date(Date.UTC(yy, mm, Math.min(dd, last))).toISOString().slice(0, 10) : null;
           }
-          if (table === "cal_events") Object.assign(row, { exdates: [], repeat_rule: "none", memo: "", start_time: "", end_time: "", repeat_until: null, years_label: "", ...b, version: 1 });
+          if (table === "cal_events") Object.assign(row, { exdates: [], repeat_rule: "none", memo: "", start_time: "", end_time: "", repeat_until: null, years_label: "", announce: "none", ...b, version: 1 });
+          if (table === "cal_importants") Object.assign(row, { announce: "none", announce_on: null, ...b });
+          if (table === "cal_templates") Object.assign(row, { label_id: null, all_day: true, start_time: "", end_time: "", memo: "", ...b });
           rows.push(row);
           return row;
         });
@@ -2470,7 +2472,7 @@ await check("カレンダー設定: 一番上に説明、一番下に色合い�
   await page.click("#tab-settings");
   await page.waitForSelector("#about");
   const order = await page.$$eval("#panel .card", (els) => els.map((e) => e.querySelector("h3").textContent));
-  assert.deepEqual(order, ["shiftflowカレンダーについて", "このカレンダーに出すもの", "ラベル", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "あなたの写真・画像の量", "画面の色合い", "ホーム画面のアイコン"]);
+  assert.deepEqual(order, ["shiftflowカレンダーについて", "このカレンダーに出すもの", "ラベル", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "予定のテンプレート", "あなたの写真・画像の量", "画面の色合い", "ホーム画面のアイコン"]);
   assert.ok((await page.textContent("#about")).includes("1つのアカウントで1人分"));
   // 追加
   await page.fill("#nl-name", "家族");
@@ -2935,7 +2937,7 @@ await check("カレンダー設定: 自分の写真・画像の量が出る(MB�
   const text = await page.textContent("#my-usage");
   assert.ok(text.includes("約 3.5MB(画像の置き場 1/10枚・予定の写真 1枚)"), text);
   const order = await page.$$eval("#panel .card", (els) => els.map((e) => e.querySelector("h3").textContent));
-  assert.deepEqual(order, ["shiftflowカレンダーについて", "このカレンダーに出すもの", "ラベル", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "あなたの写真・画像の量", "画面の色合い", "ホーム画面のアイコン"]);
+  assert.deepEqual(order, ["shiftflowカレンダーについて", "このカレンダーに出すもの", "ラベル", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "予定のテンプレート", "あなたの写真・画像の量", "画面の色合い", "ホーム画面のアイコン"]);
   await ctx.close();
 });
 
@@ -3519,10 +3521,10 @@ await check("カレンダー設定: 「月のカレンダーを画像にする�
   await page.waitForSelector(".bar");
   await page.click("#tab-settings");
   await page.waitForSelector("#mimg");
-  // 並び: ラベル → 月の画像 → 〇の画像 → 写真・画像の量
+  // 並び: ラベル → 月の画像 → 〇の画像 → 予定のテンプレート(2026-11-08)→ 写真・画像の量
   const order = await page.locator("#panel .card h3").allTextContents();
   const i = (t) => order.findIndex((x) => x.includes(t));
-  assert.ok(i("ラベル") >= 0 && i("月のカレンダーを画像にする") === i("ラベル") + 1 && i("〇をつけて画像にする") === i("ラベル") + 2 && i("写真・画像の量") === i("ラベル") + 3, order.join(" / "));
+  assert.ok(i("ラベル") >= 0 && i("月のカレンダーを画像にする") === i("ラベル") + 1 && i("〇をつけて画像にする") === i("ラベル") + 2 && i("予定のテンプレート") === i("ラベル") + 3 && i("写真・画像の量") === i("ラベル") + 4, order.join(" / "));
   await page.click('[data-act="img-make"]');
   await page.waitForSelector("#mimg img.mimg");
   const dim = await page.locator("#mimg img.mimg").evaluate((im) => new Promise((r) => { if (im.complete) r([im.naturalWidth, im.naturalHeight]); else im.onload = () => r([im.naturalWidth, im.naturalHeight]); }));
@@ -4200,6 +4202,188 @@ await check("デバッグ AN4: 予定の追加で開始日を別の月に変え�
   await page.click(`.pkd[data-date="${nextMonthDay(today, 20)}"]`);
   await page.fill("#f-start", today);
   assert.equal(await head(), ym(next), "選んでいる途中なら、今の月のまま");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+
+// ---------- 2026-11-08: 予定のテンプレート・アナウンス ----------
+const md = (s) => `${Number(s.slice(5, 7))}/${Number(s.slice(8, 10))}`;
+
+await check("カレンダー(テンプレート): 設定の「予定のテンプレート」で作る・並べ替え・直す・消す。予定の追加の上のボタンで、タイトル・ラベル・時刻・メモが入る(日付はそのまま)。予定の詳細の「この予定をテンプレートにする」から作れる", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-settings");
+  await page.waitForSelector("#tpl");
+  // 作る(時間つき)
+  await page.click('[data-act="tp-new"]');
+  await page.fill("#tp-title", "歯医者");
+  await page.uncheck("#tp-allday");
+  await page.fill("#tp-st", "10:30");
+  await page.fill("#tp-et", "11:00");
+  await page.fill("#tp-memo", "保険証");
+  await page.click("#tp-save");
+  await page.waitForSelector('#tpl .tprow');
+  // 作る(終日)。タイトルが空なら知らせる
+  await page.click('[data-act="tp-new"]');
+  await page.click("#tp-save");
+  assert.ok((await page.textContent("#tp-fmsg")).includes("タイトル"));
+  await page.fill("#tp-title", "飲み会");
+  await page.click("#tp-save");
+  await page.waitForFunction(() => document.querySelectorAll("#tpl .tprow").length === 2);
+  const posts = be.st.calls.filter((c) => c.path === "/rest/v1/cal_templates" && c.method === "POST").map((c) => c.body);
+  assert.deepEqual([posts[0].title, posts[0].all_day, posts[0].start_time, posts[0].end_time, posts[0].memo, posts[0].sort], ["歯医者", false, "10:30", "11:00", "保険証", 1]);
+  assert.deepEqual([posts[1].title, posts[1].all_day, posts[1].start_time, posts[1].sort], ["飲み会", true, "", 2]);
+  // 並べ替え(飲み会を上へ)
+  await page.click('#tpl .tprow >> nth=1 >> [data-act="tp-up"]');
+  await page.waitForFunction(() => document.querySelector("#tpl .tprow b").textContent === "飲み会");
+  // 予定の追加: テンプレートのボタンが並び、押すと入る(日付はそのまま)
+  await page.click('[data-act="close"]');
+  await page.click("#tab-new");
+  assert.deepEqual(await page.locator(".tpls .tpb").allTextContents(), ["飲み会", "歯医者"]);
+  const day = await page.inputValue("#f-start");
+  await page.click('.tpls .tpb:text-is("歯医者")');
+  assert.equal(await page.inputValue("#f-title"), "歯医者");
+  assert.equal(await page.isChecked("#f-allday"), false);
+  assert.deepEqual([await page.inputValue("#f-st"), await page.inputValue("#f-et"), await page.inputValue("#f-memo"), await page.inputValue("#f-start")], ["10:30", "11:00", "保険証", day]);
+  await page.click("#f-save");
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  const ev = be.st.calls.filter((c) => c.path === "/rest/v1/cal_events" && c.method === "POST").map((c) => c.body)[0];
+  assert.deepEqual([ev.title, ev.start_time, ev.end_time, ev.memo, ev.start_date, ev.announce], ["歯医者", "10:30", "11:00", "保険証", day, "none"]);
+  // 編集のときは、テンプレートのボタンは出ない
+  await page.click('.bar:text-is("歯医者")');
+  await page.click('#panel [data-act="edit"]');
+  assert.equal(await page.locator(".tpls").count(), 0);
+  await page.click('#panel [data-act="close"]');
+  // 予定の詳細から作る → 詳細に戻って知らせる
+  await page.click('.bar:text-is("歯医者")');
+  await page.click('#panel [data-act="tp-from"]');
+  assert.equal(await page.inputValue("#tp-title"), "歯医者");
+  assert.equal(await page.inputValue("#tp-st"), "10:30");
+  await page.fill("#tp-title", "歯医者(定期)");
+  await page.click("#tp-save");
+  await page.waitForSelector("#detail-msg.ok");
+  assert.ok((await page.textContent("#detail-msg")).includes("テンプレート「歯医者(定期)」"));
+  assert.equal(be.st.cal.cal_templates.length, 3);
+  // 直す・消す
+  await page.click('[data-act="close"]');
+  await page.click("#tab-settings");
+  await page.click('#tpl .tprow >> nth=0 >> [data-act="tp-edit"]');
+  await page.fill("#tp-title", "飲み会(駅前)");
+  await page.click("#tp-save");
+  await page.waitForFunction(() => [...document.querySelectorAll("#tpl .tprow b")].some((b) => b.textContent === "飲み会(駅前)"));
+  await page.click('#tpl .tprow >> nth=0 >> [data-act="tp-del"]');
+  await page.waitForFunction(() => document.querySelectorAll("#tpl .tprow").length === 2);
+  assert.equal(be.st.cal.cal_templates.length, 2);
+  // HTML は文字のまま
+  assert.equal(await page.locator("#tpl b b").count(), 0);
+  assert.deepEqual(errors, []);
+  await page.screenshot({ path: OUT + "calendar-templates.png" });
+  await ctx.close();
+});
+
+await check("カレンダー(アナウンス): 予定・重要メモの「アナウンスに出す」(日付あり/なし)。上の1行に、日付ありは近い順に「あと○日」、日付なしは後ろ。4秒ごとに切り替え、「1/3」で一覧、文字で詳細。予定の詳細で出す/やめる。コピーには付けない", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  assert.equal(await page.locator("#ann").isHidden(), true, "出すものが無いときは行ごと出さない");
+  // 予定(日付あり)。5日後。別の日にもコピー → コピーにはアナウンスを付けない
+  const d5 = isoAdd(today, 5);
+  await page.click("#tab-new");
+  await page.fill("#f-title", "旅行");
+  await page.fill("#f-start", d5);
+  await page.fill("#f-end", d5);
+  await page.check("#f-ann");
+  assert.equal(await page.isChecked('input[name="f-annk"][value="dated"]'), true, "最初は日付あり");
+  assert.equal(await page.locator("#f-anndate").count(), 0, "予定には日付の欄を出さない");
+  await page.click('[data-act="cp-open"]');
+  await page.click('[data-act="pk-next"]');
+  await page.click(`.pkd[data-date="${nextMonthDay(today, 20)}"]`);
+  await page.click("#f-save");
+  await page.waitForFunction(() => document.getElementById("panel").hidden);
+  const rows = evPosts(be)[0];
+  assert.deepEqual(rows.map((r) => r.announce).sort(), ["dated", "none"], "元の予定だけ日付あり、コピーは出さない");
+  await page.waitForSelector("#ann:not([hidden]) .ann-t");
+  assert.equal(await page.textContent("#ann .ann-m"), `${md(d5)}(${["日", "月", "火", "水", "木", "金", "土"][new Date(d5 + "T00:00:00Z").getUTCDay()]}) 旅行 あと5日`);
+  assert.equal((await page.textContent("#ann .ann-n")).trim(), "1/1");
+  // 重要メモ(日付あり・今日 / 日付なし)。日付ありで日付が空なら知らせる
+  await page.click("#btn-imp");
+  await page.click('[data-act="imp-new"]');
+  await page.fill("#im-t", "車検の書類");
+  await page.check("#im-ann");
+  await page.click('[data-act="imp-save"]');
+  assert.ok((await page.textContent("#x-msg")).includes("日付を入れて"));
+  await page.fill("#im-anndate", today);
+  await page.click('[data-act="imp-save"]');
+  await page.waitForSelector(".icard .abadge");
+  await page.click('[data-act="imp-new"]');
+  await page.fill("#im-t", "ゴミの日は火曜");
+  await page.check("#im-ann");
+  await page.check('input[name="im-annk"][value="plain"]');
+  assert.equal(await page.locator("#im-anndate").isHidden(), true, "日付なしなら日付の欄を隠す");
+  await page.click('[data-act="imp-save"]');
+  await page.waitForFunction(() => document.querySelectorAll(".icard .abadge").length === 2);
+  const memos = be.st.cal.cal_importants.map((m) => [m.title, m.announce, m.announce_on]);
+  assert.deepEqual(memos, [["車検の書類", "dated", today], ["ゴミの日は火曜", "plain", null]]);
+  await page.click('[data-act="close"]');
+  // 3件。並び: 今日の車検 → 5日後の旅行 → 日付なしのゴミ。4秒ごとに切り替わる
+  await page.waitForFunction(() => /\/3$/.test(document.querySelector("#ann .ann-n").textContent.trim()));
+  const seen = new Set([await page.textContent("#ann .ann-m")]);
+  await page.waitForTimeout(4600);
+  seen.add(await page.textContent("#ann .ann-m"));
+  assert.equal(seen.size, 2, "4秒ほどで次に切り替わる: " + [...seen].join(" / "));
+  assert.equal(await page.locator("#ann .ann-i.in").count(), 1, "下から入る動きが付く");
+  // 「1/3」で一覧(縦)
+  await page.click("#ann .ann-n");
+  await page.waitForSelector('#panel [data-act="ann-open"]');
+  const list = (await page.locator('#panel [data-act="ann-open"] .t').allTextContents());
+  assert.deepEqual(list, ["今日 車検の書類", list[1], "ゴミの日は火曜"]);
+  assert.ok(list[1].includes("旅行 あと5日"));
+  // 一覧から予定を開く → 「アナウンスに出すのをやめる」
+  await page.click('#panel [data-act="ann-open"] >> nth=1');
+  await page.waitForSelector('#panel [data-act="ann-toggle"]');
+  assert.ok((await page.textContent("#panel")).includes("アナウンス: 日付あり"));
+  assert.equal((await page.textContent('#panel [data-act="ann-toggle"]')).trim(), "アナウンスに出すのをやめる");
+  await page.click('#panel [data-act="ann-toggle"]');
+  await page.waitForFunction(() => document.querySelector('#panel [data-act="ann-toggle"]') && document.querySelector('#panel [data-act="ann-toggle"]').textContent.trim() === "アナウンスに出す");
+  assert.ok(be.st.calls.some((c) => c.path === "/rest/v1/cal_events" && c.method === "PATCH" && c.body.announce === "none"));
+  await page.click('#panel [data-act="close"]');
+  await page.waitForFunction(() => /\/2$/.test(document.querySelector("#ann .ann-n").textContent.trim()));
+  // 文字を押すと、そのとき出ている1件(メモ)が開く
+  await page.click("#ann .ann-t");
+  await page.waitForSelector("#im-t");
+  assert.ok(["車検の書類", "ゴミの日は火曜"].includes(await page.inputValue("#im-t")));
+  await page.click('[data-act="close"]');
+  assert.deepEqual(errors, []);
+  await page.screenshot({ path: OUT + "calendar-announce.png" });
+  await ctx.close();
+});
+
+await check("カレンダー(アナウンス): 上に流すのは10件まで(一覧には全部と、そのことの説明)。終わった予定・日付が過ぎたメモは出さない。長い文字は横に流す。「動きを減らす」の端末では動かさない", async () => {
+  const { page, ctx, be, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  const label = be.st.cal.cal_labels.find((l) => l.kind === "custom").id;
+  for (let i = 1; i <= 11; i++) be.st.cal.cal_importants.push({ id: "M" + i, user_id: "u1", title: `メモ${String(i).padStart(2, "0")}`, body: "", sort: i, announce: "plain", announce_on: null, created_at: "2026-11-01T00:00:00Z" });
+  be.st.cal.cal_importants.push({ id: "MOLD", user_id: "u1", title: "過ぎたメモ", body: "", sort: 99, announce: "dated", announce_on: isoAdd(today, -1), created_at: "2026-11-01T00:00:00Z" });
+  be.st.cal.cal_events.push({ id: "EOLD", user_id: "u1", title: "終わった予定", start_date: isoAdd(today, -3), end_date: isoAdd(today, -1), all_day: true, start_time: "", end_time: "", label_id: label, memo: "", repeat_rule: "none", repeat_until: null, exdates: [], years_label: "", version: 1, announce: "dated" });
+  be.st.cal.cal_events.push({ id: "ELONG", user_id: "u1", title: "とても長いアナウンスの文字が一行に入りきらないときは横に流して全部を見せる", start_date: isoAdd(today, 1), end_date: isoAdd(today, 1), all_day: true, start_time: "", end_time: "", label_id: label, memo: "", repeat_rule: "none", repeat_until: null, exdates: [], years_label: "", version: 1, announce: "dated" });
+  await page.reload();
+  await page.waitForSelector("#ann:not([hidden]) .ann-n");
+  assert.equal((await page.textContent("#ann .ann-n")).trim(), "1/10", "上に流すのは10件まで");
+  assert.ok((await page.textContent("#ann .ann-m")).includes("とても長い"), "日付ありが先");
+  assert.ok((await page.locator("#ann .ann-m").getAttribute("style") || "").includes("annmq"), "長い文字は横に流す");
+  await page.click("#ann .ann-n");
+  await page.waitForSelector('#panel [data-act="ann-open"]');
+  assert.equal(await page.locator('#panel [data-act="ann-open"]').count(), 12, "一覧には全部(終わった予定・過ぎたメモは無し)");
+  const txt = await page.textContent("#panel");
+  assert.ok(txt.includes("上に流すのは10件まで") && txt.includes("上には流していません"));
+  assert.ok(!txt.includes("終わった予定") && !txt.includes("過ぎたメモ"));
+  await page.click('[data-act="close"]');
+  // 動きを減らす
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.reload();
+  await page.waitForSelector("#ann:not([hidden]) .ann-n");
+  assert.ok(!((await page.locator("#ann .ann-m").getAttribute("style")) || "").includes("annmq"), "動きを減らすときは横に流さない");
+  assert.equal(await page.locator("#ann .ann-i.in").count(), 0);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

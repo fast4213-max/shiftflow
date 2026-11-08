@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  addDays, addMonths, addMonthsIso, resolveCalView, compareForDay, datesText, oldestDate, photosClosed, diffDays, expandEvent, gridRange, layoutWeek, monthLimits, shiftSpan, textOn, todayJst, weekday, whenText, yearsText,
+  addDays, addMonths, addMonthsIso, announceItems, ANNOUNCE_MAX, resolveCalView, compareForDay, datesText, oldestDate, photosClosed, diffDays, expandEvent, gridRange, layoutWeek, monthLimits, shiftSpan, textOn, todayJst, weekday, whenText, yearsText,
 } from "../../../web/calendar/cal-core.js";
 
 test("日付の計算は月・年をまたぐ", () => {
@@ -135,4 +135,35 @@ test("別の日にコピー: 選んだ日から同じ長さ。月・年をまた
 test("別の日にコピー: 日付の並びは日付の順。年が違う日だけ年を付ける", () => {
   assert.equal(datesText(["2026-11-15", "2026-11-12", "2027-01-05"], "2026"), "11/12・11/15・2027/1/5");
   assert.equal(datesText([], 2026), "");
+});
+
+test("アナウンス: 日付ありは近い順に「M/D(曜) 名前 あと○日」(当日・期間中は「今日」)、そのあとに日付なし(予定は日の順・メモは並び順)。終わった予定・過ぎたメモ・出さないものは入れない", () => {
+  const today = "2026-11-08";
+  const own = [
+    { id: "a", title: "旅行", start: "2026-11-20", end: "2026-11-21", repeat: "none", announce: "dated" },
+    { id: "b", title: "研修", start: "2026-11-07", end: "2026-11-09", repeat: "none", announce: "dated" }, // 期間中
+    { id: "c", title: "終わった", start: "2026-11-01", end: "2026-11-07", repeat: "none", announce: "dated" },
+    { id: "d", title: "出さない", start: "2026-11-10", end: "2026-11-10", repeat: "none", announce: "none" },
+    { id: "e", title: "運動会", start: "2026-11-15", end: "2026-11-15", repeat: "none", announce: "plain" },
+    { id: "f", title: "誕生日", start: "2000-11-10", end: "2000-11-10", repeat: "yearly", yearsLabel: "age", announce: "dated" },
+    { id: "g", title: "毎週の会議", start: "2026-10-05", end: "2026-10-05", repeat: "weekly", exdates: ["2026-11-09"], announce: "dated" },
+  ];
+  const memos = [
+    { id: "m1", title: "ゴミの日", sort: 2, announce: "plain" },
+    { id: "m2", title: "鍵の場所", sort: 1, announce: "plain" },
+    { id: "m3", title: "車検", announce: "dated", announce_on: "2026-11-08" },
+    { id: "m4", title: "過ぎた", announce: "dated", announce_on: "2026-11-07" },
+    { id: "m5", title: "出さないメモ", announce: "none" },
+  ];
+  const list = announceItems(own, memos, today);
+  assert.deepEqual(list.map((x) => x.text), [
+    "今日 研修", "今日 車検", "11/10(火) 誕生日 26歳 あと2日", "11/16(月) 毎週の会議 あと8日", "11/20(金) 旅行 あと12日",
+    "運動会", "鍵の場所", "ゴミの日",
+  ]);
+  // 繰り返しの予定は、その回の id(開くときに使う)。「この回だけ削除」した日は飛ばす
+  assert.equal(list.find((x) => x.text.includes("会議")).id, "g@2026-11-16");
+  assert.equal(list.find((x) => x.text.includes("旅行")).id, "a");
+  assert.deepEqual(list.filter((x) => x.kind === "memo").map((x) => x.dated), [true, false, false]);
+  assert.equal(ANNOUNCE_MAX, 10);
+  assert.deepEqual(announceItems([], [], today), []);
 });

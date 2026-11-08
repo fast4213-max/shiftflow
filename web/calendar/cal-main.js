@@ -4,9 +4,10 @@
 import { callFunction, currentSession, friendlyText, go, loadProfile, loadSettings, selectAllPages, supabase } from "../js/app.js?v=dev";
 import { createExtras, shrinkForEvent } from "./cal-extra.js?v=dev";
 import { createImager } from "./cal-image.js?v=dev";
+import { createAnnouncer } from "./cal-ann.js?v=dev";
 import * as appIcon from "./cal-icon.js?v=dev";
 import {
-  addDays, addMonths, compareForDay, dateKey, datesText, daysInMonth, diffDays, expandEvent, resolveCalView, gridRange, layoutWeek, monthIndex, monthLimits, oldestDate, photosClosed, textOn, todayJst, weekday, whenText, WEEKDAYS,
+  addDays, addMonths, announceItems, ANNOUNCE_MAX, compareForDay, dateKey, datesText, daysInMonth, diffDays, expandEvent, resolveCalView, gridRange, layoutWeek, monthIndex, monthLimits, oldestDate, photosClosed, textOn, todayJst, weekday, whenText, WEEKDAYS,
   shiftSpan, yearsText,
 } from "./cal-core.js?v=dev";
 
@@ -34,9 +35,11 @@ const S = {
   photos: new Map(),   // 予定の id → 写真の行(cal_photos)
   panel: null,         // 開いているパネル
   todos: [], importants: [], gallery: [], stampDefs: [], stamps: [], // 後の段階の表(cal-extra.js)
+  templates: [],       // 予定のテンプレート(cal_templates)
 };
 let extras = null;
 let imager = null; // 月の画像・〇つきの画像(cal-image.js)
+let announcer = null; // アナウンスの行(cal-ann.js)
 
 // ---------- 小さな道具 ----------
 
@@ -85,6 +88,7 @@ function rowToOwn(r) {
     src: "own", id: r.id, title: r.title, start: r.start_date, end: r.end_date, allDay: r.all_day,
     startTime: r.start_time || "", endTime: r.end_time || "", labelId: r.label_id, memo: r.memo || "",
     repeat: r.repeat_rule, until: r.repeat_until || "", exdates: r.exdates || [], yearsLabel: r.years_label || "", version: r.version,
+    announce: r.announce || "none",
   };
 }
 
@@ -102,6 +106,12 @@ async function loadLabels() {
     rows = await read();
   }
   S.labels = rows;
+}
+
+async function loadTemplates() {
+  const { data, error } = await supabase.from("cal_templates").select("*").order("sort").order("created_at");
+  if (error) throw error;
+  S.templates = data || [];
 }
 
 async function loadOwn() {
@@ -147,7 +157,7 @@ async function reloadAll({ keepShifts = false } = {}) {
   try {
     // 設定で非番の時間用カレンダーを足した・外したあとに、反映する(読めなければ、今のまま)
     try { const st = await loadSettings(S.session); S.settingsRow = st; S.cfg = resolveCalView(st); } catch (_) { /* 今のまま */ }
-    await Promise.all([loadLabels(), loadOwn(), extras.load()]);
+    await Promise.all([loadLabels(), loadOwn(), extras.load(), loadTemplates()]);
     await loadPhotos().catch(() => {});
     await ensureAround();
   } catch (e) {
@@ -265,6 +275,7 @@ function render() {
   cal.scrollTop = keep;
   extras.hydrate($("weeks"));
   extras.fitStamps(); // 横に長い文字のスタンプが、左右の端で切れないように(AN1・AN2)
+  refreshAnn();
 }
 
 // 日付の週を、上から rowsAbove 段目に置く
@@ -467,12 +478,18 @@ function openEvent(uid) {
   } else {
     actions = `<div class="btns"><button class="btn" data-act="edit" data-uid="${esc(uid)}" data-mode="all">編集</button><button class="btn dng" data-act="del" data-uid="${esc(uid)}" data-mode="all">削除</button></div>`;
   }
-  // 自分の予定は、同じ内容を別の日にコピーできる(繰り返しの予定は、この回の内容を1回だけの予定として)
-  if (e.src === "own") actions = `<div class="btns"><button class="btn" data-act="copy" data-uid="${esc(uid)}">別の日にコピー</button></div>` + actions;
+  // 自分の予定は、同じ内容を別の日にコピー・テンプレートにする・アナウンスに出すができる(繰り返しの予定は、この回の内容で)
+  const base = e.src === "own" ? S.own.find((x) => x.id === (e.baseId || e.id)) : null;
+  const annOn = !!base && !!base.announce && base.announce !== "none";
+  if (e.src === "own") {
+    actions = `<div class="btns"><button class="btn" data-act="copy" data-uid="${esc(uid)}">別の日にコピー</button><button class="btn" data-act="tp-from" data-uid="${esc(uid)}">この予定をテンプレートにする</button></div>
+      <div class="btns"><button class="btn" data-act="ann-toggle" data-uid="${esc(uid)}">${annOn ? "アナウンスに出すのをやめる" : "アナウンスに出す"}</button></div>` + actions;
+  }
+  const annNote = annOn ? `<p class="sub">アナウンス: ${base.announce === "plain" ? "日付なし(予定の名前だけ)" : "日付あり(あと何日かを出す)"}</p>` : "";
   openPanel(`${head(e.title || "（タイトルなし）")}<div class="pb">
     <p class="sub">${esc(whenText(e))}</p>
     ${label ? `<p><span class="chip" style="--c:${esc(colorOf(e.labelId))}"><i></i>${esc(label.name)}</span></p>` : ""}
-    ${rep ? `<p class="sub">繰り返し: ${esc(rep)}</p>` : ""}${yearsText(e) ? `<p class="sub">${esc(yearsText(e))}</p>` : ""}
+    ${rep ? `<p class="sub">繰り返し: ${esc(rep)}</p>` : ""}${yearsText(e) ? `<p class="sub">${esc(yearsText(e))}</p>` : ""}${annNote}
     ${e.memo ? `<p style="white-space:pre-wrap;word-break:break-word">${esc(e.memo)}</p>` : ""}
     ${photosDetailHtml(e)}
     <p class="msg err" id="detail-msg"></p>${actions}</div>`);
@@ -504,11 +521,11 @@ function openForm(source, defaultDate, mode = "all") {
         id: base.id, version: base.version, mode: useOcc ? "occ" : "all", occ: source.occ || "", exdates: base.exdates,
         title: base.title, labelId: base.labelId, start: useOcc ? source.start : base.start, end: useOcc ? source.end : base.end,
         allDay: base.allDay, startTime: base.startTime || "09:00", endTime: base.endTime || "10:00", memo: base.memo,
-        repeat: useOcc ? "none" : base.repeat, until: useOcc ? "" : base.until, yearsLabel: base.yearsLabel,
+        repeat: useOcc ? "none" : base.repeat, until: useOcc ? "" : base.until, yearsLabel: base.yearsLabel, announce: base.announce || "none",
       }
     : {
         id: null, mode: "new", title: "", labelId: labels[0] ? labels[0].id : "", start: defaultDate, end: defaultDate, allDay: true,
-        startTime: "09:00", endTime: "10:00", memo: "", repeat: "none", until: "", yearsLabel: "",
+        startTime: "09:00", endTime: "10:00", memo: "", repeat: "none", until: "", yearsLabel: "", announce: "none",
       };
   draft.keep = useOcc ? [] : (S.photos.get(baseId) || []).slice(); // 付いている写真(「この回だけ」の編集は、新しい予定になるので持たない)
   draft.added = [];   // これから付ける写真 { blob, url }
@@ -576,13 +593,16 @@ function renderForm(message = "") {
   const rep = d.mode === "occ" ? "" : `<div class="fld"><label class="lb" for="f-rep">繰り返し</label><select class="in" id="f-rep" data-f="repeat">${Object.entries(REPEAT).map(([k, v]) => `<option value="${k}"${d.repeat === k ? " selected" : ""}>${v}</option>`).join("")}</select></div>
     ${d.repeat !== "none" ? `<div class="fld"><label class="lb" for="f-until">繰り返しの終わり(空なら続く)</label><input class="in" type="date" id="f-until" data-f="until" value="${esc(d.until)}"></div>` : ""}
     ${d.repeat === "yearly" ? `<div class="fld"><label class="lb" for="f-years">年数の表示</label><select class="in" id="f-years" data-f="yearsLabel"><option value=""${d.yearsLabel === "" ? " selected" : ""}>なし</option><option value="age"${d.yearsLabel === "age" ? " selected" : ""}>○歳(誕生日など)</option><option value="anniv"${d.yearsLabel === "anniv" ? " selected" : ""}>○周年</option></select></div>` : ""}`;
-  $("panel").innerHTML = `${head(title)}<div class="pb">
+  const tpls = d.mode === "new" && S.templates.length
+    ? `<div class="fld"><span class="lb">テンプレートから入れる</span><div class="tpls">${S.templates.map((t) => `<button type="button" class="btn sm tpb" data-act="tp-use" data-id="${esc(t.id)}">${esc(t.title)}</button>`).join("")}</div></div>` : "";
+  $("panel").innerHTML = `${head(title)}<div class="pb">${tpls}
     <div class="fld"><label class="lb" for="f-title">タイトル</label><input class="in" id="f-title" data-f="title" maxlength="100" value="${esc(d.title)}" autocomplete="off"></div>
     <div class="fld"><label class="lb" for="f-label">ラベル</label><select class="in" id="f-label" data-f="labelId">${labels.map((l) => `<option value="${esc(l.id)}"${d.labelId === l.id ? " selected" : ""}>${esc(l.name)}</option>`).join("")}</select></div>
     <div class="row2"><div class="fld"><label class="lb" for="f-start">開始日</label><input class="in" type="date" id="f-start" data-f="start" value="${esc(d.start)}"></div><div class="fld"><label class="lb" for="f-end">終了日</label><input class="in" type="date" id="f-end" data-f="end" value="${esc(d.end)}"></div></div>
     <div class="fld"><label class="tg"><input type="checkbox" id="f-allday" data-f="allDay"${d.allDay ? " checked" : ""}> 終日</label></div>
     ${time}${rep}
     <div class="fld"><label class="lb" for="f-memo">メモ</label><textarea class="in" id="f-memo" data-f="memo" maxlength="1000">${esc(d.memo)}</textarea></div>
+    ${extras.annFieldHtml("f", d.announce, "", false)}
     <div id="cp-wrap">${copyBlockHtml(d)}</div>
     <div id="photo-block">${photosFormHtml(d)}</div>
     <p class="msg err" id="form-msg">${esc(message)}</p>
@@ -632,7 +652,8 @@ function draftError(d) {
 const rowFromDraft = (d, over = {}) => ({
   title: (d.title || "").trim() || "（タイトルなし）", start_date: d.start, end_date: d.end < d.start ? d.start : d.end, all_day: !!d.allDay,
   start_time: d.allDay ? "" : d.startTime, end_time: d.allDay ? "" : d.endTime || "", label_id: d.labelId, memo: d.memo || "",
-  repeat_rule: d.repeat, repeat_until: d.repeat !== "none" && d.until ? d.until : null, years_label: d.repeat === "yearly" ? d.yearsLabel || "" : "", ...over,
+  repeat_rule: d.repeat, repeat_until: d.repeat !== "none" && d.until ? d.until : null, years_label: d.repeat === "yearly" ? d.yearsLabel || "" : "",
+  announce: d.announce && ["dated", "plain"].includes(d.announce) ? d.announce : "none", ...over,
 });
 
 async function saveDraft() {
@@ -645,7 +666,8 @@ async function saveDraft() {
   try {
     if (d.mode === "new" && copies.length) {
       // 別の日へのコピーも、1回でまとめて入れる(途中で失敗したときは、1件も入らない)。写真は元の予定(開始日)にだけ付ける
-      const rows = [rowFromDraft(d), ...copies.map((s) => { const sp = shiftSpan(d.start, d.end, s); return rowFromDraft(d, { start_date: sp.start, end_date: sp.end }); })];
+      // コピーにはアナウンスを付けない(同じものが何件も流れないように)
+      const rows = [rowFromDraft(d), ...copies.map((s) => { const sp = shiftSpan(d.start, d.end, s); return rowFromDraft(d, { start_date: sp.start, end_date: sp.end, announce: "none" }); })];
       const { data, error } = await supabase.from("cal_events").insert(rows).select();
       if (error) throw error;
       const base = (data || []).find((r) => r.start_date === d.start) || (data || [])[0];
@@ -787,7 +809,7 @@ async function saveCopy() {
   const c = copyFrom, p = pick;
   if (!c || !p || !p.sel.length || p.busy) return;
   const e = c.e;
-  const src = { title: e.title, labelId: e.labelId, start: e.start, end: e.end, allDay: e.allDay, startTime: e.startTime, endTime: e.endTime, memo: e.memo, repeat: "none", until: "", yearsLabel: "" };
+  const src = { title: e.title, labelId: e.labelId, start: e.start, end: e.end, allDay: e.allDay, startTime: e.startTime, endTime: e.endTime, memo: e.memo, repeat: "none", until: "", yearsLabel: "", announce: "none" };
   const rows = p.sel.map((s) => { const sp = shiftSpan(e.start, e.end, s); return rowFromDraft(src, { start_date: sp.start, end_date: sp.end }); });
   const btn = $("copy-save");
   if (btn) btn.disabled = true;
@@ -837,6 +859,182 @@ async function deleteEvent(uid, mode) {
   }
 }
 
+// ---------- 予定のテンプレート ----------
+// よく入れる予定(タイトル・ラベル・終日/時刻・メモ。日付は持たない)を登録しておき、「予定を追加」の上のボタン1つで入れる。
+// 設定の「予定のテンプレート」で作る・直す・並べ替え・消す。予定の詳細の「この予定をテンプレートにする」からも作れる。1人30個まで(DB でも決めてある)
+
+const TEMPLATE_MAX = 30;
+let tpl = null; // 作る・直すテンプレートの下書き { id, title, labelId, allDay, startTime, endTime, memo, from(詳細から作るときの予定の uid) }
+
+const tplTime = (t) => (t.all_day ? "終日" : `${(t.start_time || "").replace(/^0/, "")}${t.end_time ? "〜" + t.end_time.replace(/^0/, "") : ""}`);
+function templatesCardHtml() {
+  const n = S.templates.length;
+  const rows = S.templates.map((t, i) => `<div class="lrow tprow" data-tpid="${esc(t.id)}"><span class="tpdot" style="--c:${esc(colorOf(t.label_id))}"></span><span class="tpt"><b>${esc(t.title)}</b><small>${esc(tplTime(t))}</small></span>
+      <button class="btn sm" data-act="tp-up" data-id="${esc(t.id)}"${i === 0 ? " disabled" : ""} aria-label="上へ">↑</button><button class="btn sm" data-act="tp-down" data-id="${esc(t.id)}"${i === n - 1 ? " disabled" : ""} aria-label="下へ">↓</button>
+      <button class="btn sm" data-act="tp-edit" data-id="${esc(t.id)}">直す</button><button class="btn sm dng" data-act="tp-del" data-id="${esc(t.id)}" aria-label="消す">✕</button></div>`).join("");
+  return `<div class="card" id="tpl"><h3>予定のテンプレート</h3>
+    <p class="sub">よく入れる予定を登録しておくと、「予定を追加」のいちばん上のボタン1つで、タイトル・ラベル・時刻・メモが入ります(日付は入りません)。予定の詳細の「この予定をテンプレートにする」からも作れます。${TEMPLATE_MAX}個まで(いま${n}個)。</p>
+    ${rows}<div class="btns"><button class="btn pri" data-act="tp-new"${n >= TEMPLATE_MAX ? " disabled" : ""}>＋ テンプレートを追加</button></div><p class="msg err" id="tp-msg"></p></div>`;
+}
+function tplFormHtml(msg = "") {
+  const t = tpl, labels = ownLabels();
+  const time = t.allDay ? "" : `<div class="row2"><div class="fld"><label class="lb" for="tp-st">開始時刻</label><input class="in" type="time" step="60" id="tp-st" data-tp="startTime" value="${esc(t.startTime)}"></div><div class="fld"><label class="lb" for="tp-et">終了時刻</label><input class="in" type="time" step="60" id="tp-et" data-tp="endTime" value="${esc(t.endTime)}"></div></div>`;
+  return `${head(t.id ? "テンプレートを直す" : "テンプレートを作る")}<div class="pb">
+    <p class="sub">ボタンには、タイトルがそのまま出ます。日付は入りません(使うときの日付のまま)。</p>
+    <div class="fld"><label class="lb" for="tp-title">タイトル</label><input class="in" id="tp-title" data-tp="title" maxlength="100" value="${esc(t.title)}" autocomplete="off"></div>
+    <div class="fld"><label class="lb" for="tp-label">ラベル</label><select class="in" id="tp-label" data-tp="labelId">${labels.map((l) => `<option value="${esc(l.id)}"${t.labelId === l.id ? " selected" : ""}>${esc(l.name)}</option>`).join("")}</select></div>
+    <div class="fld"><label class="tg"><input type="checkbox" id="tp-allday" data-tp="allDay"${t.allDay ? " checked" : ""}> 終日</label></div>
+    ${time}
+    <div class="fld"><label class="lb" for="tp-memo">メモ</label><textarea class="in" id="tp-memo" data-tp="memo" maxlength="1000">${esc(t.memo)}</textarea></div>
+    <p class="msg err" id="tp-fmsg">${esc(msg)}</p>
+    <div class="btns"><button class="btn pri" data-act="tp-save" id="tp-save">保存</button><button class="btn" data-act="tp-back">やめる</button></div></div>`;
+}
+function openTplForm(src, from = null) {
+  const labels = ownLabels();
+  const okLabel = (id) => (labels.some((l) => l.id === id) ? id : labels[0] ? labels[0].id : "");
+  tpl = src && src.src === "own"
+    ? { id: null, title: src.title || "", labelId: okLabel(src.labelId), allDay: !!src.allDay, startTime: src.startTime || "09:00", endTime: src.endTime || "", memo: src.memo || "", from }
+    : src
+      ? { id: src.id, title: src.title, labelId: okLabel(src.label_id), allDay: src.all_day, startTime: src.start_time || "09:00", endTime: src.end_time || "", memo: src.memo || "", from: null }
+      : { id: null, title: "", labelId: okLabel(""), allDay: true, startTime: "09:00", endTime: "10:00", memo: "", from: null };
+  openPanel(tplFormHtml());
+}
+function readTplField(el) {
+  if (!tpl) return;
+  const f = el.dataset.tp;
+  tpl[f] = el.type === "checkbox" ? el.checked : el.value;
+  if (f === "allDay") { const p = $("panel"), top = p.scrollTop; setPanel(tplFormHtml()); p.scrollTop = top; }
+}
+// テンプレートの画面を閉じて、来たところ(設定の「予定のテンプレート」か、予定の詳細)へ戻る
+function tplDone(okMsg = "") {
+  const from = tpl && tpl.from;
+  tpl = null;
+  if (from && S.byUid.has(from)) {
+    openEvent(from);
+    if (okMsg) { const m = $("detail-msg"); if (m) { m.className = "msg ok"; m.textContent = okMsg; } }
+    return;
+  }
+  openPanel(settingsHtml());
+  const card = $("tpl");
+  if (card) card.scrollIntoView({ block: "start" });
+}
+async function saveTpl() {
+  const t = tpl;
+  if (!t) return;
+  const title = (t.title || "").trim();
+  if (!title) return setPanel(tplFormHtml("タイトルを入れてください(ボタンに出ます)。"));
+  if (!t.allDay && !t.startTime) return setPanel(tplFormHtml("開始時刻を入れてください。"));
+  const row = { title, label_id: t.labelId || null, all_day: !!t.allDay, start_time: t.allDay ? "" : t.startTime, end_time: t.allDay ? "" : t.endTime || "", memo: t.memo || "" };
+  const btn = $("tp-save");
+  if (btn) btn.disabled = true;
+  try {
+    if (t.id) {
+      const { data, error } = await supabase.from("cal_templates").update(row).eq("id", t.id).select().single();
+      if (error) throw error;
+      Object.assign(S.templates.find((x) => x.id === t.id) || {}, data);
+    } else {
+      if (S.templates.length >= TEMPLATE_MAX) throw new Error(`予定のテンプレートは${TEMPLATE_MAX}個までです。`);
+      row.sort = S.templates.reduce((m, x) => Math.max(m, x.sort || 0), 0) + 1;
+      const { data, error } = await supabase.from("cal_templates").insert(row).select().single();
+      if (error) throw error;
+      S.templates.push(data);
+    }
+    tplDone(t.from ? `テンプレート「${title}」にしました。予定を追加するときに使えます(設定の「予定のテンプレート」で直せます)。` : "");
+  } catch (e) {
+    if (tpl) setPanel(tplFormHtml(friendlyText(e.message || String(e))));
+  }
+}
+async function tplAction(act, el) {
+  const msg = (m) => { const x = $("tp-msg"); if (x) x.textContent = m; };
+  const id = el.dataset.id;
+  try {
+    if (act === "tp-new") return openTplForm(null);
+    if (act === "tp-edit") { const t = S.templates.find((x) => x.id === id); if (t) openTplForm(t); return; }
+    if (act === "tp-save") return saveTpl();
+    if (act === "tp-back") return tplDone();
+    if (act === "tp-from") {
+      const e = S.byUid.get(el.dataset.uid);
+      if (!e || e.src !== "own") return;
+      if (S.templates.length >= TEMPLATE_MAX) { const m = $("detail-msg"); if (m) m.textContent = `予定のテンプレートは${TEMPLATE_MAX}個までです。設定の「予定のテンプレート」で、使わないものを消してください。`; return; }
+      return openTplForm(e, el.dataset.uid);
+    }
+    if (act === "tp-use") return useTemplate(id);
+    const p = $("panel"), top = p.scrollTop;
+    if (act === "tp-del") {
+      const t = S.templates.find((x) => x.id === id);
+      if (!t || !window.confirm(`テンプレート「${t.title}」を消します。よろしいですか？(入れた予定は消えません)`)) return;
+      const { error } = await supabase.from("cal_templates").delete().eq("id", id);
+      if (error) return msg(friendlyText(error.message));
+      S.templates = S.templates.filter((x) => x.id !== id);
+    } else if (act === "tp-up" || act === "tp-down") {
+      const i = S.templates.findIndex((x) => x.id === id), j = i + (act === "tp-up" ? -1 : 1);
+      if (i < 0 || j < 0 || j >= S.templates.length) return;
+      const order = S.templates.slice();
+      [order[i], order[j]] = [order[j], order[i]];
+      for (let k = 0; k < order.length; k++) if (order[k].sort !== k + 1) {
+        const { error } = await supabase.from("cal_templates").update({ sort: k + 1 }).eq("id", order[k].id);
+        if (error) return msg(friendlyText(error.message));
+        order[k].sort = k + 1;
+      }
+      S.templates = order;
+    }
+    setPanel(settingsHtml());
+    p.scrollTop = top;
+  } catch (e) {
+    msg(friendlyText(e.message || String(e)));
+  }
+}
+// 予定の追加で、テンプレートのボタンを押したとき。日付・繰り返し・コピーの選びはそのまま。アナウンスは付けない
+function useTemplate(id) {
+  const t = S.templates.find((x) => x.id === id);
+  if (!t || !draft) return;
+  const labels = ownLabels();
+  Object.assign(draft, {
+    title: t.title, labelId: labels.some((l) => l.id === t.label_id) ? t.label_id : draft.labelId, allDay: !!t.all_day,
+    startTime: t.start_time || "09:00", endTime: t.all_day ? draft.endTime : t.end_time || "", memo: t.memo || "", announce: "none",
+  });
+  renderForm();
+}
+
+// ---------- アナウンス(カレンダーの上の1行) ----------
+// 予定と重要メモで「アナウンスに出す」にしたものを、1件ずつ切り替えて流す(cal-ann.js)。並べ方と10件までは cal-core.js の announceItems
+
+function refreshAnn() { if (announcer) announcer.set(announceItems(S.own, S.importants, S.today)); }
+function openAnnItem(it) {
+  if (!it) return;
+  if (it.kind === "memo") return extras.openImportantMemo(it.id);
+  // 隠したラベルの予定や、今の画面の範囲の外の回でも開けるように、その回を入れておく
+  if (!S.byUid.has(it.id) && it.ev) S.byUid.set(it.id, { ...it.ev, labelRank: rankOf(it.ev.labelId) });
+  openEvent(it.id);
+}
+let annList = [];
+function openAnnList(all) {
+  annList = all.slice();
+  const rows = annList.map((it, i) => `<button class="erow" data-act="ann-open" data-i="${i}" style="--c:${esc(it.kind === "memo" ? "var(--accent)" : colorOf(it.ev && it.ev.labelId))}"><span class="dot"></span><span><div class="t">${esc(it.text)}</div><div class="m">${it.kind === "memo" ? "重要メモ" : "予定"}${it.dated ? "" : "(日付なし)"}${i >= ANNOUNCE_MAX ? "・上には流していません" : ""}</div></span></button>`).join("");
+  openPanel(`${head(`アナウンス ${annList.length}件`)}<div class="pb">
+    ${annList.length > ANNOUNCE_MAX ? `<p class="sub">上に流すのは${ANNOUNCE_MAX}件までです(日付の近いものから)。この一覧には全部出ます。</p>` : ""}
+    ${rows || '<p class="sub">アナウンスはありません。</p>'}
+    <p class="sub">予定は、予定の詳細の「アナウンスに出す」で、重要メモは、メモを直す画面で、付け外しできます。</p></div>`);
+}
+// 予定の詳細の「アナウンスに出す/出すのをやめる」(出すときは日付あり)。繰り返しの予定は、全部の回(次の回を出す)
+async function toggleAnnounce(uid) {
+  const e = S.byUid.get(uid);
+  const base = e && S.own.find((x) => x.id === (e.baseId || e.id));
+  if (!base) return;
+  const next = base.announce && base.announce !== "none" ? "none" : "dated";
+  const say = (t) => { const m = $("detail-msg"); if (m) m.textContent = t; };
+  try {
+    const { data, error } = await supabase.from("cal_events").update({ announce: next }).eq("id", base.id).eq("version", base.version).select();
+    if (error) throw error;
+    await reloadAll({ keepShifts: true });
+    if (!data || !data.length) { openEvent(uid); return say("別の端末で変更されています。読み直しました。もう一度押してください。"); }
+    if (!S.byUid.has(uid)) S.byUid.set(uid, e);
+    openEvent(uid);
+  } catch (err) {
+    say(friendlyText(err.message || String(err)));
+  }
+}
+
 // ---------- 設定 ----------
 
 // 自分が使っている写真・画像の量(保存してある大きさの合計)
@@ -868,6 +1066,8 @@ function settingsHtml() {
         <li><b>時刻</b>は分単位で入れられます。日をまたぐ予定は、終了日を次の日にします。カレンダーの帯には名前だけが出ます(時刻は、予定をタップすると出ます)。</li>
         <li><b>別の日にコピー</b>: 予定の追加の「＋ 別の日にもコピー」か、予定をタップして「別の日にコピー」で、同じ予定を選んだ日にも入れられます。</li>
         <li>下から出る画面は、「✕」のほかに、上の部分を下に引いても閉じます。</li>
+        <li><b>予定のテンプレート</b>: この設定の下の「予定のテンプレート」に登録すると、予定の追加のいちばん上のボタンで、タイトル・時刻などが入ります。</li>
+        <li><b>アナウンス</b>: 予定・重要メモで「アナウンスに出す」にすると、上のラベルの下に、1件ずつ切り替えて出ます(日付ありは「あと○日」)。右の「1/3」で一覧です。</li>
         <li><b>見返せる期間</b>は、過去1年までです。予定の写真は、予定が終わって1か月で消えます(1つの予定に3枚まで)。</li>
         <li><b>1つのアカウントで1人分</b>のカレンダーです。家族に見せたいときは、このアプリのURLを教えて、その人が自分のアカウントでログインして使うか、勤務をGoogleカレンダーに登録して共有します。</li>
         <li><b>画像にする</b>: 下の「月のカレンダーを画像にする」と「選んだ日に〇をつけて画像にする」で、カレンダーを1枚の画像にして、LINEで送ったり印刷したりできます(画像は端末の中で作ります)。</li>
@@ -885,6 +1085,7 @@ function settingsHtml() {
       <div class="lrow"><input type="color" id="nl-color" value="#8e44ad" aria-label="新しいラベルの色"><input class="in" id="nl-name" maxlength="20" placeholder="新しいラベルの名前" aria-label="新しいラベルの名前"><button class="btn sm pri" data-act="l-add"${customCount >= 10 ? " disabled" : ""}>追加</button></div>
       <p class="msg err" id="label-msg"></p></div>
     ${imager ? imager.sectionsHtml() : ""}
+    ${templatesCardHtml()}
     <div class="card" id="my-usage"><h3>あなたの写真・画像の量</h3><p>${esc(usageText())}</p><p class="sub">画像の置き場は1人10枚まで、予定の写真は1つの予定に3枚までです。写真は予定が終わって1か月で消えます。</p></div>
     <div class="card"><h3>画面の色合い</h3><div class="seg" role="radiogroup">
       ${[["auto", "自動"], ["light", "ライト"], ["dark", "ダーク"]].map(([v, t]) => `<label><input type="radio" name="theme" value="${v}"${theme === v ? " checked" : ""}><span>${t}</span></label>`).join("")}
@@ -943,7 +1144,7 @@ async function settingsAction(act, el) {
         return;
       }
       S.hidden.delete(l.id);
-      await loadLabels();
+      await Promise.all([loadLabels(), loadTemplates().catch(() => {})]); // ラベルを消すと、そのラベルのテンプレートはラベルが空になる
     } else if (act === "l-add") {
       const name = $("nl-name").value.trim();
       if (!name) return labelMsg("名前を入れてください。");
@@ -1127,6 +1328,9 @@ function bind() {
     if (act === "del") return deleteEvent(el.dataset.uid, el.dataset.mode);
     if (act === "save") return saveDraft();
     if (act === "copy") return openCopy(el.dataset.uid);
+    if (act.startsWith("tp-")) return tplAction(act, el);
+    if (act === "ann-toggle") return toggleAnnounce(el.dataset.uid);
+    if (act === "ann-open") return openAnnItem(annList[Number(el.dataset.i)]);
     if (act === "copy-save") return saveCopy();
     if (act === "copy-back") { copyFrom = null; return openEvent(el.dataset.uid); }
     if (act === "cp-open" || act === "cp-cancel") return copyFormAct(act);
@@ -1144,6 +1348,7 @@ function bind() {
   });
   $("panel").addEventListener("keydown", (ev) => { extras.panelKey(ev); });
   $("panel").addEventListener("input", (ev) => {
+    if (tpl && ev.target.dataset.tp && ev.target.type !== "checkbox") return readTplField(ev.target);
     if (draft && ev.target.dataset.f && ev.target.type !== "checkbox" && ev.target.tagName !== "SELECT") return readDraftField(ev.target);
     extras.panelInput(ev.target);
   });
@@ -1151,6 +1356,7 @@ function bind() {
     const el = ev.target;
     if (draft && el.id === "f-photo") { addPhotos(el.files).then(() => { el.value = ""; }); return; }
     if (draft && el.dataset.f) return readDraftField(el);
+    if (tpl && el.dataset.tp) return readTplField(el);
     if (el.dataset.lf) return labelFieldChanged(el);
     if (el.name === "theme") { storageSet(THEME_KEY, el.value); applyTheme(); return; }
     if (el.name === "appicon") { appIcon.choose(el.value); return; }
@@ -1197,7 +1403,12 @@ async function main() {
   S.y = Number(S.today.slice(0, 4));
   S.m = Number(S.today.slice(5, 7));
   S.userId = session.user.id;
-  extras = createExtras({ S, $, esc, supabase, openPanel, setPanel, closePanel, openViewer, head, render, fail, friendlyText, selectAllPages, userId: session.user.id, isMarking: () => !!imager && imager.isMarking() });
+  extras = createExtras({
+    S, $, esc, supabase, openPanel, setPanel, closePanel, openViewer, head, render, fail, friendlyText, selectAllPages, userId: session.user.id, isMarking: () => !!imager && imager.isMarking(),
+    onImportantsChange: () => refreshAnn(),
+    onAnnField: (p, a) => { if (p === "f" && draft) draft.announce = a.announce; },
+  });
+  announcer = createAnnouncer({ el: $("ann"), esc, onOpen: openAnnItem, onList: openAnnList });
   imager = createImager({
     S, $, esc, eventsBetween, colorOf, barText, urlFor: (p) => extras.urlFor(p), ensureMonth: ensureMonthLoaded, openSettings, setNotice,
     render, setPanel, settingsHtml, closePanel, stampOff: () => { if (extras.stampMode()) extras.toggleStampMode(false); },
@@ -1208,7 +1419,7 @@ async function main() {
   let firstErr = null;
   const prev = addMonths(S.y, S.m, -1);
   const firstShifts = loadShiftsRange([prev, { y: S.y, m: S.m }]).catch((e) => { firstErr = e; });
-  await Promise.all([loadLabels(), loadOwn(), extras.load(), loadPhotos().catch(() => {}), firstShifts]);
+  await Promise.all([loadLabels(), loadOwn(), extras.load(), loadTemplates(), loadPhotos().catch(() => {}), firstShifts]);
   $("boot").hidden = true;
   render();
   scrollToDate(S.today, 1); // 今日の週が、上から2段目に来る位置から

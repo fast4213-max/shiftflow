@@ -51,7 +51,7 @@ web/                        画面(GitHub Pages で配信)
   terms.html                利用上の注意とプライバシー(未ログインでも読める)
   contact.html              お問い合わせ(未ログインでも使える)
   notices.html              お知らせ(ログイン後)
-  calendar/                 shiftflowカレンダー(アプリ内のカレンダー。index.html・cal-main.js[画面]・cal-extra.js[TODO・重要メモ・画像・スタンプ]・cal-image.js[月の画像・〇つきの画像]・cal-core.js[計算]・専用の manifest とアイコン)。設計は docs/mycalendar/DESIGN.md
+  calendar/                 shiftflowカレンダー(アプリ内のカレンダー。index.html・cal-main.js[画面・予定のテンプレート]・cal-extra.js[TODO・重要メモ・画像・スタンプ]・cal-image.js[月の画像・〇つきの画像]・cal-ann.js[アナウンスの行]・cal-core.js[計算]・専用の manifest とアイコン)。設計は docs/mycalendar/DESIGN.md
   js/config.js              Supabase の URL と公開キー、OAuth クライアント ID(★自分の値を書く)
   js/plan.js                予定の組み立て(supabase/functions/_shared/plan.js と同じ内容)
 supabase/

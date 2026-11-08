@@ -266,3 +266,33 @@ details.more > p { margin-top: 4px; }
 .pkd.on { background: var(--accent); color: var(--accent-ink); }
 .pkd.base { background: transparent; box-shadow: inset 0 0 0 2px var(--accent); opacity: 1; font-weight: 800; }
 .pk .sub { margin: 6px 0 0; }
+
+/* アナウンス: ラベルのボタンの列と曜日の列の間の1行。1件ずつ下から上へ入れ替え、長い文字は横に流す(cal-ann.js) */
+.ann { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 6px 0 10px; background: var(--head); border-top: 1px solid var(--line); font-size: 13px; font-weight: 700; }
+.ann-t { flex: 1; min-width: 0; height: 100%; text-align: left; color: var(--text); display: flex; align-items: center; gap: 6px; }
+.ann-t::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--sun); }
+.ann-w { flex: 1; min-width: 0; height: 100%; overflow: hidden; position: relative; display: flex; align-items: center; white-space: nowrap; }
+.ann-i { display: inline-block; white-space: nowrap; }
+.ann-i.in { animation: annin .35s ease-out; }
+.ann-m { display: inline-block; white-space: nowrap; }
+@keyframes annin { from { transform: translateY(100%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes annmq { from { transform: none; } to { transform: translateX(var(--ov, 0px)); } }
+.ann-n { flex: none; min-width: 40px; height: 22px; padding: 0 8px; border-radius: 11px; border: 1px solid var(--line); background: var(--card); font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) {
+  .ann-i.in, .ann-m { animation: none !important; }
+  .ann-w { display: block; line-height: 28px; text-overflow: ellipsis; }
+  .ann-i, .ann-m { display: inline; }
+}
+.abadge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 6px; font-size: 11px; font-weight: 700; color: var(--sun); border: 1px solid var(--sun); vertical-align: 1px; }
+.annk { margin: 4px 0 0 26px; }
+.annk .tg { margin: 4px 0; }
+.annk .in { margin: 2px 0 6px; }
+
+/* 予定のテンプレート: 予定の追加の上のボタン(横にスクロール)と、設定の一覧 */
+.tpls { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.tpls::-webkit-scrollbar { display: none; }
+.tpls .tpb { flex: none; max-width: 14em; overflow: hidden; text-overflow: ellipsis; }
+.tprow .tpdot { flex: none; width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
+.tprow .tpt { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.tprow .tpt b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tprow .tpt small { color: var(--muted); font-size: 12px; }

@@ -223,3 +223,44 @@ export function datesText(dates, baseYear) {
     return Number(s.slice(0, 4)) === Number(baseYear) ? md : `${Number(s.slice(0, 4))}/${md}`;
   }).join("・");
 }
+
+// ---------- アナウンス(カレンダーの上に、1件ずつ切り替えて流す) ----------
+
+export const ANNOUNCE_MAX = 10; // 上に流すのは10件まで(一覧には全部出す)
+
+// アナウンスに出すものを、出す順に並べる。
+//   own: 自分の予定(画面用に整えたもの。announce = none / dated / plain)。importants: 重要メモの行(announce・announce_on)
+//   日付ありは日付の近い順。そのあとに日付なし(予定は予定の日の順、メモはメモの並び順)。終わった予定・日付が過ぎたメモは出さない。
+//   繰り返しの予定は、今日より後(今日を含む)のいちばん近い回。戻り値: [{ kind: "event"|"memo", key, id, date, dated, text, ev? }]
+export function announceItems(own, importants, today) {
+  const dated = [], plainEv = [], plainMemo = [];
+  const md = (s) => `${Number(s.slice(5, 7))}/${Number(s.slice(8, 10))}(${WD[weekday(s)]})`;
+  const datedText = (title, start) => {
+    const n = diffDays(today, start);
+    return n <= 0 ? `今日 ${title}` : `${md(start)} ${title} あと${n}日`;
+  };
+  for (const e of own || []) {
+    if (!e.announce || e.announce === "none") continue;
+    // 今日にかかっているか、これからの、いちばん近い回(繰り返しなしは、その予定)
+    const occ = (!e.repeat || e.repeat === "none")
+      ? (e.end >= today ? e : null)
+      : expandEvent(e, today, addDays(today, 370)).find((o) => o.end >= today) || null;
+    if (!occ) continue;
+    const title = (e.title || "（タイトルなし）") + (yearsText({ ...occ, baseStart: e.start }) ? ` ${yearsText({ ...occ, baseStart: e.start })}` : "");
+    const it = { kind: "event", key: `e:${occ.id}`, id: occ.id, date: occ.start, dated: e.announce === "dated", ev: { ...occ, baseStart: e.start } };
+    if (it.dated) dated.push({ ...it, text: datedText(title, occ.start) });
+    else plainEv.push({ ...it, text: title });
+  }
+  for (const m of importants || []) {
+    if (!m.announce || m.announce === "none") continue;
+    if (m.announce === "dated") {
+      if (!m.announce_on || m.announce_on < today) continue;
+      dated.push({ kind: "memo", key: `m:${m.id}`, id: m.id, date: m.announce_on, dated: true, sort: m.sort || 0, text: datedText(m.title, m.announce_on) });
+    } else plainMemo.push({ kind: "memo", key: `m:${m.id}`, id: m.id, date: "", dated: false, sort: m.sort || 0, text: m.title });
+  }
+  const byDate = (a, b) => a.date.localeCompare(b.date) || a.text.localeCompare(b.text);
+  dated.sort(byDate);
+  plainEv.sort(byDate);
+  plainMemo.sort((a, b) => (a.sort - b.sort) || a.text.localeCompare(b.text));
+  return [...dated, ...plainEv, ...plainMemo];
+}
