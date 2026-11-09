@@ -1681,12 +1681,20 @@ await check("使い方リンク: 管理タブで開いたとき(index.html#admin
   await ctx.close();
 });
 
-await check("使い方リンク: お知らせ画面・使い方ページにも出る。幅320pxではみ出さない", async () => {
+await check("使い方リンク: 使い方ページに出る(お知らせ画面には出さない)。幅320pxではみ出さない", async () => {
   const long = [{ label: "とても長い名前をつけた動画のリンク", url: "https://drive.google.com/file/d/" + "x".repeat(200) }];
-  for (const [path, opts] of [["notices.html", { profile: USER }], ["help.html", {}]]) {
-    const { page, ctx, errors } = await open(path, { userId: path === "notices.html" ? "u1" : null, opts: { ...opts, guides: long }, viewport: { width: 320, height: 700 } });
+  {
+    const { page, ctx, errors } = await open("help.html", { userId: null, opts: { guides: long }, viewport: { width: 320, height: 700 } });
     await page.waitForSelector("#guide .guide-link");
-    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), path + " が横にはみ出す");
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "help.html が横にはみ出す");
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+  {
+    const { page, ctx, errors } = await open("notices.html", { userId: "u1", opts: { profile: USER, guides: long }, viewport: { width: 320, height: 700 } });
+    await page.waitForSelector("#notices");
+    assert.equal(await page.locator("#guide, .guide-links").count(), 0, "お知らせ画面に使い方リンクが出ている");
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "notices.html が横にはみ出す");
     assert.deepEqual(errors, []);
     await ctx.close();
   }
