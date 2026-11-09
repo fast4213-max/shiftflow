@@ -314,7 +314,7 @@ const save = () => run(async () => {
     done.push(`${id}/${size}.png`);
   }
   resetForm();
-  setMessage("追加しました。利用者が、カレンダーの設定の一番下で選べます。", "ok");
+  setMessage("追加しました。利用者が、カレンダーの設定で選べます。", "ok");
 });
 
 export function initIconsAdmin() {

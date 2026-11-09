@@ -2553,14 +2553,21 @@ await check("カレンダー設定: いちばん上に お知らせ・お問い�
   await ctx.close();
 });
 
-await check("カレンダー設定: 一番上に説明、一番下に色合いとホーム画面のアイコン。ラベルの追加・色・名前・並び替え・削除(使っているラベルは消せない)", async () => {
+await check("カレンダー設定: 説明の下に 画像・テンプレート・ラベル・出すもの・アイコン・色合い・写真の量の順。ラベルと出すものは閉じていて、押すと開く。ラベルの追加・色・名前・並び替え・削除(使っているラベルは消せない)", async () => {
   const { page, ctx, be, errors } = await calOpen();
   await page.waitForSelector(".bar");
   await page.click("#tab-settings");
   await page.waitForSelector("#about");
   const order = await page.$$eval("#panel .card", (els) => els.map((e) => e.querySelector("h3").textContent));
-  assert.deepEqual(order, ["shiftflowカレンダーについて", "このカレンダーに出すもの", "ラベル", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "予定のテンプレート", "あなたの写真・画像の量", "画面の色合い", "ホーム画面のアイコン"]);
+  assert.deepEqual(order, ["shiftflowカレンダーについて", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "予定のテンプレート", "ラベル", "このカレンダーに出すもの", "ホーム画面のアイコン", "画面の色合い", "あなたの写真・画像の量"]);
   assert.ok((await page.textContent("#about")).includes("1つのアカウントで1人分"));
+  // ラベル・このカレンダーに出すものは、最初は閉じていて、見出しの横に一言が出る
+  for (const id of ["labels", "calview"]) assert.equal(await page.$eval("#" + id, (d) => d.open), false, id);
+  assert.equal(await page.isVisible("#nl-name"), false);
+  assert.equal(await page.textContent("#labels .fold-note"), "4個");
+  assert.equal(await page.textContent("#calview .fold-note"), "勤務・休日・非番を別に");
+  await page.click("#labels summary");
+  assert.equal(await page.isVisible("#nl-name"), true);
   // 追加
   await page.fill("#nl-name", "家族");
   await page.fill("#nl-color", "#aa3366");
@@ -2584,7 +2591,8 @@ await check("カレンダー設定: 一番上に説明、一番下に色合い�
   await page.click("#f-save");
   await page.waitForFunction(() => document.getElementById("panel").hidden);
   await page.click("#tab-settings");
-    const otherRow = page.locator('.lrow[data-lid]', { has: page.locator('[data-lf="name"][value="その他"]') });
+  await page.click("#labels summary"); // 開き直すと閉じているので開く
+  const otherRow = page.locator('.lrow[data-lid]', { has: page.locator('[data-lf="name"][value="その他"]') });
   await otherRow.locator('[data-act="l-del"]').click();
   await page.waitForSelector("#label-msg:not(:empty)");
   assert.ok((await page.textContent("#label-msg")).includes("使っている予定があるので"));
@@ -3024,7 +3032,7 @@ await check("カレンダー設定: 自分の写真・画像の量が出る(MB�
   const text = await page.textContent("#my-usage");
   assert.ok(text.includes("約 3.5MB(画像の置き場 1/10枚・予定の写真 1枚)"), text);
   const order = await page.$$eval("#panel .card", (els) => els.map((e) => e.querySelector("h3").textContent));
-  assert.deepEqual(order, ["shiftflowカレンダーについて", "このカレンダーに出すもの", "ラベル", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "予定のテンプレート", "あなたの写真・画像の量", "画面の色合い", "ホーム画面のアイコン"]);
+  assert.deepEqual(order, ["shiftflowカレンダーについて", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "予定のテンプレート", "ラベル", "このカレンダーに出すもの", "ホーム画面のアイコン", "画面の色合い", "あなたの写真・画像の量"]);
   await ctx.close();
 });
 
@@ -3362,11 +3370,18 @@ await check("カレンダー設定「このカレンダーに出すもの」: Go
   assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "その他"], "休日のボタンを出さない");
   assert.deepEqual(await page.locator(".bar").allTextContents(), ["25"], "休日の予定も出さない");
   await page.click("#tab-settings");
+  // 折りたたみは閉じていて、見出しの横に今の選びが出る。見出しを押すと開く
+  assert.equal(await page.$eval("#calview", (d) => d.open), false);
+  assert.equal(await page.textContent("#calview .fold-note"), "勤務");
+  await page.click("#calview summary");
   assert.equal(await page.isChecked("#cv-duty"), true);
   assert.equal(await page.isChecked("#cv-off"), false);
   assert.equal(await page.isChecked("#cv-offduty"), false);
   await page.check("#cv-off");
   await page.waitForFunction(() => document.querySelectorAll("#chips .chip").length === 3);
+  // チェックで設定を描き直しても、開いたまま。見出しの一言も変わる
+  assert.equal(await page.$eval("#calview", (d) => d.open), true);
+  assert.equal(await page.textContent("#calview .fold-note"), "勤務・休日");
   assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "その他"]);
   const post = be.st.calls.find((c) => c.path === "/rest/v1/user_settings" && c.method === "PATCH" && c.body && "cal_show_off" in c.body);
   assert.equal(post.body.cal_show_off, true);
@@ -3387,6 +3402,7 @@ await check("カレンダー設定: アプリだけで使う人(Googleに登録�
   await page.waitForSelector(".bar");
   assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "その他"]);
   await page.click("#tab-settings");
+  await page.click("#calview summary");
   assert.equal(await page.isChecked("#cv-off"), true);
   assert.equal(await page.isChecked("#cv-offduty"), false);
   await page.check("#cv-offduty");
@@ -3400,6 +3416,8 @@ await check("カレンダー設定: アプリだけで使う人(Googleに登録�
   assert.equal(color, "rgb(212, 96, 122)");
   // 非番を外すと、勤務に含めて出る(勤務のボタンで隠れる)
   await page.click("#tab-settings");
+  assert.equal(await page.$eval("#calview", (d) => d.open), false, "設定を開き直すと、閉じた状態から");
+  await page.click("#calview summary");
   await page.uncheck("#cv-offduty");
   await page.waitForFunction(() => document.querySelectorAll("#chips .chip").length === 3);
   await page.click('[data-act="close"]');
@@ -3409,6 +3427,7 @@ await check("カレンダー設定: アプリだけで使う人(Googleに登録�
   await page.click('#chips .chip:has-text("勤務")');
   // 勤務を外す
   await page.click("#tab-settings");
+  await page.click("#calview summary");
   await page.uncheck("#cv-duty");
   await page.waitForFunction(() => document.querySelectorAll("#chips .chip").length === 2);
   await page.click('[data-act="close"]');
@@ -3603,15 +3622,15 @@ await check("デバッグ 25回目(4): 起動で勤務の予定を読む通信�
   await ctx.close();
 });
 
-await check("カレンダー設定: 「月のカレンダーを画像にする」「〇をつけて画像にする」が、ラベルの下に並ぶ。月の画像が作れる(横1080px)", async () => {
+await check("カレンダー設定: 「月のカレンダーを画像にする」「〇をつけて画像にする」が、説明の下・予定のテンプレートの上に並ぶ。月の画像が作れる(横1080px)", async () => {
   const { page, ctx, errors } = await calOpen();
   await page.waitForSelector(".bar");
   await page.click("#tab-settings");
   await page.waitForSelector("#mimg");
-  // 並び: ラベル → 月の画像 → 〇の画像 → 予定のテンプレート(2026-11-08)→ 写真・画像の量
+  // 並び: 説明 → 月の画像 → 〇の画像 → 予定のテンプレート → ラベル(2026-11-09 に、画像とテンプレートを上へ)
   const order = await page.locator("#panel .card h3").allTextContents();
   const i = (t) => order.findIndex((x) => x.includes(t));
-  assert.ok(i("ラベル") >= 0 && i("月のカレンダーを画像にする") === i("ラベル") + 1 && i("〇をつけて画像にする") === i("ラベル") + 2 && i("予定のテンプレート") === i("ラベル") + 3 && i("写真・画像の量") === i("ラベル") + 4, order.join(" / "));
+  assert.ok(i("について") >= 0 && i("月のカレンダーを画像にする") === i("について") + 1 && i("〇をつけて画像にする") === i("について") + 2 && i("予定のテンプレート") === i("について") + 3 && i("ラベル") === i("について") + 4, order.join(" / "));
   await page.click('[data-act="img-make"]');
   await page.waitForSelector("#mimg img.mimg");
   const dim = await page.locator("#mimg img.mimg").evaluate((im) => new Promise((r) => { if (im.complete) r([im.naturalWidth, im.naturalHeight]); else im.onload = () => r([im.naturalWidth, im.naturalHeight]); }));
