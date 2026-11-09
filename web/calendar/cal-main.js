@@ -1183,7 +1183,7 @@ async function settingsAction(act, el) {
       if (error) return labelMsg(friendlyText(error.message));
       await loadLabels();
     }
-    openSettings();
+    setPanel(settingsHtml()); // 開いたまま中身だけ入れ替える(openSettings だと、いちばん上までスクロールが戻ってしまう)
     render();
   } catch (err) {
     labelMsg(friendlyText(err.message || String(err)));

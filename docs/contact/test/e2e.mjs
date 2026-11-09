@@ -2579,10 +2579,14 @@ await check("カレンダー設定: 説明の下に 画像・テンプレート�
   await row.locator('[data-lf="name"]').fill("パートナー");
   await row.locator('[data-lf="name"]').blur();
   await page.waitForFunction(() => [...document.querySelectorAll("#chips .chip")].some((c) => c.textContent === "パートナー"));
-  // 並び替え(上へ)
+  // 並び替え(上へ)。ラベルの操作で、設定のスクロール位置が一番上に戻らない
+  await page.evaluate(() => { const p = document.getElementById("panel"); p.scrollTop = p.scrollHeight; });
+  const before = await page.$eval("#panel", (p) => p.scrollTop);
+  assert.ok(before > 0, "スクロールできる高さがある");
   await page.locator('[data-act="l-up"]').last().click();
   await page.waitForFunction(() => document.querySelectorAll("#chips .chip")[3].textContent === "パートナー");
   assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "非番", "パートナー", "その他"]);
+  assert.ok((await page.$eval("#panel", (p) => p.scrollTop)) > 0, "並べ替えのあとも、スクロールは一番上に戻らない");
   // 使っているラベルは消せない
   await page.keyboard.press("Escape");
   await page.click("#tab-new");
