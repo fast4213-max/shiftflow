@@ -1050,6 +1050,16 @@ function usageText() {
   return `約 ${mb(photoBytes + galleryBytes)}(画像の置き場 ${S.gallery.length}/10枚・予定の写真 ${photos}枚)`;
 }
 
+// 設定の折りたたみ(ラベル・このカレンダーに出すもの)が開いているか。設定を開き直すたびに閉じた状態から始める。
+// 設定の中身を描き直したとき(ラベルの追加・チェックの切り替えなど)に閉じてしまわないよう、開閉をここに覚える(保存はしない)
+let settingsFold = { labels: false, calview: false };
+
+// 「このカレンダーに出すもの」を閉じていても分かるように、見出しの横に出す一言(例: 勤務・休日)
+function calViewNote() {
+  const on = [S.cfg.duty && "勤務", S.cfg.off && "休日", S.cfg.offduty && "非番を別に"].filter(Boolean);
+  return on.length ? on.join("・") : "なし";
+}
+
 function settingsHtml() {
   const theme = storageGet(THEME_KEY) || "auto";
   const vis = visibleLabels();
@@ -1071,7 +1081,7 @@ function settingsHtml() {
       <ul>
         <li><b>できること</b>: 勤務入力で保存した勤務と、自分で作る予定を、月の画面で見られます。</li>
         <li><b>勤務の予定</b>は、勤務入力で直します(ここからは直せません)。名前や時間の付き方は、勤務入力の設定どおりです。</li>
-        <li><b>上のラベルのボタン</b>を押すと、そのラベルの予定が消えます。もう一度押すと戻ります。色と並び順は、下の「ラベル」で決めます。</li>
+        <li><b>上のラベルのボタン</b>を押すと、そのラベルの予定が消えます。もう一度押すと戻ります。色と並び順は、設定の「ラベル」で決めます。</li>
         <li><b>時刻</b>は分単位で入れられます。日をまたぐ予定は、終了日を次の日にします。カレンダーの帯には名前だけが出ます(時刻は、予定をタップすると出ます)。</li>
         <li><b>別の日にコピー</b>: 予定の追加の「＋ 別の日にもコピー」か、予定をタップして「別の日にコピー」で、同じ予定を選んだ日にも入れられます。</li>
         <li>下から出る画面は、「✕」のほかに、上の部分を下に引いても閉じます。</li>
@@ -1081,25 +1091,26 @@ function settingsHtml() {
         <li><b>1つのアカウントで1人分</b>のカレンダーです。家族に見せたいときは、このアプリのURLを教えて、その人が自分のアカウントでログインして使うか、勤務をGoogleカレンダーに登録して共有します。</li>
         <li><b>画像にする</b>: 下の「月のカレンダーを画像にする」と「選んだ日に〇をつけて画像にする」で、カレンダーを1枚の画像にして、LINEで送ったり印刷したりできます(画像は端末の中で作ります)。</li>
         <li>ホーム画面に追加すると、アプリのように開けます。最初に1回、社員番号とPINでログインします。</li>
-        <li>画面の色合いと、ホーム画面のアイコンは、この設定の一番下で変えられます。</li>
+        <li>ホーム画面のアイコンと、画面の色合いは、この設定の下の方で変えられます。「ラベル」と「このカレンダーに出すもの」は、見出しを押すと開きます。</li>
       </ul></details>
-    <div class="card" id="calview"><h3>このカレンダーに出すもの</h3>
+    ${imager ? imager.sectionsHtml() : ""}
+    ${templatesCardHtml()}
+    <details class="card fold" id="labels" data-fold="labels"${settingsFold.labels ? " open" : ""}><summary><h3>ラベル</h3><span class="fold-note">${vis.length}個</span></summary>
+      <p class="sub">名前と色、並び順を決めます。自分で作れるのは10個までです。勤務・休日・非番のラベルは、勤務の予定の色です(非番は、「〜」とその時間。設定で非番の時間用カレンダーを使っている人だけに出ます)。</p>
+      ${labelRows}
+      <div class="lrow"><input type="color" id="nl-color" value="#8e44ad" aria-label="新しいラベルの色"><input class="in" id="nl-name" maxlength="20" placeholder="新しいラベルの名前" aria-label="新しいラベルの名前"><button class="btn sm pri" data-act="l-add"${customCount >= 10 ? " disabled" : ""}>追加</button></div>
+      <p class="msg err" id="label-msg"></p></details>
+    <details class="card fold" id="calview" data-fold="calview"${settingsFold.calview ? " open" : ""}><summary><h3>このカレンダーに出すもの</h3><span class="fold-note">${esc(calViewNote())}</span></summary>
       <label class="tg"><input type="checkbox" data-cv="cal_show_duty" id="cv-duty"${S.cfg.duty ? " checked" : ""}> 勤務</label>
       <label class="tg"><input type="checkbox" data-cv="cal_show_off" id="cv-off"${S.cfg.off ? " checked" : ""}> 休日</label>
       <label class="tg"><input type="checkbox" data-cv="cal_offduty_label" id="cv-offduty"${S.cfg.offduty ? " checked" : ""}> 非番の時間を別のボタンにする</label>
       <p class="sub">チェックを外したものは、このカレンダーに出ません(ボタンも出ません)。Googleカレンダーに登録している人で、休日用のカレンダーを作っていない人は、休日が外れた状態から始まります。非番は、「非番を2段で出す」設定のとき、「〜」の下に出る退勤時間の帯が、別のボタン・別の色になります(外すと、勤務に含めて出します)。</p>
-      <p class="msg err" id="cv-msg"></p></div>
-    <div class="card"><h3>ラベル</h3><p class="sub">名前と色、並び順を決めます。自分で作れるのは10個までです。勤務・休日・非番のラベルは、勤務の予定の色です(非番は、「〜」とその時間。設定で非番の時間用カレンダーを使っている人だけに出ます)。</p>
-      ${labelRows}
-      <div class="lrow"><input type="color" id="nl-color" value="#8e44ad" aria-label="新しいラベルの色"><input class="in" id="nl-name" maxlength="20" placeholder="新しいラベルの名前" aria-label="新しいラベルの名前"><button class="btn sm pri" data-act="l-add"${customCount >= 10 ? " disabled" : ""}>追加</button></div>
-      <p class="msg err" id="label-msg"></p></div>
-    ${imager ? imager.sectionsHtml() : ""}
-    ${templatesCardHtml()}
-    <div class="card" id="my-usage"><h3>あなたの写真・画像の量</h3><p>${esc(usageText())}</p><p class="sub">画像の置き場は1人10枚まで、予定の写真は1つの予定に3枚までです。写真は予定が終わって1か月で消えます。</p></div>
+      <p class="msg err" id="cv-msg"></p></details>
+    ${appIcon.sectionHtml(esc)}
     <div class="card"><h3>画面の色合い</h3><div class="seg" role="radiogroup">
       ${[["auto", "自動"], ["light", "ライト"], ["dark", "ダーク"]].map(([v, t]) => `<label><input type="radio" name="theme" value="${v}"${theme === v ? " checked" : ""}><span>${t}</span></label>`).join("")}
     </div><p class="sub">「自動」は、端末のダークモードの設定に合わせます。この端末だけの設定です。</p></div>
-    ${appIcon.sectionHtml(esc)}
+    <div class="card" id="my-usage"><h3>あなたの写真・画像の量</h3><p>${esc(usageText())}</p><p class="sub">画像の置き場は1人10枚まで、予定の写真は1つの予定に3枚までです。写真は予定が終わって1か月で消えます。</p></div>
   </div>`);
 }
 function openSettings() { openPanel(settingsHtml()); }
@@ -1241,7 +1252,9 @@ function bind() {
     const inMonth = S.today.slice(0, 7) === dateKey(S.y, S.m, 1).slice(0, 7);
     openForm(null, inMonth ? S.today : dateKey(S.y, S.m, 1));
   });
-  $("tab-settings").addEventListener("click", openSettings);
+  $("tab-settings").addEventListener("click", () => { settingsFold = { labels: false, calview: false }; openSettings(); });
+  // 折りたたみの開閉を覚える(toggle は泡立たないので、取り込みの段階で受ける)
+  $("panel").addEventListener("toggle", (ev) => { const k = ev.target.dataset && ev.target.dataset.fold; if (k) settingsFold[k] = ev.target.open; }, true);
   $("tab-todo").addEventListener("click", () => extras.openTodo());
   $("tab-stamp").addEventListener("click", () => extras.toggleStampMode());
   $("btn-imp").addEventListener("click", () => extras.openImportant());
