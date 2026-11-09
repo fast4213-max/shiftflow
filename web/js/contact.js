@@ -3,7 +3,8 @@
 //   ログイン後: 社員番号・名前・所属は表示だけ(送るときはサーバーが DB から取る)。返事は「これまでのお問い合わせ」か「メールでも」
 // 予想されるバグの番号(C1 など)は docs/contact/DESIGN.md。
 import {
-  friendlyText, $, callFunction, configured, currentSession, loadProfile, loadSettings, newRequestKey, renderTopbar, supabase, toHalfWidth,
+  friendlyText, $, callFunction, configured, currentSession, loadProfile, loadSettings, markRepliesSeen, newRequestKey, renderTopbar, replyTime, supabase,
+  toHalfWidth,
 } from "./app.js?v=dev";
 import { CONTACT_EMAIL } from "./config.js?v=dev";
 
@@ -422,6 +423,10 @@ async function loadMine() {
     box.innerHTML = "";
     res.inquiries.forEach((inq) => box.appendChild(thread(inq)));
     setMessage("mine-message", res.inquiries.length ? "" : "まだお問い合わせはありません。");
+    // 出した返事を「見た」と残す(メニュー・カレンダーの「お問い合わせ」の赤い点が消える)
+    let latest = 0;
+    for (const inq of res.inquiries) for (const m of inq.messages) if (m.from === "admin") latest = Math.max(latest, replyTime(m.at));
+    markRepliesSeen(latest);
   } catch (err) {
     setMessage("mine-message", "読み込めませんでした: " + (err.message || String(err)), "error");
   }

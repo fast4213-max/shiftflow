@@ -900,3 +900,67 @@ begin
   assert (select count(*) from public.cal_templates) = 0, '利用者を消しても、テンプレートが残る';
 end
 $$;
+
+-- お問い合わせの「返事が来た」赤い点: my_contact_reply_at()
+do $$
+declare
+  u1 uuid := 'eeeeeeee-0000-4000-8000-000000000001';
+  u2 uuid := 'eeeeeeee-0000-4000-8000-000000000002';
+  a bigint;
+  b bigint;
+  c bigint;
+  n int;
+begin
+  assert not has_function_privilege('anon', 'public.my_contact_reply_at()', 'execute'), 'anon が my_contact_reply_at を実行できる';
+  assert has_function_privilege('authenticated', 'public.my_contact_reply_at()', 'execute'), 'authenticated が my_contact_reply_at を実行できない';
+  insert into auth.users (id) values (u1), (u2);
+  insert into public.inquiries (request_key, user_id, logged_in, employee_no, name, office_name, kind, reply_via, created_at)
+    values ('eeeeeeee-1000-4000-8000-000000000001', u1, true, '7000001', '試 一', '区所', 'howto', 'screen', now() - interval '2 days') returning id into a;
+  insert into public.inquiries (request_key, user_id, logged_in, employee_no, name, office_name, kind, reply_via)
+    values ('eeeeeeee-1000-4000-8000-000000000002', u2, true, '7000002', '試 二', '区所', 'howto', 'screen') returning id into b;
+
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub', u1::text, true);
+  -- 自分の内容だけ・受信メールだけでは、返事なし
+  reset role;
+  insert into public.inquiry_messages (inquiry_id, sender, channel, body, created_at) values
+    (a, 'user', 'web', '質問', now() - interval '2 days'),
+    (a, 'mail', 'mail', 'メール', now() - interval '1 day');
+  set local role authenticated;
+  assert public.my_contact_reply_at() is null, '返事が無いのに時刻が返る';
+  -- 管理者の返事(画面だけ・送れたメール)は数える。送れなかったメールは数えない
+  reset role;
+  insert into public.inquiry_messages (inquiry_id, sender, channel, body, mail_status, created_at) values
+    (a, 'admin', 'web', '返事1', null, '2026-11-09 01:00:00+00'),
+    (a, 'admin', 'mail', '返事2', 'sent', '2026-11-09 02:00:00+00'),
+    (a, 'admin', 'mail', '送れなかった', 'failed', '2026-11-09 03:00:00+00');
+  -- ほかの人(u2)への返事は、u1 の時刻に入らない
+  insert into public.inquiry_messages (inquiry_id, sender, channel, body, created_at) values (b, 'admin', 'web', 'u2への返事', '2026-11-09 05:00:00+00');
+  set local role authenticated;
+  assert public.my_contact_reply_at() = '2026-11-09 02:00:00+00', '返事の時刻が違う(送れなかったメール・ほかの人の返事を数えている?): ' || coalesce(public.my_contact_reply_at()::text, 'null');
+  perform set_config('request.jwt.claim.sub', u2::text, true);
+  assert public.my_contact_reply_at() = '2026-11-09 05:00:00+00', 'u2 の返事の時刻が違う';
+  -- 未ログインの扱い(sub なし)は null
+  perform set_config('request.jwt.claim.sub', '', true);
+  assert public.my_contact_reply_at() is null, 'ログインしていないのに時刻が返る';
+
+  -- お問い合わせのページに出るのは新しい20件だけ。21件目より古い問い合わせへの返事は数えない(見ても点が消えなくなるため)
+  reset role;
+  for n in 1..20 loop
+    insert into public.inquiries (request_key, user_id, logged_in, employee_no, name, office_name, kind, reply_via)
+      values (('eeeeeeee-2000-4000-8000-' || lpad(n::text, 12, '0'))::uuid, u1, true, '7000001', '試 一', '区所', 'other', 'screen') returning id into c;
+  end loop;
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub', u1::text, true);
+  assert public.my_contact_reply_at() is null, '21件目より古い問い合わせの返事を数えている';
+  reset role;
+  insert into public.inquiry_messages (inquiry_id, sender, channel, body, created_at) values (c, 'admin', 'web', '新しい方への返事', '2026-11-09 04:00:00+00');
+  set local role authenticated;
+  assert public.my_contact_reply_at() = '2026-11-09 04:00:00+00', '新しい問い合わせの返事を数えていない';
+
+  reset role;
+  perform set_config('request.jwt.claim.sub', '', true);
+  delete from public.inquiries where user_id in (u1, u2);
+  delete from auth.users where id in (u1, u2);
+end
+$$;

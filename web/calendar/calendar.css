@@ -103,6 +103,10 @@ button:disabled { opacity: .35; cursor: default; }
 .tab.plus { padding: 0; }
 .tab.plus .plusc { width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; }
 .tab.plus .plusc svg { width: 20px; height: 20px; stroke-width: 3; }
+/* まだ見ていないお知らせ・お問い合わせの返事の印(下の「設定」と、設定の中のボタン) */
+.tab.has-dot { position: relative; }
+.tab.has-dot::after { content: ""; position: absolute; top: 1px; left: calc(50% + 10px); width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+.links2 .btn.has-dot::after { content: ""; position: absolute; top: 7px; right: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
 
 /* パネル(下からせり上がる) */
 .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.42); z-index: 10; }
@@ -140,6 +144,17 @@ textarea.in { min-height: 90px; resize: vertical; }
 .card h3 { margin: 0 0 6px; font-size: 14px; }
 .card p, .card li { font-size: 13px; line-height: 1.6; margin: 4px 0; }
 .card ul { padding-left: 18px; margin: 4px 0; }
+/* 設定のいちばん上: お知らせ・お問い合わせを横に2つ */
+.links2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 0; }
+.links2 .btn { position: relative; height: 44px; font-size: 14px; color: var(--text); text-decoration: none; }
+.links2-note { margin: 6px 2px 0; }
+/* 折りたためるカード(設定の「shiftflowカレンダーについて」)。見出しを押すと開く */
+details.fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary::before { content: "▸"; color: var(--muted); font-size: 12px; }
+details.fold[open] > summary::before { content: "▾"; }
+details.fold > summary h3 { margin: 0; }
+details.fold[open] > summary { margin-bottom: 6px; }
 .lrow { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
 .lrow input[type=color] { width: 36px; height: 34px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; flex: none; }
 .lrow .in { flex: 1; min-width: 0; padding: 6px 8px; }

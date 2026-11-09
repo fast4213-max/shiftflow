@@ -51,6 +51,10 @@ function backend(opts = {}) {
       if (opts.noticesDelay) await new Promise((r) => setTimeout(r, opts.noticesDelay));
       return json(st.notices);
     }
+    if (path === "/rest/v1/rpc/my_contact_reply_at") {
+      if (opts.replyAtFail) return json({ message: "boom" }, 500);
+      return json(opts.replyAt ?? null); // 自分のお問い合わせへの、いちばん新しい返事の時刻(無ければ null)
+    }
     if (path === "/rest/v1/rpc/contact_offices") {
       if (opts.officesDelay) await new Promise((r) => setTimeout(r, opts.officesDelay));
       return opts.officesFail ? json({ message: "x" }, 500) : json(["A区所", "B区所"]);
@@ -1478,6 +1482,32 @@ await check("ログイン後: ログインが切れていたら、ログイン�
   await ctx.close();
 });
 
+await check("お問い合わせの返事の赤い点: 返事が来るとメニューの「お問い合わせ」に点。お問い合わせのページで見ると消え、新しい返事でまた付く。読めないときは出さない", async () => {
+  const o = { profile: USER, replyAt: "2026-10-04T00:00:00.000000+00:00" }; // DB はマイクロ秒まで返す。ページの返事(mine)は 2026-10-04T00:00:00Z
+  const { page, ctx, errors } = await open("notices.html", { userId: "u1", opts: o });
+  await page.waitForSelector("#nav-contact.has-dot");
+  await page.goto(BASE + "/contact.html");
+  await page.waitForSelector("#mine .bubble.from-admin");
+  assert.equal(await page.evaluate(() => localStorage.getItem("shiftflow-contact-reply-seen")), String(Date.parse("2026-10-04T00:00:00Z")));
+  assert.equal(await page.locator("#nav-contact.has-dot").count(), 0); // 開いているページには付けない
+  await page.goto(BASE + "/notices.html");
+  await page.waitForSelector("#notices .card");
+  await page.waitForTimeout(800);
+  assert.equal(await page.locator("#nav-contact.has-dot").count(), 0);
+  // 新しい返事が来たら、また付く
+  o.replyAt = "2026-10-05T03:00:00.5+00:00";
+  await page.reload();
+  await page.waitForSelector("#nav-contact.has-dot");
+  // 読めないときは出さない(画面は止まらない)
+  o.replyAtFail = true;
+  await page.reload();
+  await page.waitForSelector("#notices .card");
+  await page.waitForTimeout(800);
+  assert.equal(await page.locator("#nav-contact.has-dot").count(), 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await check("お知らせのページ: 全部出し(NEW付き)、見たら赤い点が消える(N7・N8)", async () => {
   const { page, ctx, errors } = await open("notices.html", { userId: "u1", opts: { profile: USER } });
   await page.waitForSelector("#notices .card");
@@ -2464,6 +2494,61 @@ await check("カレンダー: 区所を決めていない人には、設定へ�
   assert.ok((await b.page.textContent("#banner")).includes("読めませんでした"));
   assert.equal(await b.page.locator("#chips .chip").count(), 4);
   await b.ctx.close();
+});
+
+await check("カレンダー設定: いちばん上に お知らせ・お問い合わせ(横並び)と注意書き。説明は閉じていて、押すと開く。まだ見ていないものは赤い点(下の「設定」にも)", async () => {
+  const o = { replyAt: "2026-10-04T00:00:00.000000+00:00" };
+  const { page, ctx, errors } = await calOpen({}, o);
+  await page.waitForSelector(".bar");
+  await page.waitForSelector("#tab-settings.has-dot");
+  await page.click("#tab-settings");
+  await page.waitForSelector("#about");
+  // 並び: ボタン2つ → 注意書き → 説明
+  const top = await page.$$eval("#panel .pb > *", (els) => els.slice(0, 3).map((e) => e.className + "|" + e.textContent.trim().replace(/\s+/g, " ").slice(0, 30)));
+  assert.deepEqual(top, ["links2|📢 お知らせ ✉️ お問い合わせ", "sub links2-note|※ 意見・要望はお問い合わせから", "card fold|shiftflowカレンダーについて できること: 勤務入力"]);
+  assert.ok((await page.getAttribute("#to-notices", "href")).endsWith("notices.html"));
+  assert.ok((await page.getAttribute("#to-contact", "href")).endsWith("contact.html"));
+  // 横に並ぶ(同じ高さ・同じ幅)
+  // (パネルは下から出てくる途中なので、2つを同じ瞬間に測る)
+  const [a, b] = await page.evaluate(() => ["to-notices", "to-contact"].map((id) => { const r = document.getElementById(id).getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width }; }));
+  assert.ok(Math.abs(a.y - b.y) < 1 && Math.abs(a.width - b.width) < 1 && b.x > a.x + a.width, JSON.stringify([a, b]));
+  await page.waitForSelector("#to-notices.has-dot");
+  await page.waitForSelector("#to-contact.has-dot");
+  // 説明は最初は閉じている。見出しを押すと開く
+  assert.equal(await page.$eval("#about", (d) => d.open), false);
+  assert.equal(await page.isVisible("#about ul"), false);
+  await page.waitForTimeout(500); // パネルが出きってから写す
+  await page.screenshot({ path: OUT + "calendar-settings-top.png" });
+  await page.click("#about summary");
+  assert.equal(await page.isVisible("#about ul"), true);
+  await page.click("#about summary");
+  assert.equal(await page.isVisible("#about ul"), false);
+
+  // お問い合わせを見て戻ると、お問い合わせの点だけ消える(お知らせはまだなので「設定」の点は残る)
+  await page.click("#to-contact");
+  await page.waitForSelector("#mine .bubble.from-admin");
+  await page.goBack();
+  await page.waitForSelector(".bar");
+  await page.waitForSelector("#tab-settings.has-dot");
+  await page.click("#tab-settings");
+  await page.waitForSelector("#to-notices.has-dot");
+  assert.equal(await page.locator("#to-contact.has-dot").count(), 0);
+  // お知らせも見て戻ると、全部消える
+  await page.click("#to-notices");
+  await page.waitForSelector("#notices .card");
+  await page.goBack();
+  await page.waitForSelector(".bar");
+  await page.waitForTimeout(800);
+  assert.equal(await page.locator("#tab-settings.has-dot").count(), 0);
+  await page.click("#tab-settings");
+  await page.waitForSelector("#about");
+  assert.equal(await page.locator("#panel .has-dot").count(), 0);
+  // 見た返事より新しい返事があれば、カレンダーにもまた付く(勤務入力側と同じ記録。calOpen は opts を写すので、見た記録の方を古くする)
+  await page.evaluate(() => localStorage.setItem("shiftflow-contact-reply-seen", String(Date.parse("2026-10-03T00:00:00Z"))));
+  await page.reload();
+  await page.waitForSelector("#tab-settings.has-dot");
+  assert.deepEqual(errors, []);
+  await ctx.close();
 });
 
 await check("カレンダー設定: 一番上に説明、一番下に色合いとホーム画面のアイコン。ラベルの追加・色・名前・並び替え・削除(使っているラベルは消せない)", async () => {

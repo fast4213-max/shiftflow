@@ -1,7 +1,9 @@
 // shiftflowカレンダー(アプリ内のカレンダー)。設計は docs/mycalendar/DESIGN.md。
 // 勤務の予定は、勤務の記録から Edge Function(calendar-shifts)が、勤務入力の設定どおりに組み立てて返す(Google には何も書かない・読まない)。
 // 自分で作る予定・ラベルは、Supabase の cal_* の表(本人の行だけ・RLS)。
-import { callFunction, currentSession, friendlyText, go, loadProfile, loadSettings, selectAllPages, supabase } from "../js/app.js?v=dev";
+import {
+  callFunction, currentSession, fetchContactReplyAt, fetchNotices, friendlyText, go, hasUnseenReply, loadProfile, loadSettings, selectAllPages, supabase, unseenNotices,
+} from "../js/app.js?v=dev";
 import { createExtras, shrinkForEvent } from "./cal-extra.js?v=dev";
 import { createImager } from "./cal-image.js?v=dev";
 import { createAnnouncer } from "./cal-ann.js?v=dev";
@@ -36,6 +38,7 @@ const S = {
   panel: null,         // 開いているパネル
   todos: [], importants: [], gallery: [], stampDefs: [], stamps: [], // 後の段階の表(cal-extra.js)
   templates: [],       // 予定のテンプレート(cal_templates)
+  dots: { notices: false, contact: false }, // まだ見ていないお知らせ・お問い合わせの返事(設定の赤い点)
 };
 let extras = null;
 let imager = null; // 月の画像・〇つきの画像(cal-image.js)
@@ -1059,7 +1062,12 @@ function settingsHtml() {
     </div>`).join("");
   const customCount = S.labels.filter((l) => l.kind === "custom").length;
   return (`${head("設定")}<div class="pb">
-    <div class="card" id="about"><h3>shiftflowカレンダーについて</h3>
+    <div class="links2">
+      <a class="btn${S.dots.notices ? " has-dot" : ""}" id="to-notices" href="../notices.html">📢 お知らせ</a>
+      <a class="btn${S.dots.contact ? " has-dot" : ""}" id="to-contact" href="../contact.html">✉️ お問い合わせ</a>
+    </div>
+    <p class="sub links2-note">※ 意見・要望はお問い合わせから</p>
+    <details class="card fold" id="about"><summary><h3>shiftflowカレンダーについて</h3></summary>
       <ul>
         <li><b>できること</b>: 勤務入力で保存した勤務と、自分で作る予定を、月の画面で見られます。</li>
         <li><b>勤務の予定</b>は、勤務入力で直します(ここからは直せません)。名前や時間の付き方は、勤務入力の設定どおりです。</li>
@@ -1074,7 +1082,7 @@ function settingsHtml() {
         <li><b>画像にする</b>: 下の「月のカレンダーを画像にする」と「選んだ日に〇をつけて画像にする」で、カレンダーを1枚の画像にして、LINEで送ったり印刷したりできます(画像は端末の中で作ります)。</li>
         <li>ホーム画面に追加すると、アプリのように開けます。最初に1回、社員番号とPINでログインします。</li>
         <li>画面の色合いと、ホーム画面のアイコンは、この設定の一番下で変えられます。</li>
-      </ul></div>
+      </ul></details>
     <div class="card" id="calview"><h3>このカレンダーに出すもの</h3>
       <label class="tg"><input type="checkbox" data-cv="cal_show_duty" id="cv-duty"${S.cfg.duty ? " checked" : ""}> 勤務</label>
       <label class="tg"><input type="checkbox" data-cv="cal_show_off" id="cv-off"${S.cfg.off ? " checked" : ""}> 休日</label>
@@ -1095,6 +1103,17 @@ function settingsHtml() {
   </div>`);
 }
 function openSettings() { openPanel(settingsHtml()); }
+
+// まだ見ていないお知らせ・お問い合わせの返事があれば、下のメニューの「設定」と、設定の中のボタンに赤い点を付ける。
+// 見た記録は勤務入力側と同じもの(この端末に1つ)。見て「戻る」で戻ると、画面を読み直す(app.js)ので点も付け直る。
+// 読めないときは点を出さない(カレンダーの動きは止めない)
+async function loadDots() {
+  const [notices, replyAt] = await Promise.all([fetchNotices().catch(() => null), fetchContactReplyAt().catch(() => null)]);
+  S.dots = { notices: !!(notices && unseenNotices(notices).length), contact: hasUnseenReply(replyAt) };
+  $("tab-settings").classList.toggle("has-dot", S.dots.notices || S.dots.contact);
+  $("to-notices")?.classList.toggle("has-dot", S.dots.notices); // 読めるより先に設定を開いていたとき
+  $("to-contact")?.classList.toggle("has-dot", S.dots.contact);
+}
 
 // カレンダーに出すもの(勤務・休日・非番): 保存して、すぐ反映する
 async function saveCalView(col, value) {
@@ -1415,6 +1434,7 @@ async function main() {
     render, setPanel, settingsHtml, closePanel, stampOff: () => { if (extras.stampMode()) extras.toggleStampMode(false); },
   });
   bind();
+  loadDots().catch(() => {});
   appIcon.loadRemote(supabase, esc); // 管理画面で足したアイコン(読めなくても、はじめから入っているものは使える)
   // 速く出すため、読み込みは一緒に始める。勤務の予定は、まず見える範囲(今の月と前の月)だけ1回で読み、残りは出したあとに読む
   let firstErr = null;

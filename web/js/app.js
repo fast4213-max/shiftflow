@@ -105,6 +105,7 @@ export function renderTopbar(current, { loggedIn = false, isAdmin = false } = {}
     a.textContent = label;
     if (href === current) a.className = "current";
     if (href === "notices.html") a.id = "nav-notices";
+    if (href === "contact.html") a.id = "nav-contact";
     bar.appendChild(a);
   });
 
@@ -126,6 +127,12 @@ export function renderTopbar(current, { loggedIn = false, isAdmin = false } = {}
   if (loggedIn && !isAdmin && current !== "notices.html") {
     fetchNotices().then((list) => {
       if (list && unseenNotices(list).length) $("nav-notices")?.classList.add("has-dot");
+    }).catch(() => {});
+  }
+  // まだ見ていない、お問い合わせの返事があれば、メニューの「お問い合わせ」に赤い点を付ける
+  if (loggedIn && !isAdmin && current !== "contact.html") {
+    fetchContactReplyAt().then((at) => {
+      if (hasUnseenReply(at)) $("nav-contact")?.classList.add("has-dot");
     }).catch(() => {});
   }
 }
@@ -166,6 +173,50 @@ export function unseenNotices(list) {
 export function markNoticesSeen(list) {
   try {
     window.localStorage.setItem(NOTICES_SEEN_KEY, JSON.stringify(list.map(noticeKey)));
+  } catch (_) { /* 保存できない端末では何もしない */ }
+}
+
+// ---------- お問い合わせの返事(赤い点) ----------
+// 「見た返事の時刻」はこの端末に1つだけ持つ(勤務入力側のメニューとカレンダーで同じもの。どちらから見ても両方の点が消える)
+
+const CONTACT_SEEN_KEY = "shiftflow-contact-reply-seen";
+
+// 時刻の文字列をミリ秒に。DB はマイクロ秒(.123456)まで返すので、3けたに切ってから読む(端末による読み方の違いを避ける)
+export function replyTime(value) {
+  if (typeof value !== "string" || !value) return 0;
+  const t = Date.parse(value.replace(/(\.\d{3})\d+/, "$1"));
+  return Number.isFinite(t) ? t : 0;
+}
+
+// 自分のお問い合わせに来た、いちばん新しい返事の時刻(ミリ秒)。返事が無ければ 0。読めない・遅い(6秒)ときは null
+export async function fetchContactReplyAt() {
+  if (!configured) return null;
+  const timeout = new Promise((resolve) => setTimeout(() => resolve({ data: null, error: new Error("timeout") }), 6000));
+  try {
+    const { data, error } = await Promise.race([supabase.rpc("my_contact_reply_at"), timeout]);
+    if (error) return null;
+    return data == null ? 0 : replyTime(data);
+  } catch (_) {
+    return null;
+  }
+}
+
+// まだ見ていない返事があるか。見た記録をこの端末に保存できないときは、点を出さない
+export function hasUnseenReply(at) {
+  if (!at) return false;
+  try {
+    return at > (Number(window.localStorage.getItem(CONTACT_SEEN_KEY)) || 0);
+  } catch (_) {
+    return false;
+  }
+}
+
+// お問い合わせのページで返事を表示したら、その中のいちばん新しい時刻を「見た」と残す(前より古くはしない)
+export function markRepliesSeen(at) {
+  if (!at) return;
+  try {
+    const prev = Number(window.localStorage.getItem(CONTACT_SEEN_KEY)) || 0;
+    if (at > prev) window.localStorage.setItem(CONTACT_SEEN_KEY, String(at));
   } catch (_) { /* 保存できない端末では何もしない */ }
 }
 
