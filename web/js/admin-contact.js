@@ -4,7 +4,7 @@
 import { friendlyText, $, callFunction, newRequestKey } from "./app.js?v=dev";
 import { CONTACT_EMAIL } from "./config.js?v=dev";
 
-const KIND_LABELS = { login: "ログインできない", howto: "使い方・質問", bug: "不具合", other: "その他" };
+const KIND_LABELS = { login: "ログインできない", howto: "使い方・質問", bug: "不具合", other: "意見・要望・その他" };
 const MAX_REPLY = 3000;
 // メールを送る操作の待ち時間。サーバーは GAS を最大28秒待ち、GAS 側でも順番待ちがあるので、既定の30秒より長くする(Q5)
 const MAIL_TIMEOUT_MS = 60000;

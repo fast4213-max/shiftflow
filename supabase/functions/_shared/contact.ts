@@ -7,7 +7,7 @@ export const KINDS: Record<string, string> = {
   login: "ログインできない",
   howto: "使い方・質問",
   bug: "不具合",
-  other: "その他",
+  other: "意見・要望・その他", // 表示だけ(保存する値は other のまま。2026-11-09)
 };
 
 export const MAX_BODY = 1000; // 利用者の内容

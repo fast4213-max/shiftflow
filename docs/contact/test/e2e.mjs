@@ -1454,6 +1454,8 @@ await check("ログイン後: メニューに お知らせ(未読の赤い点)�
   assert.equal(await page.isVisible("#guest-fields"), false);
   assert.equal(await page.isVisible("#view-section"), false);
   await page.waitForSelector("#mine .bubble.from-admin");
+  // 「※ 意見・要望はお問い合わせから」(カレンダーの設定)に合わせた種類の表示(保存する値は other のまま。AP3)
+  assert.equal(await page.textContent('#kind option[value="other"]'), "意見・要望・その他");
   await page.selectOption("#kind", "howto");
   await page.fill("#body", "質問です");
   await page.screenshot({ path: OUT + "contact-member.png", fullPage: true });
