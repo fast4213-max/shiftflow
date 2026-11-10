@@ -317,7 +317,9 @@ export function createExtras(env) {
 
   function trayHtml() {
     const items = S.stampDefs.map((d) => `<button class="tk${d.kind === "text" ? " tk-tx" : ""}${mode.def === d.id ? " on" : ""}" data-act="st-pick" data-id="${esc(d.id)}" aria-label="スタンプ">${defInner(d)}</button>`).join("");
-    const msg = S.stampsOff && S.stampDefs.length ? '<span class="tmsg">スタンプは隠しています(置いている間だけ出します。出すときは、曜日の上の「スタンプ」を押す)</span>' : !S.stampDefs.length ? '<span class="tmsg">スタンプを作りましょう →</span>' : mode.def ? '<span class="tmsg">置きたい日をタップ(置いたスタンプを動かすときは、選びを外す)</span>' : '<span class="tmsg">スタンプを選ぶ(置いたスタンプは、タップで編集・ドラッグで移動)</span>';
+    // 隠しているときの一言は、選ぶ前の案内にだけ付ける(選んだあとの「置きたい日をタップ」は消さない。AQ2)
+    const offNote = S.stampsOff ? "。いまは隠しています(置いている間だけ出します。出すときは、曜日の上の「スタンプ」を押す)" : "";
+    const msg = !S.stampDefs.length ? '<span class="tmsg">スタンプを作りましょう →</span>' : mode.def ? '<span class="tmsg">置きたい日をタップ(置いたスタンプを動かすときは、選びを外す)</span>' : `<span class="tmsg">スタンプを選ぶ(置いたスタンプは、タップで編集・ドラッグで移動)${offNote}</span>`;
     return `${items}<button class="btn tadd" data-act="df-new">＋ 作る</button><button class="btn tadd" data-act="df-list">管理</button>${msg}<button class="btn tadd" data-act="st-off">閉じる</button>`;
   }
   function renderTray() {
@@ -625,6 +627,8 @@ export function createExtras(env) {
     S.stampDefs = S.stampDefs.filter((x) => x.id !== id);
     S.stamps = S.stamps.filter((s) => s.stamp_def_id !== id);
     if (mode.def === id) mode.def = null;
+    // 種類が1つも無くなったら「スタンプ」のボタンも消えるので、隠すのも外す(あとで作ったスタンプが、いきなり隠れないように。AQ3)
+    if (!S.stampDefs.length && S.stampsOff) env.setStampsOff(false);
     if (d.image_path) await removeFiles([d.image_path]);
     setPanel(defListHtml());
     hydrate($("panel"));

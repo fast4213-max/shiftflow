@@ -2886,11 +2886,34 @@ await check("カレンダー(スタンプ): 曜日の上の「スタンプ」で
   await page.click("#tab-stamp");
   await page.waitForSelector(".stamp");
   assert.ok((await page.textContent("#tray")).includes("隠しています"));
+  // スタンプを選んだら、隠していても「置きたい日をタップ」の案内を出す(AQ2)
+  await page.click("#tray .tk");
+  assert.ok((await page.textContent("#tray")).includes("置きたい日をタップ"));
   await page.click('#tray [data-act="st-off"]');
   await page.waitForFunction(() => !document.querySelector(".stamp"));
   // もう一度押すと戻る
   await page.click("#chips [data-chip-stamps]");
   await page.waitForSelector(".stamp");
+  // 隠したまま種類を全部消すと、隠すのも外れる。あとで作ったスタンプは、置く画面を閉じても出る(AQ3)
+  await page.click("#chips [data-chip-stamps]");
+  await page.click("#tab-stamp");
+  await page.click('#tray [data-act="df-list"]');
+  await page.click('[data-act="df-del"]');
+  await page.waitForFunction(() => !document.querySelector(".lrow[data-did]"));
+  await page.click('[data-act="close"]');
+  assert.equal(await page.locator("#chips [data-chip-stamps]").count(), 0);
+  await page.click('#tray [data-act="df-new"]');
+  await page.fill("#d-emoji", "⭐");
+  await page.click('[data-act="df-save"]');
+  await page.waitForSelector(".lrow[data-did]");
+  await page.click('[data-act="close"]');
+  await page.click("#tray .tk");
+  await page.click(`.cell[data-date="${today}"]`, { position: { x: 4, y: 4 } });
+  await page.waitForSelector(".stamp");
+  await page.click('#tray [data-act="st-off"]');
+  await page.waitForTimeout(200);
+  assert.equal(await page.locator(".stamp").count(), 1, "新しく作ったスタンプは隠れない");
+  assert.equal(await page.locator("#chips [data-chip-stamps]").getAttribute("aria-pressed"), "true");
   assert.deepEqual(errors, []);
   await ctx.close();
 });

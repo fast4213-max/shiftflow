@@ -237,6 +237,12 @@ const barText = (e) => titleOf(e);
 
 // ---------- 描画: 月の画面 ----------
 
+// スタンプを全部隠す・出す(この端末に覚える)
+function setStampsOff(on) {
+  S.stampsOff = on;
+  storageSet(STAMPS_OFF_KEY, on ? "1" : "");
+}
+
 function renderChips() {
   const el = $("chips");
   el.innerHTML = visibleLabels().map((l) =>
@@ -1279,8 +1285,7 @@ function bind() {
   $("banner").addEventListener("click", (ev) => { if (ev.target.closest('[data-act="dismiss-notice"]')) setNotice(""); });
   $("chips").addEventListener("click", (ev) => {
     if (ev.target.closest("[data-chip-stamps]")) {
-      S.stampsOff = !S.stampsOff;
-      storageSet(STAMPS_OFF_KEY, S.stampsOff ? "1" : "");
+      setStampsOff(!S.stampsOff);
       render();
       return;
     }
@@ -1450,6 +1455,7 @@ async function main() {
   extras = createExtras({
     S, $, esc, supabase, openPanel, setPanel, closePanel, openViewer, head, render, fail, friendlyText, selectAllPages, userId: session.user.id, isMarking: () => !!imager && imager.isMarking(),
     onImportantsChange: () => refreshAnn(),
+    setStampsOff,
     onAnnField: (p, a) => { if (p === "f" && draft) draft.announce = a.announce; },
   });
   announcer = createAnnouncer({ el: $("ann"), esc, onOpen: openAnnItem, onList: openAnnList });
