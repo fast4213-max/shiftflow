@@ -12,12 +12,12 @@ const MAX_TEXT = 20000;
 // 読めなければ、利用者に見せる理由を Error で投げる
 export function decodeImport(text) {
   const raw = String(text || "").trim();
-  if (!raw) throw new Error("貼り付けた文字が空です。写真取込の「コピー」を押してから貼り付けてください。");
-  if (raw.length > MAX_TEXT) throw new Error("取込の文字が長すぎます。写真取込の「コピー」で写した文字だけを貼り付けてください。");
+  if (!raw) throw new Error("貼り付けた文字が空です。Claude の答えの「コード」の枠をコピーしてから貼り付けてください。");
+  if (raw.length > MAX_TEXT) throw new Error("取込の文字が長すぎます。Claude の答えの「コード」の枠の中だけをコピーして貼り付けてください。");
   const plain = decodePlain(raw);
   if (plain) return plain;
   const m = raw.match(/(?:shiftflow-import:|import=)\s*([A-Za-z0-9_-]+)/) || raw.match(/^([A-Za-z0-9_-]+)$/);
-  if (!m) throw new Error("取込の文字ではありません。写真取込の「コピー」で写した文字を、そのまま貼り付けてください。");
+  if (!m) throw new Error("取込の文字ではありません。Claude の答えの「コード」の枠(「shiftflow:…」で始まる文字)をコピーして、そのまま貼り付けてください。");
 
   let data;
   try {
@@ -26,7 +26,7 @@ export function decodeImport(text) {
     const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
     data = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
   } catch {
-    throw new Error("取込の文字が途中で切れているか、壊れています。写真取込の「コピー」からやり直してください。");
+    throw new Error("取込の文字が途中で切れているか、壊れています。Claude の答えの「コード」の枠を、もう一度コピーしてください。");
   }
 
   const bad = () => new Error("取込の中身の形が違います。写真取込を最新にして、やり直してください。");

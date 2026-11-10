@@ -1,292 +1,97 @@
 <title>勤務表の写真取込</title>
 <style>
-/* Layout: スマホ1画面。準備 → 読み取り中 → 確認(上=写真、下=勤務入力と同じ並びの表、下に操作バー) */
+/* Layout: スマホ1画面。名前・月 → 指示文をコピー → 手順(Claude のチャットで読み取り、shiftflow に貼り付け) */
 :root {
   --bg: #f5f5f5; --card: #ffffff; --fg: #222222; --muted: #666666; --line: #dddddd; --field: #bbbbbb;
-  --accent: #1a73e8; --accent-fg: #ffffff; --danger: #c62828; --sat: #1565c0;
-  --hol-bg: #fdecea; --hol-line: #e57373; --warn-bg: #fff6d6; --warn-line: #e0b33a; --viewer: #e9ebee;
+  --accent: #1a73e8; --accent-fg: #ffffff; --danger: #c62828;
   --font: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
-  --mono: ui-monospace, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #15171a; --card: #1f2226; --fg: #e8eaed; --muted: #a0a6ad; --line: #33373c; --field: #4a5057;
-  --accent: #6aa3f5; --accent-fg: #0d1520; --danger: #f28b82; --sat: #8ab4f8;
-  --hol-bg: #3a2222; --hol-line: #a85a55; --warn-bg: #3a3218; --warn-line: #a88a2e; --viewer: #0e1012; color-scheme: dark } }
+  --accent: #6aa3f5; --accent-fg: #0d1520; --danger: #f28b82; color-scheme: dark } }
 :root[data-theme="dark"] {
   --bg: #15171a; --card: #1f2226; --fg: #e8eaed; --muted: #a0a6ad; --line: #33373c; --field: #4a5057;
-  --accent: #6aa3f5; --accent-fg: #0d1520; --danger: #f28b82; --sat: #8ab4f8;
-  --hol-bg: #3a2222; --hol-line: #a85a55; --warn-bg: #3a3218; --warn-line: #a88a2e; --viewer: #0e1012; color-scheme: dark }
+  --accent: #6aa3f5; --accent-fg: #0d1520; --danger: #f28b82; color-scheme: dark }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; }
 body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 15px; line-height: 1.6; }
-button, input, select { font: inherit; font-size: 1rem; color: var(--fg); }
-button { padding: 9px 14px; border: 1px solid var(--field); border-radius: 6px; background: var(--card); cursor: pointer; }
-button:disabled { opacity: 0.5; cursor: default; }
-button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: bold; }
-button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-input, select { padding: 8px; border: 1px solid var(--field); border-radius: 6px; background: var(--card); width: 100%; min-width: 0; }
-a { color: var(--accent); }
+button, input, select, textarea { font: inherit; font-size: 1rem; color: var(--fg); }
+button { padding: 11px 14px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: var(--accent-fg); font-weight: bold; cursor: pointer; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input, select, textarea { padding: 8px; border: 1px solid var(--field); border-radius: 6px; background: var(--card); width: 100%; min-width: 0; }
 .muted { color: var(--muted); font-size: 0.88rem; }
-.error { color: var(--danger); }
 
-/* 準備の画面 */
-#setup { max-width: 560px; margin: 0 auto; padding-block: 14px 40px; padding-inline: 16px; }
-#setup h1 { font-size: 1.25rem; margin: 4px 0 2px; text-wrap: balance; }
+main { max-width: 560px; margin: 0 auto; padding-block: 14px 40px; padding-inline: 16px; }
+h1 { font-size: 1.25rem; margin: 4px 0 2px; text-wrap: balance; }
+h2 { font-size: 1rem; margin: 0; }
+main > p { margin: 0; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-top: 12px; display: grid; gap: 10px; }
-.card label { font-weight: bold; display: grid; gap: 4px; }
-.findby { display: grid; gap: 6px; }
-.photo-pick { display: grid; gap: 8px; }
-.pick-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.pick { display: block; text-align: center; padding: 10px 8px; border: 1px solid var(--field); border-radius: 6px; background: var(--card); font-weight: bold; cursor: pointer; position: relative; overflow: hidden; }
-/* 見えないが押せる file input(display:none だと開かないアプリがあるため、ボタンの上に透明で重ねる) */
-.pick input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 0; }
-.pick:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
-#photoinfo { margin: 0; }
-#thumb { max-height: 160px; object-fit: contain; border: 1px solid var(--line); border-radius: 6px; background: var(--viewer); }
-#busy { display: flex; gap: 10px; align-items: center; }
-.spinner { width: 18px; height: 18px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); animation: spin 0.9s linear infinite; flex: none; }
-@keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
-details.help { background: var(--card); border: 1px solid var(--line); border-radius: 8px; margin-top: 12px; }
-details.help summary { padding: 10px 14px; font-weight: bold; color: var(--accent); cursor: pointer; list-style: none; }
-details.help summary::-webkit-details-marker { display: none; }
-details.help summary::before { content: "＋ "; }
-details.help[open] summary::before { content: "− "; }
-.help-body { padding: 0 14px 12px; display: grid; gap: 10px; font-size: 0.9rem; }
-.help-body h2 { font-size: 0.95rem; margin: 4px 0 0; }
-.help-body ol, .help-body ul { margin: 0; padding-left: 1.3em; display: grid; gap: 4px; }
-.help-body p { margin: 0; }
-.note-box { font-size: 0.85rem; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
-
-/* 確認の画面 */
-#confirm { height: 100%; display: flex; flex-direction: column; }
-.head { display: flex; align-items: center; gap: 8px; padding: 4px 16px; background: var(--card); border-bottom: 1px solid var(--line); }
-.head strong { margin-right: auto; font-size: 1rem; }
-.viewer { position: relative; flex: 0 0 34%; overflow: hidden; background: var(--viewer); touch-action: none; user-select: none; }
-.viewer img { position: absolute; left: 0; top: 0; max-width: none; transform-origin: 0 0; pointer-events: none; }
-.zoom { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 6px; }
-.zoom button { padding: 4px 12px; font-size: 1.1rem; background: var(--card); opacity: 0.92; }
-.list { flex: 1; overflow: auto; background: var(--card); -webkit-overflow-scrolling: touch; }
-.who { margin: 0; padding: 6px 16px 0; font-size: 0.95rem; }
-.who.warn { color: var(--danger); }
-.monthwarn { margin: 6px 16px 0; padding: 8px 10px; border: 1px solid var(--danger); border-radius: 6px; color: var(--danger); font-size: 0.88rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.monthwarn span { flex: 1 1 12em; }
-.monthwarn button { padding: 6px 12px; border-color: var(--danger); color: var(--danger); font-weight: bold; }
-.summary { margin: 0; padding: 6px 16px; font-size: 0.8rem; line-height: 1.5; color: var(--muted); border-bottom: 1px solid var(--line); }
-table.shift { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-.shift th { white-space: nowrap; position: sticky; top: 0; background: var(--bg); color: var(--muted); font-size: 0.8rem; font-weight: normal; padding: 6px 4px; text-align: center; border-bottom: 1px solid var(--line); z-index: 1; }
-.shift td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: center; vertical-align: top; }
-.shift .day { width: 30px; font-weight: bold; padding-top: 12px; }
-.shift .wd { width: 26px; padding-top: 12px; }
-.shift .wd.red { color: var(--danger); }
-.shift .wd.sat { color: var(--sat); }
-.shift .type { width: 36px; padding-top: 9px; }
-.badge { display: inline-block; min-width: 28px; padding: 1px 4px; border: 1px solid var(--field); border-radius: 4px; font-size: 0.85rem; }
-.badge.hol { background: var(--hol-bg); color: var(--danger); border-color: var(--hol-line); }
-.shift .code { text-align: left; }
-.shift .code input { width: 120px; text-align: center; padding: 6px 4px; }
-.hint { display: block; font-size: 0.78rem; color: var(--muted); padding: 2px 2px 0; }
-tr.unsure td { background: var(--warn-bg); }
-tr.unsure .code input { border-color: var(--warn-line); }
-.bar { display: grid; gap: 6px; padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px)); background: var(--card); border-top: 1px solid var(--line); }
-.bar .row { display: flex; gap: 8px; }
-.bar .row > button { flex: none; padding-inline: 10px; }
-.bar .row > a { flex: 1; }
-a.go[aria-disabled="true"] { opacity: 0.5; pointer-events: none; }
-a.go { display: block; text-align: center; padding: 10px 14px; border-radius: 6px; background: var(--accent); color: var(--accent-fg); font-weight: bold; text-decoration: none; }
-#copybox { width: 100%; font-family: var(--mono); font-size: 0.75rem; }
-details.chat { border: 1px solid var(--line); border-radius: 6px; }
-details.chat summary { padding: 8px 12px; font-weight: bold; color: var(--accent); cursor: pointer; }
-details.chat .help-body { padding: 0 12px 12px; }
-#promptbox { width: 100%; font-size: 0.75rem; }
-#selfurl { word-break: break-all; font-family: var(--mono); font-size: 0.85rem; }
-details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
-.tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-top: 12px; border: 1px solid var(--field); border-radius: 8px; overflow: hidden; }
-.tabs button { border: 0; border-radius: 0; background: var(--card); font-weight: bold; padding: 10px 8px; }
-.tabs button + button { border-left: 1px solid var(--field); }
-.tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-fg); }
+.field { display: grid; gap: 4px; }
+.field label { font-weight: bold; }
+.field p { margin: 0; }
+#msg { margin: 0; min-height: 1.2em; }
+#msg.error { color: var(--danger); }
+#promptbox { font-size: 0.75rem; }
+.steps { margin: 0; padding-left: 1.3em; display: grid; gap: 8px; }
 .ico { width: 1.1em; height: 1.1em; vertical-align: -0.2em; fill: none; stroke: currentColor; stroke-width: 1.4; }
-.steps { margin: 0; padding-left: 1.3em; display: grid; gap: 6px; }
-#barmsg { grid-column: 1 / -1; font-size: 0.85rem; min-height: 0; }
+.notes { margin: 0; padding-left: 1.3em; display: grid; gap: 4px; font-size: 0.88rem; color: var(--muted); }
 </style>
 
-<main id="setup">
+<main>
   <h1>勤務表の写真取込</h1>
-  <p class="muted">勤務指定表の写真から、自分の行をClaudeが読み取ります。読み取った内容を確かめてから、shiftflow の勤務入力に反映します。</p>
+  <p class="muted">勤務指定表の写真から、Claude のチャットで自分の行を読み取ってもらい、その答えを shiftflow の勤務入力に貼り付けます。</p>
 
-  <details class="help" id="help">
-    <summary>写真取込の使い方</summary>
-    <div class="help-body">
-      <h2>使う前に</h2>
-      <ul>
-        <li><b>Claude のアプリとアカウントが必要です。</b>持っていない人は、Claude のアプリを入れて新規登録、持っている人はログインしてください。</li>
-        <li><b>使い方は、スマホで違います。</b>下の「Android・PC」「iPhone・iPad」から、自分のスマホを選んでください。iPhone・iPad では、このページの「読み取る」が使えないため、Claude のアプリのチャットで読み取ってもらいます。</li>
-        <li><b>無料プランでも使えます。</b>読み取りには、<b>あなた自身の Claude の使用量</b>を使います。shiftflow や、このページを作った人の分は使いません。</li>
-        <li><b>何回も読み取ると、使用量の上限に達して、しばらく(最大5時間ほど)使えなくなります。</b>その間は Claude のほかの使い方(チャットなど)もできなくなります。「読み直す」は丁寧に読むぶん、多く使います。1か月に1〜2回の読み取りで済むように使ってください。</li>
-        <li>最初の読み取りで「Claude に写真を送ってよいか」の確認が出ます。「許可」を選んでください。</li>
-        <li><b>Android で「読み取る」がエラーになる・押せないときは、</b>「エラーが出る・読み取れないとき」を開いてください。まずブラウザ(Chrome)で開き直す方法、それでもだめなときにチャットで読み取る方法が書いてあります。</li>
-      </ul>
-      <div id="help-a">
-      <h2>手順(Android・PC)</h2>
-      <ol>
-        <li>名前を、勤務表に書かれているとおりに入れます(次からは覚えています)。</li>
-        <li>月を選び、「カメラで撮る」か「写真から選ぶ」で勤務表の写真を入れます。</li>
-        <li>「読み取る」を押します。30秒〜1分ほどかかります。</li>
-        <li>上の写真と、下の表を見比べます。違うところは番号を直します。黄色の日は読みにくかった日です。写真は2本指で拡大・縮小、ドラッグで動かせます。</li>
-        <li>変・臨時など、時間が決まっていない番号の時間(メモ)は、shiftflow の勤務入力で入れます。分からなければ「保存」しておき、あとで入れられます。</li>
-        <li>「勤務入力に反映」を押すと shiftflow の勤務入力画面が開いて、読み取った内容が入ります。確かめてから「保存」を押します(アプリのカレンダーに出ます)。Googleカレンダーにも登録する人は「登録」を押します。</li>
-      </ol>
-      </div>
-      <div id="help-i" hidden>
-        <h2>手順(iPhone・iPad)</h2>
-        <ol>
-          <li>下の「iPhone・iPad」を選び、名前・月を入れて「指示文をコピー」を押します。</li>
-          <li>このページを閉じて(左上の ✕)、Claude のアプリで新しいチャットを開きます。</li>
-          <li>入力欄の左の「＋」から、カメラで撮るか写真を選んで勤務表を付け、指示文を貼り付けて送ります。</li>
-          <li>返ってきた答えの「コード」の枠の右上にあるコピーのマークを押します(Claude の答えのほうの枠です)。</li>
-          <li>shiftflow の勤務入力画面で「貼り付けで取込」を押し、貼り付けて「取り込む」を押します。</li>
-          <li>変・臨時など、時間が決まっていない番号の時間(メモ)は、shiftflow の勤務入力で入れます。確かめてから「保存」を押します(アプリのカレンダーに出ます)。Googleカレンダーにも登録する人は「登録」を押します。</li>
-        </ol>
-      </div>
-      <h2>うまく撮るコツ</h2>
-      <ul>
-        <li>自分の行と、上の日付の行が両方入るように撮ります。</li>
-        <li>明るい所で、表に対してまっすぐ撮ります。影や光の反射がかからないようにします。</li>
-      </ul>
-      <div id="help-a2">
-      <h2>「勤務入力に反映」で開けないとき</h2>
-      <p>「コピー」を押してから、shiftflow の勤務入力画面の「貼り付けで取込」に貼り付けます。</p>
-      <p>「勤務入力に反映」で開いた画面で shiftflow のログインを聞かれたら、一度ログインしてください。次からは聞かれません。</p>
-      </div>
-      <p><b>shiftflow をホーム画面に追加して使っている人</b>は、写真取込のときはブラウザ(Chrome・Safari)で shiftflow を開くと、ログインし直しが少なくて済みます。</p>
+  <div class="card">
+    <div class="field">
+      <label for="who">名前</label>
+      <input id="who" autocomplete="off" maxlength="30" placeholder="例: 山田 太郎">
+      <p class="muted">勤務表に書かれている名前で、自分の行を探します。この端末に覚えておきます。</p>
     </div>
-  </details>
-
-  <div class="tabs" role="tablist" aria-label="使っているスマホ">
-    <button id="tab-a" type="button" role="tab" aria-selected="true" aria-controls="pane-a">Android・PC</button>
-    <button id="tab-i" type="button" role="tab" aria-selected="false" aria-controls="pane-i">iPhone・iPad</button>
+    <div class="field">
+      <label for="month">月</label>
+      <select id="month"></select>
+    </div>
+    <button id="copyprompt" type="button">指示文をコピー</button>
+    <p id="msg" role="status" class="muted"></p>
+    <textarea id="promptbox" rows="5" readonly hidden></textarea>
   </div>
 
   <div class="card">
-    <div class="findby">
-      <label for="who" style="display:block">名前</label>
-      <input id="who" autocomplete="off" maxlength="30" placeholder="例: 山田 太郎">
-      <p class="muted" style="margin:0">勤務表に書かれている名前で、自分の行を探します。この端末に覚えておきます。</p>
-    </div>
-    <label>月<select id="month"></select></label>
-
-    <div id="pane-i" role="tabpanel" aria-labelledby="tab-i" hidden>
-      <p style="margin:0 0 8px">iPhone・iPad では、<b>Claude のアプリのチャット</b>で写真を読み取ってもらい、答えを shiftflow に貼り付けます(Safari では読み取れません)。</p>
-      <ol class="steps">
-        <li>上で名前・月を入れて、下の「<b>指示文をコピー</b>」を押します。</li>
-        <li>このページを閉じて(左上の <b>✕</b>)、Claude のアプリで<b>新しいチャット</b>を開きます。</li>
-        <li>入力欄の左の「<b>＋</b>」を押し、「カメラ」で勤務表を撮るか、「写真」から選んで付けます。そのあと、入力欄に指示文を貼り付けて送ります。</li>
-        <li>返ってきた答えの「<b>コード</b>」と書かれた枠の右上にある、<b>四角が2つ重なったマーク</b>(<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 3.5V3a1.5 1.5 0 0 0-1.5-1.5h-6A1.5 1.5 0 0 0 2 3v6a1.5 1.5 0 0 0 1.5 1.5H4"/></svg>)を押すとコピーできます。自分が送った指示文の中にも同じような枠があるので、<b>Claude の答えのほう</b>(下の枠)を押してください。</li>
-        <li>shiftflow の勤務入力画面に戻り、「<b>貼り付けで取込</b>」を押して、貼り付けて「取り込む」を押します。</li>
-      </ol>
-      <p class="muted" style="margin:8px 0">Claude のアプリが無い人は、App Store で「Claude」を入れてログインしてください。shiftflow の「写真取込」を押すと、Claude のアプリでこのページが開きます。読み取りには、あなた自身の Claude の使用量を使います。</p>
-      <button id="copyprompt-i" class="primary" type="button">指示文をコピー</button>
-      <p id="chatmsg-i" role="status" class="muted"></p>
-      <textarea id="promptbox-i" rows="4" readonly hidden></textarea>
-    </div>
-
-    <div id="pane-a" role="tabpanel" aria-labelledby="tab-a" style="display:grid;gap:10px">
-    <div class="photo-pick">
-      <b>勤務表の写真</b>
-      <div class="pick-btns">
-        <label class="pick">カメラで撮る<input id="photo-cam" type="file" accept="image/*" capture="environment"></label>
-        <label class="pick">写真から選ぶ<input id="photo" type="file" accept="image/*"></label>
-      </div>
-      <p id="photoinfo" class="muted" hidden></p>
-      <img id="thumb" alt="選んだ写真" hidden>
-      <p class="muted" style="margin:0">自分の行が入るように、表全体を明るく、まっすぐ撮ってください。</p>
-    </div>
-    <button id="read" class="primary" type="button">読み取る</button>
-    <div id="busy" hidden><span class="spinner" aria-hidden="true"></span><span id="busytext">読み取り中です(30秒〜1分ほど)</span><button id="stop" type="button">止める</button></div>
-    <p id="setupmsg" class="error" role="status" hidden></p>
-    <details id="chat" class="chat">
-      <summary>エラーが出る・読み取れないとき</summary>
-      <div class="help-body">
-        <h2>まず試すこと: ブラウザで開き直す</h2>
-        <p>Claude のアプリでは読み取れないことがあります。そのときは、<b>ブラウザ(Chrome)</b>で開き直すと読み取れることがあります。</p>
-        <ol>
-          <li>Chrome で <b>claude.ai</b> を開いて、ログインします(アプリでログインしていても、ブラウザは別です)。</li>
-          <li>同じブラウザのアドレス欄に、次のアドレスを貼り付けて開きます。<br><code id="selfurl">https://claude.ai/artifact/GivZHYnUXZoz4uqc9dWdXV</code></li>
-          <li>名前・月・写真を入れて、「読み取る」を押します。</li>
-        </ol>
-        <button id="copyurl" type="button">アドレスをコピー</button>
-        <p id="urlmsg" role="status" class="muted"></p>
-        <h2>それでもだめなとき: チャットで読み取る</h2>
-        <p><b>Claude のアプリを開いて</b>、チャットで読み取ってもらいます。その答えを shiftflow に貼り付けます。</p>
-        <ol>
-          <li>上で名前・月を入れて、下の「指示文をコピー」を押します。</li>
-          <li>Claude のアプリを開いて新しいチャットを作ります。入力欄の左の「＋」から「カメラ」か「写真」を選んで勤務表の写真を付け、指示文を貼り付けて送ります。</li>
-          <li>返ってきた答えの「<b>コード</b>」と書かれた枠の右上にある、<b>四角が2つ重なったマーク</b>(<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 3.5V3a1.5 1.5 0 0 0-1.5-1.5h-6A1.5 1.5 0 0 0 2 3v6a1.5 1.5 0 0 0 1.5 1.5H4"/></svg>)を押すとコピーできます。自分が送った指示文の中にも同じような枠があるので、<b>Claude の答えのほう</b>(下の枠)を押してください。</li>
-          <li>shiftflow の勤務入力画面で「貼り付けで取込」を押し、貼り付けて「取り込む」を押します。</li>
-        </ol>
-        <p class="muted">この方法でも、あなた自身の Claude の使用量を使います。取り込んだあとは、勤務入力の画面で内容を確かめてください。</p>
-        <button id="copyprompt" type="button">指示文をコピー</button>
-        <p id="chatmsg" role="status" class="muted"></p>
-        <textarea id="promptbox" rows="4" readonly hidden></textarea>
-      </div>
-    </details>
-    </div>
+    <h2>手順</h2>
+    <ol class="steps">
+      <li>上で名前・月を入れて、「<b>指示文をコピー</b>」を押します。</li>
+      <li>このページを閉じて、Claude のアプリで<b>新しいチャット</b>を開きます。</li>
+      <li>入力欄の左の「<b>＋</b>」を押し、「カメラ」で勤務表を撮るか、「写真」から選んで付けます。そのあと、入力欄に指示文を貼り付けて送ります。</li>
+      <li>返ってきた答えの「<b>コード</b>」と書かれた枠の右上にある、<b>四角が2つ重なったマーク</b>(<svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 3.5V3a1.5 1.5 0 0 0-1.5-1.5h-6A1.5 1.5 0 0 0 2 3v6a1.5 1.5 0 0 0 1.5 1.5H4"/></svg>)を押すとコピーできます。自分が送った指示文の中にも同じような枠があるので、<b>Claude の答えのほう</b>(下の枠)を押してください。</li>
+      <li>shiftflow の勤務入力画面に戻り、「<b>貼り付けで取込</b>」を押して、貼り付けて「取り込む」を押します。</li>
+      <li>変・臨時など、時間が決まっていない番号の時間(メモ)は、勤務入力で入れます。確かめてから「保存」を押します(アプリのカレンダーに出ます)。Googleカレンダーにも登録する人は「登録」を押します。</li>
+    </ol>
   </div>
 
-  <div class="card note-box">
-    <span>写真は、読み取るときに<b>あなたのClaude</b>に送るだけで、このページにもサーバーにも残りません。読み取りには、あなたのClaudeの使用量を使います。くわしくは上の「写真取込の使い方」を見てください。</span>
+  <div class="card">
+    <h2>うまく撮るコツ</h2>
+    <ul class="notes">
+      <li>自分の行と、上の日付の行が両方入るように撮ります。</li>
+      <li>明るい所で、表に対してまっすぐ撮ります。影や光の反射がかからないようにします。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>使う前に</h2>
+    <ul class="notes">
+      <li>Claude のアプリとアカウントが必要です(無料プランでも使えます)。持っていない人は、Claude のアプリを入れて新規登録してください。</li>
+      <li>読み取りには、<b>あなた自身の Claude の使用量</b>を使います。何回も読み取ると上限に達して、しばらく(最大5時間ほど)Claude が使えなくなります。1か月に1〜2回で済むように使ってください。</li>
+      <li>写真は、あなたの Claude のチャットに送るだけで、shiftflow には送りません。</li>
+      <li>今月より前の月は取り込めません。取り込んだあとは、勤務入力の画面で内容を確かめてください。</li>
+    </ul>
   </div>
 </main>
 
-<section id="confirm" hidden>
-  <div class="head">
-    <strong id="title">10月の確認</strong>
-    <button id="helpbtn" type="button">使い方</button>
-    <button id="back" type="button">やり直す</button>
-  </div>
-  <div class="viewer" id="viewer" aria-label="勤務表の写真。2本指で拡大・縮小、ドラッグで移動">
-    <img id="photoView" alt="">
-    <div class="zoom">
-      <button id="zin" type="button" aria-label="拡大">＋</button>
-      <button id="zout" type="button" aria-label="縮小">−</button>
-      <button id="zfit" type="button">全体</button>
-    </div>
-  </div>
-  <div class="list">
-    <p class="who" id="wholine"></p>
-    <div class="monthwarn" id="monthwarn" hidden><span id="monthwarntext"></span><button id="monthfix" type="button"></button></div>
-    <p class="summary" id="summary"></p>
-    <table class="shift">
-      <thead><tr><th>日</th><th>曜</th><th>平/休</th><th>番号</th></tr></thead>
-      <tbody id="rows"></tbody>
-    </table>
-  </div>
-  <div class="bar">
-    <div class="row">
-      <button id="reread" type="button">読み直す</button>
-      <button id="copy" type="button">コピー</button>
-      <a id="go" class="go" href="#" target="_blank" rel="noopener">勤務入力に反映</a>
-    </div>
-    <p id="barmsg" role="status"></p>
-    <textarea id="copybox" rows="3" readonly hidden></textarea>
-  </div>
-</section>
-
 <script>
 (() => {
-  const SHIFTFLOW = "https://fast4213-max.github.io/shiftflow/input.html";
-  const MODEL = "claude-sonnet-5-5";
-  const WEEK = ["日", "月", "火", "水", "木", "金", "土"];
   const $ = (id) => document.getElementById(id);
 
-  let sample = null;          // claude.use("sample")
-  let photo = null;           // 送る画像(縮小した JPEG)
-  let photoURL = "";
-  let ctl = null;             // 読み取りを止める
-  let state = null;           // { year, month, rows: [{ d, code, memo, note, unsure }], holidays: Set }
-
-  // ---------- 覚えておく値(この端末だけ) ----------
+  // 覚えておく値(この端末だけ)
   const store = {
     get(k) { try { return localStorage.getItem(k) || ""; } catch { return ""; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch { /* 保存できなくても動く */ } },
@@ -294,148 +99,17 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
   $("who").value = store.get("sf_name");
 
   // 月の選択: 今月・来月・再来月(開いた日で毎回作る。shiftflow は過ぎた月を取り込めない)。最初は来月
-  (() => {
-    const now = new Date();
-    for (let i = 0; i <= 2; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-      const opt = document.createElement("option");
-      opt.value = `${d.getFullYear()}-${d.getMonth() + 1}`;
-      opt.textContent = `${d.getFullYear()}年${d.getMonth() + 1}月`;
-      if (i === 1) opt.selected = true;
-      $("month").append(opt);
-    }
-  })();
-
-  const daysIn = (y, m) => new Date(y, m, 0).getDate();
-  const showSetupMsg = (text) => { $("setupmsg").textContent = text; $("setupmsg").hidden = !text; };
-
-  // ---------- Claude ----------
-  // 読み取るボタンは、ここでは無効にしない(ログイン済みでも、開いた直後は Claude につながっていないことがある)。
-  // 押したときと、画面に戻ったときに、つなぎ直す。つながらないときだけ、押した後にお願いを出す
-  const LOGIN_MSG = "この画面では、Claude につながりませんでした(ログインしていない、またはお使いの端末・アプリがこの機能に対応していません)。下の「エラーが出る・読み取れないとき」を開いて、まずブラウザ(Chrome)で claude.ai にログインしてから、このページを開き直してください。iPhone・iPad の人は、上の「iPhone・iPad」を選んでください。";
-  const NO_IMAGE_MSG = "この画面からは写真を Claude に送れません。Claude のアプリか、ブラウザの claude.ai で開いてください。";
-  let connecting = null;
-  // iPad は Safari が Mac のふりをするので、Mac の表示でタッチができれば iPad とみなす
-  const isIos = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
-  let why = "";               // つながらなかった理由(原因を調べるため、画面に小さく出す)
-  // どこで開いているか(原因を調べるため)。埋め込み=Claude の画面の中、単独=ページだけで開いている
-  async function where() {
-    let framed = "不明";
-    try { framed = window.self !== window.top ? "埋め込み" : "単独"; } catch { framed = "埋め込み(別ドメイン)"; }
-    let perm = "?";
-    try {
-      const p = await Promise.race([window.claude.use("permissions"), new Promise((r) => setTimeout(() => r(null), 3000))]);
-      perm = p ? await p.state("sample") : "permissions も null";
-    } catch (e) { perm = `取れない(${e?.code || e?.message || e})`; }
-    const ref = (() => { try { return document.referrer ? new URL(document.referrer).host : "なし"; } catch { return "?"; } })();
-    const ua = isIos ? "iOS" : /Android/.test(navigator.userAgent) ? "Android" : "他";
-    return `${framed}・${location.host}・元:${ref}・許可:${perm}・${ua}`;
-  }
-  function connect() {
-    if (sample) return Promise.resolve("ok");
-    connecting ||= (async () => {
-      await null; // すぐ返る場合も、下の connecting への代入のあとに finally が走るようにする
-      try {
-        if (!window.claude) { why = "window.claude なし"; return "login"; }
-        if (typeof window.claude.use !== "function") { why = "claude.use なし"; return "login"; }
-        const t0 = Date.now();
-        const s = await window.claude.use("sample");
-        if (!s) { why = `use が null(${Math.round((Date.now() - t0) / 100) / 10}秒)・${await where()}`; return "login"; }
-        const caps = await s.limits().catch((e) => { why = `limits 失敗: ${e?.code || e?.message || e}`; return null; });
-        if (caps && !caps.images) { why = "images 不可"; return "noimage"; }
-        sample = s;
-        return "ok";
-      } catch (e) { why = `例外: ${e?.code || ""} ${e?.message || e}`; return "login"; } finally { connecting = null; }
-    })();
-    return connecting;
-  }
-  connect();
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) connect(); });
-
-  // ---------- 写真(送る前に長い辺を2000pxまで縮める) ----------
-  // 縮められなかったら(開けない形式・大きすぎるなど)、元の写真をそのまま送る
-  async function takePhoto(input) {
-    const file = input.files?.[0];
-    showSetupMsg("");
-    const info = $("photoinfo");
-    if (!file) {
-      info.hidden = false;
-      info.textContent = "写真が選ばれませんでした。もう一度押してください。";
-      return;
-    }
-    const mb = (file.size / 1048576).toFixed(1);
-    info.hidden = false;
-    info.textContent = `選んだ写真: ${file.name || "(名前なし)"}(${file.type || "形式不明"}・${mb}MB)。読み込み中…`;
-    let blob = null;
-    let note = "小さくしてから送ります";
-    try {
-      blob = await shrink(file, 2000);
-    } catch (e) {
-      const caps = await sample?.limits().catch(() => null);
-      const ok = caps?.images?.mediaTypes?.includes(file.type) && file.size <= (caps.images.maxInputBytes || 0);
-      if (ok) { blob = file; note = `小さくできなかったので、そのまま送ります(${e?.message || "縮小できません"})`; }
-    }
-    if (!blob) {
-      photo = null;
-      $("thumb").hidden = true;
-      info.textContent = `選んだ写真: ${file.name || "(名前なし)"}(${file.type || "形式不明"}・${mb}MB)`;
-      showSetupMsg("この写真は開けませんでした。スクリーンショットか、JPEG・PNG の写真を選んでください。");
-      return;
-    }
-    photo = blob;
-    if (photoURL) URL.revokeObjectURL(photoURL);
-    photoURL = URL.createObjectURL(blob);
-    $("thumb").src = photoURL;
-    $("thumb").hidden = false;
-    info.textContent = `選んだ写真: ${file.name || "(名前なし)"}(${mb}MB)。${note}。`;
-  }
-  $("photo").addEventListener("change", () => takePhoto($("photo")));
-  $("photo-cam").addEventListener("change", () => takePhoto($("photo-cam")));
-
-  function shrink(file, max) {
-    return new Promise((resolve, reject) => {
-      const url = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => {
-        const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
-        const c = document.createElement("canvas");
-        c.width = Math.round(img.naturalWidth * k);
-        c.height = Math.round(img.naturalHeight * k);
-        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-        URL.revokeObjectURL(url);
-        c.toBlob((b) => (b ? resolve(b) : reject(new Error("縮小に失敗"))), "image/jpeg", 0.88);
-      };
-      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("この形式は開けません")); };
-      img.src = url;
-    });
+  const now = new Date();
+  for (let i = 0; i <= 2; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const opt = document.createElement("option");
+    opt.value = `${d.getFullYear()}-${d.getMonth() + 1}`;
+    opt.textContent = `${d.getFullYear()}年${d.getMonth() + 1}月`;
+    if (i === 1) opt.selected = true;
+    $("month").append(opt);
   }
 
-  // ---------- 読み取り ----------
-  function prompt(name, y, m) {
-    const n = daysIn(y, m);
-    return [
-      "これは鉄道会社の「勤務指定表」を撮った写真です。1人につき1行で、左端に名前(前に【眼鏡】などの印が付くことがある)と7桁の社員番号があり、右へ日付ごとのマスが並びます。表の上には日付と曜日の見出しがあり、休日の日付は赤い背景です。",
-      `探す人: 名前が「${name}」の人。名前の空白や【】の印は無視して比べてください。`,
-      `${y}年${m}月の、その人の行のマスを、1日から表の最後の日付(最大31日)まで、表にある日付の列を全部、左から順に読んでください。マスの上の大きい文字が勤務の番号です。`,
-      "読み方:",
-      "- code は大きい文字をそのまま(例: 15、2500、特休、公休、年休、変7d)。全角の英数字は半角に。",
-      "- 横棒だけのマス(—、ー、-、―)は code を \"〜\" にする。",
-      "- 空のマスは code を \"\" にする。",
-      "- 大きい文字の下などにある小さい文字(例: 出張A)は note に入れる。無ければ \"\"。",
-      "- 番号の先頭は、数字か、漢字(日・泊・特・公・年・変・臨など)のことが多い。先頭が英字(B・A・Dなど)に見えても、まず「日」などの漢字の可能性を考える(例: 「日8」を「B8」と読み間違えやすい)。文字が小さいときは特に、1文字ずつ慎重に見る。ただし、はっきり英字と読めるときは、漢字に直さず英字のまま書く。",
-      "- 少しでも読みにくい・自信がないマスは unsure を true にする。推測で埋めず、読めた通りに書く。",
-      "- holidays には、見出しが赤い日付の数字をすべて入れる。",
-      "- sheetYear・sheetMonth には表の上に書かれた期間の年と月を入れる(読めなければ null)。見つからないときも入れる。",
-      "- 表の月が上の年月と違っても、その人の行があれば found を true にして読む(月の違いは sheetYear・sheetMonth で分かるので、月を理由に見つからない扱いにしない)。",
-      "その人の行が見つからないときは found を false にし、candidates に表にある名前を最大10人入れる。",
-      "名字だけ同じ人など、当てはまる人が2人以上いて1人に決められないときも found を false にし、candidates に当てはまる人の名前を入れる。",
-      "次の形の JSON だけを返してください:",
-      `{"found":true,"name":"表に書かれた名前","sheetYear":${y},"sheetMonth":${m},"holidays":[4,11],"days":[{"d":1,"code":"15","note":"","unsure":false}],"candidates":[]}`,
-      "days は、表にある日付の列の数だけ(1日から最後の日まで。最大31件)にしてください。",
-    ].join("\n");
-  }
-
-  // チャット用の指示文(アーティファクトから読めない人が、Claude のチャットに貼る)
+  // チャット用の指示文。答えは shiftflow の「貼り付けで取込」(photo-import.js の decodePlain)が読む形
   function chatPrompt(name, y, m) {
     return [
       "添付の写真は、鉄道会社の「勤務指定表」です。1人につき1行で、左端に名前(前に【眼鏡】などの印が付くことがある)と7桁の社員番号があり、右へ日付ごとのマスが並びます。",
@@ -455,24 +129,23 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
       "その人の行が見つからないときや、当てはまる人が2人以上いるときは、コードブロックを返さず、そう伝えてください。",
     ].join("\n");
   }
-  $("copyurl").addEventListener("click", async () => {
-    const text = $("selfurl").textContent.trim();
-    try {
-      await navigator.clipboard.writeText(text);
-      $("urlmsg").textContent = "コピーしました。ブラウザで claude.ai にログインしてから、アドレス欄に貼り付けて開いてください。";
-    } catch {
-      $("urlmsg").textContent = "自動でコピーできませんでした。上のアドレスを長押ししてコピーしてください。";
-    }
-  });
-  async function copyPrompt(msg, box) {
+
+  $("copyprompt").addEventListener("click", async () => {
+    const msg = $("msg"), box = $("promptbox");
     const name = $("who").value.trim();
-    if (!name) { msg.textContent = "先に、上で名前を入れてください。"; return; }
+    if (!name) {
+      msg.className = "error";
+      msg.textContent = "先に、名前を入れてください。";
+      $("who").focus();
+      return;
+    }
     store.set("sf_name", name);
     const [y, m] = $("month").value.split("-").map(Number);
     const text = chatPrompt(name, y, m);
+    msg.className = "muted";
     try {
       await navigator.clipboard.writeText(text);
-      msg.textContent = "コピーしました。Claude の新しいチャットに、「＋」から写真を付けて、この指示文を貼り付けて送ってください。";
+      msg.textContent = `${y}年${m}月の指示文をコピーしました。Claude の新しいチャットに、「＋」から写真を付けて、貼り付けて送ってください。`;
       box.hidden = true;
     } catch {
       box.value = text;
@@ -480,322 +153,6 @@ details.chat h2 { font-size: 0.95rem; margin: 6px 0 0; }
       box.select();
       msg.textContent = "自動でコピーできませんでした。下の文字を全部選んでコピーしてください。";
     }
-  }
-  $("copyprompt").addEventListener("click", () => copyPrompt($("chatmsg"), $("promptbox")));
-  $("copyprompt-i").addEventListener("click", () => copyPrompt($("chatmsg-i"), $("promptbox-i")));
-
-  // ---------- タブ(Android・PC / iPhone・iPad)。iPhone・iPad では読み取るが使えないので、チャットの手順だけ見せる ----------
-  function showTab(t) {
-    const ios = t === "i";
-    $("tab-i").setAttribute("aria-selected", String(ios));
-    $("tab-a").setAttribute("aria-selected", String(!ios));
-    $("pane-i").hidden = ios ? false : true;
-    $("pane-a").style.display = ios ? "none" : "grid";
-    $("help-i").hidden = !ios;
-    $("help-a").hidden = ios;
-    $("help-a2").hidden = ios;
-    store.set("sf_tab", t);
-  }
-  $("tab-a").addEventListener("click", () => showTab("a"));
-  $("tab-i").addEventListener("click", () => showTab("i"));
-  showTab(store.get("sf_tab") || (isIos ? "i" : "a"));
-
-  async function read(careful) {
-    const name = $("who").value.trim();
-    const [y, m] = $("month").value.split("-").map(Number);
-    if (!name) return showSetupMsg("名前を入れてください。");
-    if (!photo) return showSetupMsg("勤務表の写真を選んでください。");
-    const link = await connect();
-    if (link !== "ok") $("chat").open = true;
-    if (link === "login") return showSetupMsg(LOGIN_MSG + `(理由: ${why})`);
-    if (link === "noimage") return showSetupMsg(NO_IMAGE_MSG);
-    store.set("sf_name", name);
-    showSetupMsg("");
-    showSetup();
-    setBusy(true, careful ? "丁寧に読み直しています(1〜2分ほど)" : "読み取り中です(30秒〜1分ほど)");
-    ctl = new AbortController();
-    try {
-      const res = await sample.json(prompt(name, y, m), {
-        images: [photo],
-        model: MODEL,
-        modelTier: "default",
-        effort: careful ? "high" : "medium",
-        signal: ctl.signal,
-        ...(careful ? { cache: false } : {}),
-      });
-      const parsed = toState(res, y, m);
-      if (typeof parsed === "string") return showSetupMsg(parsed);
-      state = parsed;
-      showConfirm();
-    } catch (e) {
-      const msg = errorText(e);
-      if (msg) showSetupMsg(msg);
-    } finally {
-      setBusy(false);
-      ctl = null;
-    }
-  }
-
-  function toState(res, y, m) {
-    if (!res || typeof res !== "object") return "うまく読み取れませんでした。もう一度「読み取る」を押してください。";
-    if (!res.found) {
-      const c = Array.isArray(res.candidates) ? res.candidates.map(String).slice(0, 10).join("、") : "";
-      // 表の月が選んだ月と違うときは、まず月を合わせてもらう(名前違いのように見えないように)
-      const fy = Number(res.sheetYear), fm = Number(res.sheetMonth);
-      if (Number.isInteger(fy) && Number.isInteger(fm) && fm >= 1 && fm <= 12 && (fy !== y || fm !== m)) {
-        return `写真の表は ${fy}年${fm}月のようです(選んだのは ${y}年${m}月)。月を ${fm}月にして、もう一度「読み取る」を押してください。`;
-      }
-      return "写真の中に、その名前の行が見つからないか、当てはまる人が2人以上いました。" + (c ? `表にある名前: ${c}。` : "") + "名前を名字と名前の両方、表と同じ字で入れているか確かめるか、自分の行が写っている写真を選んでください。";
-    }
-    const n = daysIn(y, m);
-    const byDay = new Map();
-    for (const it of Array.isArray(res.days) ? res.days : []) {
-      const d = Number(it?.d);
-      if (Number.isInteger(d) && d >= 1 && d <= 31) byDay.set(d, it);
-    }
-    const rows = [];
-    for (let d = 1; d <= n; d++) {
-      const it = byDay.get(d);
-      rows.push({
-        d,
-        code: normCode(it?.code),
-        memo: "",
-        note: String(it?.note ?? "").slice(0, 40),
-        unsure: !it || !!it.unsure,
-      });
-    }
-    // 見つかったと言っても、全部の日が空なら読み取れていない(反映すると月が空になる。K6)
-    if (rows.every((r) => !r.code)) return "表の文字を読み取れませんでした。明るい所で、表に対してまっすぐ撮り直してから、もう一度「読み取る」を押してください。";
-    const holidays = new Set((Array.isArray(res.holidays) ? res.holidays : []).map(Number).filter((d) => d >= 1 && d <= 31));
-    // 表に書かれた月(読めたとき)。選んだ月と違えば、確認画面で赤く知らせて切り替えられるようにする(L2)
-    const sy = Number(res.sheetYear), sm = Number(res.sheetMonth);
-    const sheet = Number.isInteger(sy) && Number.isInteger(sm) && sm >= 1 && sm <= 12 && (sy !== y || sm !== m) ? { y: sy, m: sm } : null;
-    // 選んだ月より後ろの日(例: 30日の月に読んだ31日)も取っておく。「◯月にする」で日数が増えたときに使う(M3)
-    const extra = new Map();
-    for (let d = n + 1; d <= 31; d++) {
-      const it = byDay.get(d);
-      if (it) extra.set(d, { d, code: normCode(it.code), memo: "", note: String(it.note ?? "").slice(0, 40), unsure: !!it.unsure });
-    }
-    return { year: y, month: m, rows, extra, holidays, who: String(res.name || "").slice(0, 40), asked: $("who").value.trim(), sheet };
-  }
-
-  function normCode(v) {
-    let s = String(v ?? "").trim()
-      .replace(/[０-９Ａ-Ｚａ-ｚ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
-    if (/^[—ー\-―－‐─~〜～]+$/.test(s)) s = "〜";
-    return s.slice(0, 30);
-  }
-
-  function errorText(e) {
-    switch (e?.code) {
-      case "cancelled": return "";
-      case "not_granted": return "Claude に写真を送ることが許可されませんでした。使うときは、このページを開き直して、確認で「許可」を選んでください。";
-      case "rate_limited": return "Claude の使用量の上限に達したか、続けて読み取りすぎました。上限のときは、リセットされるまで(最大5時間ほど)待ってから、もう一度押してください。";
-      case "session_expired": return "Claude のログインが切れました。ログインし直してから、もう一度押してください。";
-      case "sampling_disabled": return "このアカウントでは、ページから Claude を使えない設定になっています。";
-      case "images_unavailable": return "この画面からは写真を Claude に送れません。Claude のアプリか、ブラウザの claude.ai で開いてください。";
-      case "image_rejected": return "この写真は送れませんでした。JPEG か PNG の写真を選び直してください。";
-      case "invalid_json": return "うまく読み取れませんでした。写真を撮り直すか、もう一度「読み取る」を押してください。";
-      case "refused": return "Claude がこの写真を読み取りませんでした。勤務表だけが写るように撮り直してください。";
-      default: return "読み取りに失敗しました。少し待ってから、もう一度押してください。";
-    }
-  }
-
-  function setBusy(on, text) {
-    $("busy").hidden = !on;
-    $("read").disabled = on;
-    $("reread").disabled = on;
-    if (text) $("busytext").textContent = text;
-  }
-
-  $("read").addEventListener("click", () => read(false));
-  $("reread").addEventListener("click", () => read(true));
-  $("stop").addEventListener("click", () => ctl?.abort());
-  $("back").addEventListener("click", showSetup);
-  // 確認画面の「使い方」: 準備の画面に戻って、使い方を開く
-  $("helpbtn").addEventListener("click", () => { showSetup(); $("help").open = true; $("help").scrollIntoView({ block: "start" }); });
-
-  // ---------- 画面の切り替え ----------
-  function showSetup() {
-    $("confirm").hidden = true;
-    $("setup").hidden = false;
-  }
-
-  function showConfirm() {
-    $("setup").hidden = true;
-    $("confirm").hidden = false;
-    $("title").textContent = `${state.month}月の確認`;
-    const unsure = state.rows.filter((r) => r.unsure).length;
-    // 読んだ人の名前を目立たせ、入れた名前と違えば注意を出す(名字だけ同じ人の行を読まないように。K3)
-    const plain = (t) => t.replace(/【[^】]*】/g, "").replace(/\s+/g, "");
-    const same = !state.who || plain(state.who) === plain(state.asked);
-    const wl = $("wholine");
-    wl.replaceChildren();
-    if (state.who) {
-      const b = document.createElement("b");
-      b.textContent = state.who;
-      wl.append("読んだ行: ", b);
-      if (!same) wl.append(`(入れた名前「${state.asked}」と違います。本人の行か、写真で確かめてください)`);
-    }
-    wl.className = "who" + (same ? "" : " warn");
-    showMonthWarn();
-    $("summary").textContent = [
-      unsure ? `読みにくかった日が${unsure}日分あります(黄色)。写真と見比べてください。` : "写真と見比べて、違うところは直してください。",
-      "変・臨時などの時間は、shiftflow の勤務入力で入れます。「読み直す」は、より丁寧に読みます。",
-    ].filter(Boolean).join(" ");
-    renderRows();
-    $("photoView").src = photoURL;
-    $("photoView").onload = fit;
-    if ($("photoView").complete) fit();
-    updateLink();
-    $("barmsg").textContent = "";
-    $("copybox").hidden = true;
-  }
-
-  // 表の月と選んだ月が違うとき(L2)。表の月が選べる月(今月〜再来月)なら、その月に切り替えるボタンを出す
-  function showMonthWarn() {
-    const box = $("monthwarn");
-    const sh = state.sheet;
-    box.hidden = !sh;
-    if (!sh) return;
-    const option = [...$("month").options].find((o) => o.value === `${sh.y}-${sh.m}`);
-    $("monthwarntext").textContent = `写真の表は ${sh.y}年${sh.m}月のようです(選んだのは ${state.year}年${state.month}月)。` +
-      (option ? "表の月で反映するときは、右のボタンを押してください。" : "月を確かめてください(この月は選べません)。");
-    $("monthfix").hidden = !option;
-    $("monthfix").textContent = `${sh.m}月にする`;
-  }
-
-  $("monthfix").addEventListener("click", () => {
-    const sh = state.sheet;
-    if (!sh) return;
-    const n = daysIn(sh.y, sh.m);
-    // 日数が減るときは後ろを取っておき、増えるときは取っておいた日を使う(読んでいない日は空・黄色。M3)
-    for (const r of state.rows.slice(n)) state.extra.set(r.d, r);
-    const rows = state.rows.slice(0, n);
-    for (let d = rows.length + 1; d <= n; d++) rows.push(state.extra.get(d) || { d, code: "", memo: "", note: "", unsure: true });
-    state.rows = rows;
-    state.year = sh.y;
-    state.month = sh.m;
-    state.sheet = null;
-    $("month").value = `${sh.y}-${sh.m}`;
-    $("title").textContent = `${state.month}月の確認`;
-    showMonthWarn();
-    renderRows();
-    updateLink();
-    $("barmsg").textContent = `${sh.m}月として反映します。`;
   });
-
-  function renderRows() {
-    const tb = $("rows");
-    tb.replaceChildren();
-    for (const r of state.rows) {
-      const wd = new Date(state.year, state.month - 1, r.d).getDay();
-      const hol = wd === 0 || state.holidays.has(r.d);
-      const tr = document.createElement("tr");
-      tr.className = rowClass(r);
-      const td = (cls, child) => { const c = document.createElement("td"); c.className = cls; if (child) c.append(child); tr.append(c); return c; };
-      td("day").textContent = r.d;
-      const w = td("wd"); w.textContent = WEEK[wd]; if (hol) w.classList.add("red"); else if (wd === 6) w.classList.add("sat");
-      const b = document.createElement("span"); b.className = "badge" + (hol ? " hol" : ""); b.textContent = hol ? "休" : "平"; td("type", b);
-      const code = document.createElement("input");
-      code.id = `code-${r.d}`; code.value = r.code; code.maxLength = 30; code.setAttribute("aria-label", `${r.d}日の番号`);
-      code.addEventListener("input", () => { r.code = code.value.trim(); r.unsure = false; tr.className = rowClass(r); updateLink(); });
-      const c = td("code", code);
-      if (r.note) { const h = document.createElement("span"); h.className = "hint"; h.textContent = `表の小さい文字: ${r.note}`; c.append(h); }
-      tb.append(tr);
-    }
-  }
-
-  // 時間(メモ)は shiftflow の勤務入力で入れる(一覧にない番号は、取り込んだあと黄色になる)
-  const rowClass = (r) => (r.unsure ? "unsure" : "");
-
-  // ---------- shiftflow へ渡す内容 ----------
-  // { v:1, y, m, d: { "1": ["15", ""], ... } } を UTF-8 の JSON にして base64url。番号の無い日は入れない。
-  // メモ(2つ目)は、ここでは入れないので空(shiftflow の受け取りは、メモがあれば入れる形のまま)
-  function payload() {
-    const d = {};
-    for (const r of state.rows) if (r.code || r.memo) d[r.d] = [r.code, r.memo];
-    const json = JSON.stringify({ v: 1, y: state.year, m: state.month, d });
-    const bytes = new TextEncoder().encode(json);
-    let bin = "";
-    for (const b of bytes) bin += String.fromCharCode(b);
-    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  }
-  // 番号が1つも無いときは、反映・コピーを押せなくする(shiftflow で月が空で置き換わらないように。M4)
-  function updateLink() {
-    const any = state.rows.some((r) => r.code);
-    $("go").href = any ? `${SHIFTFLOW}#import=${payload()}` : "#";
-    $("go").setAttribute("aria-disabled", any ? "false" : "true");
-    $("copy").disabled = !any;
-    if (!any) $("barmsg").textContent = "番号が1つも入っていないので、反映できません。";
-    else if ($("barmsg").textContent.startsWith("番号が1つも")) $("barmsg").textContent = "";
-  }
-
-  $("copy").addEventListener("click", async () => {
-    const text = `shiftflow-import:${payload()}`;
-    try {
-      await navigator.clipboard.writeText(text);
-      $("barmsg").textContent = "コピーしました。勤務入力画面の「貼り付けで取込」に貼り付けてください。";
-      $("copybox").hidden = true;
-    } catch {
-      $("copybox").value = text;
-      $("copybox").hidden = false;
-      $("copybox").select();
-      $("barmsg").textContent = "自動でコピーできませんでした。下の文字を全部選んでコピーしてください。";
-    }
-  });
-
-  // ---------- 写真の拡大・縮小(2本指・ドラッグ・ボタン) ----------
-  const viewer = $("viewer");
-  const view = $("photoView");
-  let sc = 1, tx = 0, ty = 0, minSc = 0.1;
-  const pts = new Map();
-  let last = null;
-  const apply = () => { view.style.transform = `translate(${tx}px, ${ty}px) scale(${sc})`; };
-  function fit() {
-    const w = viewer.clientWidth, iw = view.naturalWidth || 1;
-    sc = minSc = w / iw;
-    tx = 0; ty = 0;
-    apply();
-  }
-  function zoomAt(k, px, py) {
-    const next = Math.min(Math.max(sc * k, minSc), minSc * 8);
-    k = next / sc;
-    tx = px - (px - tx) * k;
-    ty = py - (py - ty) * k;
-    sc = next;
-    apply();
-  }
-  const local = (e) => { const r = viewer.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
-  viewer.addEventListener("pointerdown", (e) => {
-    if (e.target.closest(".zoom")) return;
-    viewer.setPointerCapture(e.pointerId);
-    pts.set(e.pointerId, local(e));
-    last = null;
-  });
-  viewer.addEventListener("pointermove", (e) => {
-    if (!pts.has(e.pointerId)) return;
-    const prev = pts.get(e.pointerId);
-    const now = local(e);
-    pts.set(e.pointerId, now);
-    if (pts.size === 1) {
-      tx += now.x - prev.x; ty += now.y - prev.y; apply();
-    } else if (pts.size === 2) {
-      const [a, b] = [...pts.values()];
-      const dist = Math.hypot(a.x - b.x, a.y - b.y);
-      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      if (last) { tx += mid.x - last.mid.x; ty += mid.y - last.mid.y; zoomAt(dist / last.dist, mid.x, mid.y); }
-      last = { dist, mid };
-    }
-  });
-  const up = (e) => { pts.delete(e.pointerId); last = null; };
-  viewer.addEventListener("pointerup", up);
-  viewer.addEventListener("pointercancel", up);
-  viewer.addEventListener("wheel", (e) => { e.preventDefault(); const p = local(e); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, p.x, p.y); }, { passive: false });
-  $("zin").addEventListener("click", () => zoomAt(1.4, viewer.clientWidth / 2, viewer.clientHeight / 2));
-  $("zout").addEventListener("click", () => zoomAt(1 / 1.4, viewer.clientWidth / 2, viewer.clientHeight / 2));
-  $("zfit").addEventListener("click", fit);
-  // 画面の向きが変わったら、写真の大きさを合わせ直す(K7)
-  window.addEventListener("resize", () => { if (!$("confirm").hidden) fit(); });
 })();
 </script>
