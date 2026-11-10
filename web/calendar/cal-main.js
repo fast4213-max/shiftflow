@@ -16,6 +16,7 @@ import {
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const HIDDEN_KEY = "shiftflow-cal-hidden";
+const STAMPS_OFF_KEY = "shiftflow-cal-stamps-off"; // スタンプを全部隠す(この端末だけ。ラベルの表示と同じ)
 const THEME_KEY = "shiftflow-cal-theme";
 appIcon.applySaved(); // 前に選んだホーム画面のアイコンを、アイコンの指定に反映する(「ホーム画面に追加」の前に済ませておく)
 const FALLBACK = { duty: "#3b6fd4", off: "#e0553f", custom: "#6b7280" };
@@ -27,6 +28,7 @@ const S = {
   shifts: new Map(),   // "年-月" → { events, loadedAt }(勤務の予定。月の画面の範囲ぶん)
   holidays: new Map(), // 日付 → 祝日の名前
   hidden: new Set(),   // 隠すラベルの id
+  stampsOff: false,    // スタンプを全部隠す(曜日の上の「スタンプ」のチップ。月の画像にも入れない)
   y: 0, m: 0,
   today: todayJst(),
   needOffice: false,
@@ -238,7 +240,9 @@ const barText = (e) => titleOf(e);
 function renderChips() {
   const el = $("chips");
   el.innerHTML = visibleLabels().map((l) =>
-    `<button class="chip${S.hidden.has(l.id) ? " off" : ""}" data-chip="${esc(l.id)}" style="--c:${esc(l.color)}" aria-pressed="${S.hidden.has(l.id) ? "false" : "true"}"><i></i>${esc(l.name)}</button>`).join("");
+    `<button class="chip${S.hidden.has(l.id) ? " off" : ""}" data-chip="${esc(l.id)}" style="--c:${esc(l.color)}" aria-pressed="${S.hidden.has(l.id) ? "false" : "true"}"><i></i>${esc(l.name)}</button>`).join("") +
+    // スタンプを作っている人だけ、最後に「スタンプ」(全部を一度に出す・隠す)
+    (S.stampDefs.length ? `<button class="chip stchip${S.stampsOff ? " off" : ""}" data-chip-stamps="1" aria-pressed="${S.stampsOff ? "false" : "true"}"><i aria-hidden="true">★</i>スタンプ</button>` : "");
 }
 
 // ---------- 月の画面(週が途切れず、縦に続く) ----------
@@ -1274,6 +1278,12 @@ function bind() {
 
   $("banner").addEventListener("click", (ev) => { if (ev.target.closest('[data-act="dismiss-notice"]')) setNotice(""); });
   $("chips").addEventListener("click", (ev) => {
+    if (ev.target.closest("[data-chip-stamps]")) {
+      S.stampsOff = !S.stampsOff;
+      storageSet(STAMPS_OFF_KEY, S.stampsOff ? "1" : "");
+      render();
+      return;
+    }
     const b = ev.target.closest("[data-chip]");
     if (!b) return;
     const id = b.dataset.chip;
@@ -1433,6 +1443,7 @@ async function main() {
     const saved = JSON.parse(storageGet(HIDDEN_KEY) || "[]");
     if (Array.isArray(saved)) S.hidden = new Set(saved.filter((x) => typeof x === "string"));
   } catch (_) { /* 読めなければ全部表示 */ }
+  S.stampsOff = storageGet(STAMPS_OFF_KEY) === "1";
   S.y = Number(S.today.slice(0, 4));
   S.m = Number(S.today.slice(5, 7));
   S.userId = session.user.id;

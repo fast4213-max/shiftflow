@@ -307,7 +307,9 @@ export function createExtras(env) {
     return `<span class="stamp${txCls(d)}${st.id === selSid ? " sel" : ""}" data-sid="${esc(st.id)}" style="left:${st.x * 100}%;top:${st.y * 100}%;--s:${st.size};--r:${st.rotation}deg">${defInner(d)}</span>`;
   }
   // その週の7日ぶんのスタンプの層
+  // 「スタンプ」のチップで隠しているときは出さない。スタンプを置く画面(トレー)の間は、置く・動かすために出す
   function stampsLayer(dates) {
+    if (S.stampsOff && !mode.on) return '<div class="stl"></div>';
     const by = new Map();
     for (const st of S.stamps) { if (!by.has(st.date)) by.set(st.date, []); by.get(st.date).push(st); }
     return `<div class="stl">${dates.map((d) => `<div class="stc">${(by.get(d) || []).map(stampEl).join("")}</div>`).join("")}</div>`;
@@ -315,7 +317,7 @@ export function createExtras(env) {
 
   function trayHtml() {
     const items = S.stampDefs.map((d) => `<button class="tk${d.kind === "text" ? " tk-tx" : ""}${mode.def === d.id ? " on" : ""}" data-act="st-pick" data-id="${esc(d.id)}" aria-label="スタンプ">${defInner(d)}</button>`).join("");
-    const msg = !S.stampDefs.length ? '<span class="tmsg">スタンプを作りましょう →</span>' : mode.def ? '<span class="tmsg">置きたい日をタップ(置いたスタンプを動かすときは、選びを外す)</span>' : '<span class="tmsg">スタンプを選ぶ(置いたスタンプは、タップで編集・ドラッグで移動)</span>';
+    const msg = S.stampsOff && S.stampDefs.length ? '<span class="tmsg">スタンプは隠しています(置いている間だけ出します。出すときは、曜日の上の「スタンプ」を押す)</span>' : !S.stampDefs.length ? '<span class="tmsg">スタンプを作りましょう →</span>' : mode.def ? '<span class="tmsg">置きたい日をタップ(置いたスタンプを動かすときは、選びを外す)</span>' : '<span class="tmsg">スタンプを選ぶ(置いたスタンプは、タップで編集・ドラッグで移動)</span>';
     return `${items}<button class="btn tadd" data-act="df-new">＋ 作る</button><button class="btn tadd" data-act="df-list">管理</button>${msg}<button class="btn tadd" data-act="st-off">閉じる</button>`;
   }
   function renderTray() {

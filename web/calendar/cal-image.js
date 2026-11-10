@@ -65,7 +65,7 @@ export function createImager(env) {
   };
   const toBlob = (cv) => new Promise((res) => cv.toBlob(res, "image/png"));
 
-  // ---- 月のカレンダーを画像にする(表示中のラベルの予定とスタンプ) ----
+  // ---- 月のカレンダーを画像にする(表示中のラベルの予定と、隠していなければスタンプ) ----
   async function drawMonthImage(y, m) {
     await ensureMonth(y, m);
     const { start, end, n: nW } = monthWeeks(y, m);
@@ -73,7 +73,8 @@ export function createImager(env) {
     const F = (w, s) => `${w} ${s}px ${fontOf()}`;
     const evs = eventsBetween(start, end);
     const defOf = (id) => S.stampDefs.find((d) => d.id === id);
-    const sts = S.stamps.filter((s) => s.date >= start && s.date <= end && defOf(s.stamp_def_id));
+    // 「スタンプ」のチップで隠しているときは、画像にも入れない
+    const sts = S.stampsOff ? [] : S.stamps.filter((s) => s.date >= start && s.date <= end && defOf(s.stamp_def_id));
     const imgs = {};
     for (const s of sts) {
       const d = defOf(s.stamp_def_id);

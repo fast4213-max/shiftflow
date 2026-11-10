@@ -58,6 +58,7 @@ button:disabled { opacity: .35; cursor: default; }
 .chip { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 2px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); font-size: 12px; font-weight: 700; white-space: nowrap; }
 .chip i { width: 19px; height: 19px; border-radius: 4px; background: var(--c); display: inline-block; }
 .chip.off { opacity: .45; text-decoration: line-through; }
+.chip.stchip i { background: none; color: var(--accent); display: inline-flex; align-items: center; justify-content: center; font-style: normal; font-size: 14px; }
 .banner { margin: 0; padding: 6px 12px; font-size: 13px; background: #fff4d6; color: #5c4400; }
 .banner a { color: inherit; }
 .banner .bx { margin-left: 6px; padding: 0 6px; font-size: 13px; color: inherit; opacity: .7; }

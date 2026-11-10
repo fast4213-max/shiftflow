@@ -2857,6 +2857,44 @@ await check("カレンダー(スタンプ): ドラッグで別の日へ動かせ
   await ctx.close();
 });
 
+await check("カレンダー(スタンプ): 曜日の上の「スタンプ」で全部を隠す・出す。開き直しても残る。置く画面の間は出す。スタンプが無い人にはボタンを出さない", async () => {
+  const { page, ctx, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  assert.equal(await page.locator("#chips [data-chip-stamps]").count(), 0, "スタンプを作るまでは出さない");
+  await page.click("#tab-stamp");
+  await page.click('#tray [data-act="df-new"]');
+  await page.fill("#d-emoji", "🎂");
+  await page.click('[data-act="df-save"]');
+  await page.waitForSelector(".lrow[data-did]");
+  await page.click('[data-act="close"]');
+  await page.click("#tray .tk");
+  await page.click(`.cell[data-date="${today}"]`, { position: { x: 4, y: 4 } });
+  await page.waitForSelector(".stamp");
+  await page.click('#tray [data-act="st-off"]');
+  const chip = page.locator("#chips [data-chip-stamps]");
+  assert.equal((await chip.textContent()).includes("スタンプ"), true);
+  assert.equal(await chip.getAttribute("aria-pressed"), "true");
+  // 押すと隠れる(ラベルのボタンと同じく薄く取り消し線)
+  await chip.click();
+  await page.waitForFunction(() => !document.querySelector(".stamp"));
+  assert.equal(await page.locator("#chips .chip.stchip.off").count(), 1);
+  // 開き直しても隠れたまま
+  await page.reload();
+  await page.waitForSelector("#chips [data-chip-stamps]");
+  assert.equal(await page.locator(".stamp").count(), 0);
+  // スタンプを置く画面の間は出す(置く・動かすため)。閉じるとまた隠れる
+  await page.click("#tab-stamp");
+  await page.waitForSelector(".stamp");
+  assert.ok((await page.textContent("#tray")).includes("隠しています"));
+  await page.click('#tray [data-act="st-off"]');
+  await page.waitForFunction(() => !document.querySelector(".stamp"));
+  // もう一度押すと戻る
+  await page.click("#chips [data-chip-stamps]");
+  await page.waitForSelector(".stamp");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await check("カレンダー: 上のボタン・下のタブが幅320pxでもはみ出さない(重要メモ・画像・スタンプ・TODO)", async () => {
   const { page, ctx } = await calOpen({ viewport: { width: 320, height: 640 } });
   await page.waitForSelector(".bar");
