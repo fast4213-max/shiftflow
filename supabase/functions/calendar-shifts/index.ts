@@ -82,7 +82,7 @@ serve(async (req) => {
 
   // 共有の相手の勤務。許可(見せる範囲)はサーバーで確かめる。相手の記録は service_role で読む(本人以外は RLS で読めないため)
   async function loadMates() {
-    const linksRes = await ctx.admin.from("cal_share_links").select("user_a, user_b, scope_a, scope_b")
+    const linksRes = await ctx.admin.from("cal_share_links").select("user_a, user_b, scope_a, scope_b, kind")
       .or(`user_a.eq.${ctx.userId},user_b.eq.${ctx.userId}`);
     if (linksRes.error) throw linksRes.error;
     const owners = sharedOwners(ctx.userId, (linksRes.data || []) as ShareLink[]);
@@ -100,7 +100,8 @@ serve(async (req) => {
         ctx.admin.from("shift_records").select("date, code, memo").eq("user_id", o.ownerId).gte("date", recFrom).lte("date", recTo),
       ]);
       if (recRes.error) throw recRes.error;
-      return { ownerId: o.ownerId, scope: o.scope, shifts: mateView(build(master, (recRes.data || []) as { date: string; code: string; memo: string }[]), o.scope) };
+      const rows = (recRes.data || []) as { date: string; code: string; memo: string }[];
+      return { ownerId: o.ownerId, scope: o.scope, couple: o.couple, shifts: mateView(build(master, rows), o.scope, o.couple) };
     }));
     return built.filter((x) => x !== null);
   }

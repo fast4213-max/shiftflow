@@ -991,7 +991,7 @@ begin
   assert not has_function_privilege('authenticated', 'public.cal_share_count(uuid,uuid)', 'execute'), 'cal_share_count を利用者が呼べる';
   assert not has_function_privilege('authenticated', 'public.cal_share_add_view(uuid,uuid)', 'execute'), 'cal_share_add_view を利用者が呼べる';
   assert not has_function_privilege('anon', 'public.cal_share_send(text,text,text)', 'execute'), 'anon が cal_share_send を呼べる';
-  assert has_function_privilege('authenticated', 'public.cal_share_accept(uuid,text)', 'execute'), '利用者が cal_share_accept を呼べない';
+  assert has_function_privilege('authenticated', 'public.cal_share_accept(uuid,text,boolean)', 'execute'), '利用者が cal_share_accept を呼べない';
 
   insert into auth.users (id) select unnest(u);
   for n in 1..8 loop
@@ -1086,6 +1086,148 @@ begin
   -- 退会(ユーザーが消える)と、共有もお誘いも消える
   delete from auth.users where id = any(u);
   assert (select count(*) from public.cal_share_invites where from_id = any(u)) = 0, '退会した人のお誘いが残る';
+  perform set_config('request.jwt.claim.sub', '', true);
+end
+$$;
+
+-- カレンダーの共有・夫婦(docs/share/DESIGN.md の 2・5章): 招待した側のカレンダーを2人で使う・取り込み・自分だけ・持って帰る
+do $$
+declare
+  ta uuid := 'cdcdcdcd-0000-4000-8000-000000000001';  -- 太郎(招待する側・持ち主)
+  hn uuid := 'cdcdcdcd-0000-4000-8000-000000000002';  -- 花子(招待される側)
+  ot uuid := 'cdcdcdcd-0000-4000-8000-000000000003';  -- 関係ない人
+  inv uuid;
+  lnk uuid;
+  lb uuid;
+  lb_priv uuid;
+  ev uuid;
+  ev_priv uuid;
+  d uuid;
+  ok boolean;
+  n int;
+begin
+  insert into auth.users (id) values (ta), (hn), (ot);
+  insert into public.profiles (user_id, employee_no, family_name, given_name) values
+    (ta, '8100001', '山田', '太郎'), (hn, '8100002', '山田', '花子'), (ot, '8100003', '他', '人');
+
+  set local role authenticated;
+  -- 花子は、夫婦になる前から自分のカレンダーを使っている
+  perform set_config('request.jwt.claim.sub', hn::text, true);
+  perform public.cal_ensure_default_labels();
+  assert public.cal_owner() = hn and public.cal_partner() is null, '夫婦でないのに、ほかの人のカレンダーになる';
+  update public.cal_labels set color = '#aa0000' where kind = 'duty';
+  insert into public.cal_labels (name, color) values ('通院', '#00aa00') returning id into lb;
+  insert into public.cal_events (title, start_date, end_date, label_id) values ('歯医者', '2026-11-20', '2026-11-20', lb);
+  insert into public.cal_todos (text) values ('牛乳');
+  insert into public.cal_gallery (path, title) values (hn || '/g-1.jpg', '時刻表');
+  -- 作った人は画面から偽れない(自分になる)
+  insert into public.cal_todos (text, created_by) values ('偽', ta);
+  assert (select created_by from public.cal_todos where text = '偽') = hn, '作った人を偽れる';
+  delete from public.cal_todos where text = '偽';
+
+  -- 太郎のカレンダー
+  perform set_config('request.jwt.claim.sub', ta::text, true);
+  perform public.cal_ensure_default_labels();
+  insert into public.cal_events (title, start_date, end_date, label_id)
+    values ('車検', '2026-11-21', '2026-11-21', (select id from public.cal_labels where kind = 'custom' limit 1));
+  assert (select count(*) from public.cal_events) = 1, '太郎に花子の予定が見える(夫婦の前)';
+
+  -- 夫婦のお誘い → 花子が取り込んで受ける
+  perform public.cal_share_send('8100002', 'couple', 'duty_off');
+  ok := false; begin perform public.cal_share_send('8100003', 'couple', 'duty'); exception when check_violation then ok := true; end;
+  assert ok, '夫婦のお誘いを2つ送れる';
+  perform set_config('request.jwt.claim.sub', hn::text, true);
+  inv := (public.cal_share_list()->'received'->0->>'id')::uuid;
+  assert public.cal_share_list()->'received'->0->>'kind' = 'couple', 'お誘いが夫婦になっていない';
+  perform public.cal_share_accept(inv, 'duty', true);
+  assert public.cal_owner() = ta and public.cal_partner() = ta, '花子のカレンダーが太郎のものにならない';
+
+  -- 花子から: 太郎のカレンダーが見える。取り込んだ予定・TODO・画像もある。ラベルは名前のラベル
+  assert (select count(*) from public.cal_events) = 2, '花子に、2人の予定が見えない: ' || (select count(*) from public.cal_events);
+  assert (select count(*) from public.cal_todos) = 1 and (select count(*) from public.cal_gallery) = 1, '取り込んだ TODO・画像が見えない';
+  assert (select name from public.cal_labels where kind = 'duty' and member_id is null) = '太郎', '持ち主の勤務のラベルが名前にならない';
+  assert (select name from public.cal_labels where kind = 'off' and member_id = hn) = '花子・休', '花子の休日のラベルが無い';
+  assert (select color from public.cal_labels where kind = 'duty' and member_id = hn) = '#aa0000', '花子の勤務のラベルが、今の色を引き継がない';
+  assert (select count(*) from public.cal_labels where kind = 'custom' and name = '通院') = 1, '取り込んだ予定のラベルが無い';
+  assert (select count(*) from public.cal_share_views) = 0, '夫婦なのに、仲間の名前のラベルがある';
+  -- 花子が足した予定は、太郎のカレンダーに入る(ラベルは、取り込みで太郎のカレンダーに作られた「通院」)
+  select id into lb from public.cal_labels where name = '通院';
+  insert into public.cal_events (title, start_date, end_date, label_id) values ('美容院', '2026-11-22', '2026-11-22', lb) returning id into ev;
+  -- 片方が作ったラベルは、相手にも出る
+  insert into public.cal_labels (name, color) values ('旅行', '#123456');
+  -- 自分だけのラベル(花子だけ)と、その予定
+  insert into public.cal_labels (name, color, private_to) values ('ないしょ', '#654321', hn) returning id into lb_priv;
+  insert into public.cal_events (title, start_date, end_date, label_id) values ('プレゼント', '2026-11-23', '2026-11-23', lb_priv) returning id into ev_priv;
+  ok := false; begin insert into public.cal_labels (name, color, private_to) values ('x', '#111111', ta); exception when others then ok := true; end;
+  assert ok, '相手の「自分だけ」のラベルを作れる';
+  ok := false; begin perform public.cal_share_send('8100003', 'couple', 'duty'); exception when check_violation then ok := true; end;
+  assert ok, '夫婦なのに、ほかの人に夫婦のお誘いを送れる';
+
+  -- 太郎から: 花子の予定が見えて直せる。自分だけのラベル・予定は見えない。ラベルの色は2人で同じ
+  perform set_config('request.jwt.claim.sub', ta::text, true);
+  assert (select user_id from public.cal_events where id = ev) = ta and (select created_by from public.cal_events where id = ev) = hn, '花子の予定の持ち主・作った人が違う';
+  update public.cal_events set title = '美容院(太郎が直した)' where id = ev;
+  assert (select title from public.cal_events where id = ev) = '美容院(太郎が直した)', '太郎が花子の予定を直せない';
+  assert (select count(*) from public.cal_labels where name = '旅行') = 1, '花子の作ったラベルが太郎に出ない';
+  update public.cal_labels set color = '#000001' where name = '旅行';
+  assert (select count(*) from public.cal_labels where id = lb_priv) = 0, '花子の「自分だけ」のラベルが太郎に見える';
+  assert (select count(*) from public.cal_events where id = ev_priv) = 0, '花子の「自分だけ」の予定が太郎に見える';
+  update public.cal_events set title = 'x' where id = ev_priv;
+  ok := false; begin update public.cal_labels set private_to = ta where name = '旅行'; exception when check_violation then ok := true; end;
+  assert ok, '花子の作ったラベルを、太郎が「自分だけ」にできる';
+  reset role;
+  assert (select title from public.cal_events where id = ev_priv) = 'プレゼント', '太郎が花子の「自分だけ」の予定を直せる';
+  set local role authenticated;
+  -- 画像は20枚まで(夫婦のカレンダー)
+  for n in 1..19 loop insert into public.cal_gallery (path) values (ta || '/g-' || n || '.jpg'); end loop;
+  assert (select count(*) from public.cal_gallery) = 20, '夫婦のカレンダーに画像を20枚入れられない';
+  ok := false; begin insert into public.cal_gallery (path) values (ta || '/g-x.jpg'); exception when check_violation then ok := true; end;
+  assert ok, '夫婦のカレンダーに画像を21枚入れられる';
+  delete from public.cal_gallery where created_by = ta;
+
+  -- 関係ない人からは、何も見えない
+  perform set_config('request.jwt.claim.sub', ot::text, true);
+  assert (select count(*) from public.cal_events) = 0 and (select count(*) from public.cal_labels) = 0, '関係ない人に夫婦のカレンダーが見える';
+
+  -- 花子の色の変更は太郎にも
+  perform set_config('request.jwt.claim.sub', hn::text, true);
+  assert (select color from public.cal_labels where name = '旅行') = '#000001', '太郎の色の変更が花子に出ない';
+
+  -- 太郎がやめる → 花子が作ったもの(取り込んだもの・あとで作ったもの・自分だけ)は花子へ。太郎の手元には残らない
+  perform set_config('request.jwt.claim.sub', ta::text, true);
+  lnk := (public.cal_share_list()->'links'->0->>'id')::uuid;
+  perform public.cal_share_stop(lnk);
+  assert public.cal_owner() = ta, 'やめたのに太郎のカレンダーが変わる';
+  assert (select count(*) from public.cal_events) = 1 and (select title from public.cal_events) = '車検', '花子の予定が太郎に残る';
+  assert (select count(*) from public.cal_todos) = 0 and (select count(*) from public.cal_gallery) = 0, '花子の TODO・画像が太郎に残る';
+  assert (select name from public.cal_labels where kind = 'duty') = '勤務' and (select count(*) from public.cal_labels where member_id is not null) = 0, '太郎のラベルが元に戻らない';
+  assert (select count(*) from public.cal_labels where name in ('旅行', '通院')) = 0, '花子が作ったラベルが太郎に残る';
+  perform set_config('request.jwt.claim.sub', hn::text, true);
+  assert public.cal_owner() = hn, 'やめたのに花子が自分のカレンダーに戻らない';
+  assert (select count(*) from public.cal_events) = 3, '花子の予定が戻らない: ' || (select count(*) from public.cal_events);
+  assert (select title from public.cal_events where id = ev) = '美容院(太郎が直した)', '花子の予定(直したもの)が戻らない';
+  assert (select count(*) from public.cal_events e join public.cal_labels l on l.id = e.label_id where e.id = ev_priv and l.private_to = hn) = 1, '自分だけの予定が戻らない';
+  assert (select count(*) from public.cal_todos) = 1 and (select count(*) from public.cal_gallery) = 1, '花子の TODO・画像が戻らない';
+  assert (select name from public.cal_labels where kind = 'duty') = '勤務' and (select color from public.cal_labels where kind = 'duty') = '#aa0000', '花子のラベルが元のまま残っていない';
+  assert (select count(*) from public.cal_labels where kind = 'custom' and name = '通院') = 1, '花子の予定のラベルが戻らない';
+  assert (select color from public.cal_labels where kind = 'custom' and name = '旅行') = '#000001', '花子が作ったラベル(予定に使っていない)が、2人で決めた色で戻らない';
+
+  -- 退会: 夫婦のまま花子が消えるときは、先に持って帰る(サーバーの関数)。取り込まないで受ける
+  perform set_config('request.jwt.claim.sub', ta::text, true);
+  perform public.cal_share_send('8100002', 'couple', 'duty');
+  perform set_config('request.jwt.claim.sub', hn::text, true);
+  perform public.cal_share_accept((public.cal_share_list()->'received'->0->>'id')::uuid, 'none', false);
+  assert (select count(*) from public.cal_events) = 1, '取り込まないのに、花子の予定が入った';
+  insert into public.cal_events (title, start_date, end_date, label_id)
+    values ('新しい予定', '2026-11-24', '2026-11-24', (select id from public.cal_labels where kind = 'custom' order by sort limit 1));
+  reset role;
+  assert not has_function_privilege('authenticated', 'public.cal_couple_end_for(uuid)', 'execute'), '利用者が cal_couple_end_for を呼べる';
+  perform public.cal_couple_end_for(hn);
+  assert (select count(*) from public.cal_share_links) = 0, '退会の前の片付けで、夫婦が消えない';
+  assert (select count(*) from public.cal_events where user_id = ta) = 1, '退会する人の予定が持ち主に残る';
+  assert (select count(*) from public.cal_events where user_id = hn and title = '新しい予定') = 1, '退会する人の予定が戻らない';
+
+  delete from auth.users where id in (ta, hn, ot);
   perform set_config('request.jwt.claim.sub', '', true);
 end
 $$;

@@ -17,6 +17,9 @@ serve(async (req) => {
   if (!target || target.role !== "user") throw new AppError(404, "利用者が見つかりません。", "not_found");
 
   if (body.action === "delete") {
+    // 夫婦でカレンダーを使っていたら、先にやめるときと同じ片付けをする(招待された側が作ったものを、その人のカレンダーへ。docs/share/DESIGN.md)
+    const { error: coupleError } = await ctx.admin.rpc("cal_couple_end_for", { p_user: userId });
+    if (coupleError) throw coupleError;
     // カレンダーの写真・画像のファイルを先に消す(利用者を消すと行は消えるが、ファイルは残ってしまうため。消せなければ利用者も消さない)
     await removeUserFiles(ctx.admin, userId);
     // プロフィール・設定・勤務記録・カレンダーの予定などは一緒に消える(Googleカレンダーに登録済みの予定は残る)

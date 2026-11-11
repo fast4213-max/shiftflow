@@ -89,7 +89,7 @@ TimeTree のような「カレンダーを人と共有する」機能。相談�
 | 予定・自分で作ったラベル(名前・色)・名前のラベル(名前・色)・TODO・重要メモ・スタンプ・画像の置き場(**20枚**)・予定の写真・テンプレート・アナウンス | 「自分だけ」のラベルとその予定・仲間の名前のラベル・ラベルのボタンでの表示・このカレンダーに出すもの・アイコン・色合い・勤務入力 |
 
 - 予定の詳細に「花子が追加」と出す。
-- 予定を同時に直したときは「相手が先に直しました」(今の version の仕組み)。TODO・重要メモは、あとから保存したほうが残る。
+- 予定を同時に直したときは「相手か別の端末で変更されたか、消されています」(今の version の仕組み)。TODO・重要メモは、あとから保存したほうが残る。
 - 相手の変更は、開いたとき・月を移ったとき・画面に戻ったときに読み直して出る。
 - 予定などの上限(予定5,000件・ラベル10個など)は、カレンダー1つ分を2人で使う。画像の置き場だけ20枚。
 ### 取り込む(招待された側が選んだとき)
@@ -141,3 +141,41 @@ TimeTree のような「カレンダーを人と共有する」機能。相談�
 | サーバー | 範囲の外(見せない・勤務だけの休日)の勤務は返らない。やめたら返らない |
 | DB(第2段階) | 夫婦でない人の cal_* の読み書きが今と同じ。夫婦の相手は読めて直せる。「自分だけ」は見えない |
 | DB(第2段階) | 取り込み・持って帰るで、作った人のものが行き来する。ラベルが10個を超えない |
+
+## 9. 作ったもの(2026-11-11)
+### 第1段階(仲間)
+- migration `20261112000000_cal_share.sql`: 表4つ(invites・links・views・sends)と関数 `cal_share_send / list / inbox_count / accept / decline / cancel / set_scope / stop`。
+- `calendar-shifts`: 画面が `mates: true` を付けると、`mates: [{ ownerId, scope, couple, shifts }]` も返す(`_shared/share.ts`)。
+- 画面: `web/js/share.js`(お誘いの部品)・`notices.html` の「あなたへのお知らせ」・カレンダーの設定の「👥 カレンダーの共有」・名前のラベル(id は `m:相手のID` と `m:相手のID:off`。DB のラベルではない)。
+
+### 第2段階(夫婦)
+- migration `20261113000000_cal_share_couple.sql`:
+  - `cal_owner()` と `cal_partner()` を足し、cal_* の9つの表の RLS を `user_id = cal_owner()` にした(「自分だけ」のラベルとその予定・写真・テンプレートは `cal_label_hidden` / `cal_event_hidden` で隠す)。
+  - `created_by` を足した。画面からは偽れず、あとから変えられない(トリガー `cal_created_by`)。
+  - `cal_labels.member_id` と `private_to` を足した(`private_to` は作った人だけ)。
+  - 写真・画像のパスの確かめを `created_by` のフォルダにした。予定→写真とスタンプの種類→スタンプの外部キーを `on update cascade` にした。
+  - 画像は夫婦なら20枚。
+  - `cal_ensure_default_labels` を夫婦に対応させた。
+  - `cal_couple_start / end / move / fallback / end_for` を足した。
+- 退会: 管理画面の削除(`admin-users`)は、先に `cal_couple_end_for` を呼んで持って帰ってから消す。
+- `calendar-shifts`: 夫婦の相手の非番は、非番のまま返す(カレンダーに `花子・非` のラベルがあるので)。
+
+### 決めた細かいこと(相談の内容から、作るときに決めた)
+- 招待された側が作ったラベルは、予定に使っていなくても持って帰る(行き先に同じ名前があれば、それにまとめる)。
+- 持ち主が、相手の作った予定に足した写真は、予定と一緒に相手のカレンダーへ移る。ファイルは持ち主のフォルダのままなので、やめたあとは相手からは見えない(写真の枠だけ残る)。めったに起きないので、このままにする。
+- 相手が作った種類で押したスタンプは、種類と一緒に、種類を作った人のカレンダーにつく。
+- TODO・重要メモの同時の変更は、あとから保存したほうが残る(予定だけ「相手が先に直しました」が出る)。
+- 夫婦のお誘いの返事待ちは、1人1つまで。仲間の人を夫婦に誘い直すことはできる(受けると夫婦になる)。
+
+### Storage の権限を手で作る SQL(migration で作れなかったとき)
+本番の Storage の持ち主の権限で作れなかったときだけ、Supabase の SQL エディタで実行する。
+```sql
+drop policy if exists calendar_select_own on storage.objects;
+drop policy if exists calendar_delete_own on storage.objects;
+create policy calendar_select_own on storage.objects for select to authenticated
+  using (bucket_id = 'calendar' and public.is_member()
+         and ((storage.foldername(name))[1] = auth.uid()::text or (storage.foldername(name))[1] = public.cal_partner()::text));
+create policy calendar_delete_own on storage.objects for delete to authenticated
+  using (bucket_id = 'calendar' and public.is_member()
+         and ((storage.foldername(name))[1] = auth.uid()::text or (storage.foldername(name))[1] = public.cal_partner()::text));
+```

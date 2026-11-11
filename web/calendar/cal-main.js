@@ -66,9 +66,27 @@ function showBanner() {
 function setNotice(html) { S.notice = html || ""; showBanner(); }
 function fail(err) { setNotice(esc(friendlyText(err && err.message ? err.message : String(err)))); }
 
+// 夫婦の共有(docs/share/DESIGN.md の 2・5章)。夫婦なら { partner, name, owner(自分が持ち主か), theirScope, linkId }
+function couple() {
+  const l = S.share.links.find((x) => x.kind === "couple");
+  return l ? { partner: l.partner_id, name: l.partner_name, owner: !!l.inviter, theirScope: l.their_scope, linkId: l.id } : null;
+}
+// 勤務・休日・非番のラベルが、誰の勤務のものか(夫婦のカレンダーでは、相手のものは member_id、持ち主のものは user_id)
+const shiftOwnerOf = (l) => l.member_id || l.user_id;
+const isMine = (l) => !l.user_id || shiftOwnerOf(l) === S.userId; // user_id が無い(古い・テストの偽物)ときは自分のもの
+
 // カレンダーに出すもの(設定の「このカレンダーに出すもの」。自動のときは Google の設定から決める)。
-// 出さないものは、ラベルのボタンも予定も出さない。非番は、チェックが無ければ勤務に含めて出す
-const labelShown = (l) => l.kind === "duty" ? S.cfg.duty : l.kind === "off" ? S.cfg.off : l.kind === "offduty" ? S.cfg.offduty : true;
+// 出さないものは、ラベルのボタンも予定も出さない。非番は、チェックが無ければ勤務に含めて出す。
+// 夫婦の相手の勤務・休日・非番のラベルは、相手が見せている範囲で出す(非番は、自分の「非番を別のボタン」に合わせる)
+const labelShown = (l) => {
+  if (l.kind === "custom") return true;
+  if (!isMine(l)) {
+    const c = couple();
+    if (!c || c.partner !== shiftOwnerOf(l) || c.theirScope === "none") return false;
+    return l.kind === "duty" ? true : l.kind === "off" ? c.theirScope === "duty_off" : S.cfg.offduty;
+  }
+  return l.kind === "duty" ? S.cfg.duty : l.kind === "off" ? S.cfg.off : l.kind === "offduty" ? S.cfg.offduty : true;
+};
 const visibleLabels = () => S.labels.filter(labelShown);
 const groupShown = (g) => g === "off" ? S.cfg.off : g === "offduty" ? (S.cfg.offduty || S.cfg.duty) : S.cfg.duty;
 const labelForGroup = (g) => {
@@ -83,7 +101,7 @@ function mateLabels() {
   const out = [];
   for (const v of S.share.views) {
     const link = S.share.links.find((l) => l.partner_id === v.owner_id);
-    if (!link || link.their_scope === "none") continue;
+    if (!link || link.their_scope === "none" || link.kind === "couple") continue;
     out.push({ id: `m:${v.owner_id}`, kind: "mate", owner: v.owner_id, name: v.name, color: v.color });
     if (link.their_scope === "duty_off") out.push({ id: `m:${v.owner_id}:off`, kind: "mateoff", owner: v.owner_id, name: v.off_name, color: v.off_color });
   }
@@ -91,7 +109,7 @@ function mateLabels() {
 }
 const mateLabelId = (owner, group) => (group === "off" ? `m:${owner}:off` : `m:${owner}`);
 const labelOf = (id) => S.labels.find((l) => l.id === id) || (String(id).startsWith("m:") ? mateLabels().find((l) => l.id === id) : undefined);
-const labelKind = (kind) => S.labels.find((l) => l.kind === kind);
+const labelKind = (kind, owner = S.userId) => S.labels.find((l) => l.kind === kind && (owner === S.userId ? isMine(l) : shiftOwnerOf(l) === owner));
 const colorOf = (id) => (labelOf(id) || {}).color || FALLBACK.custom;
 // 並びは、自分のラベル → 共有の相手の名前のラベル
 const rankOf = (id) => {
@@ -100,6 +118,7 @@ const rankOf = (id) => {
   const j = String(id).startsWith("m:") ? mateLabels().findIndex((l) => l.id === id) : -1;
   return j < 0 ? 99 : 60 + j;
 };
+const givenOf = (full) => String(full || "").trim().split(/\s+/).pop();
 const partnerName = (owner) => (S.share.links.find((l) => l.partner_id === owner) || {}).partner_name || "";
 
 function applyTheme() {
@@ -115,7 +134,7 @@ function rowToOwn(r) {
     src: "own", id: r.id, title: r.title, start: r.start_date, end: r.end_date, allDay: r.all_day,
     startTime: r.start_time || "", endTime: r.end_time || "", labelId: r.label_id, memo: r.memo || "",
     repeat: r.repeat_rule, until: r.repeat_until || "", exdates: r.exdates || [], yearsLabel: r.years_label || "", version: r.version,
-    announce: r.announce || "none",
+    announce: r.announce || "none", createdBy: r.created_by || "",
   };
 }
 
@@ -127,7 +146,7 @@ async function loadLabels() {
   };
   let rows = await read();
   // 勤務・休日・非番のラベルが足りなければ作る(今までの利用者には、非番だけが足される)
-  if (!rows.length || ["duty", "off", "offduty"].some((k) => !rows.some((r) => r.kind === k))) {
+  if (!rows.length || ["duty", "off", "offduty"].some((k) => !rows.some((r) => r.kind === k && isMine(r)))) {
     const { error } = await supabase.rpc("cal_ensure_default_labels");
     if (error) throw error;
     rows = await read();
@@ -138,6 +157,7 @@ async function loadLabels() {
 // カレンダーの共有の一覧。読めなくても、カレンダーは動かす(名前のラベルは前のまま)
 async function loadShare() {
   try { S.share = await fetchShare(); } catch (_) { /* 前のまま */ }
+  S.galleryMax = couple() ? 20 : 10; // 夫婦のカレンダーは画像20枚
 }
 
 async function loadTemplates() {
@@ -253,7 +273,13 @@ function eventsBetween(a, b) {
     for (const e of events) {
       if (e.end < a || e.start > b) continue;
       let labelId;
-      if (e.src === "mate") {
+      if (e.src === "mate" && couple() && couple().partner === e.owner) {
+        // 夫婦の相手の勤務は、カレンダーの名前のラベル(2人で同じ)。非番は、自分の「非番を別のボタン」に合わせる
+        const duty = labelKind("duty", e.owner);
+        const l = e.group === "off" ? labelKind("off", e.owner) : e.group === "offduty" && S.cfg.offduty ? labelKind("offduty", e.owner) || duty : duty;
+        if (!l || !labelShown(l)) continue;
+        labelId = l.id;
+      } else if (e.src === "mate") {
         // 相手が範囲を狭めた(休日を見せなくなった・見せなくなった)ときは、ラベルが無いので出さない
         labelId = mateLabelId(e.owner, e.group);
         if (!labelOf(labelId)) continue;
@@ -544,10 +570,13 @@ function openEvent(uid) {
       <div class="btns"><button class="btn" data-act="ann-toggle" data-uid="${esc(uid)}">${annOn ? "アナウンスに出すのをやめる" : "アナウンスに出す"}</button></div>` + actions;
   }
   const annNote = annOn ? `<p class="sub">アナウンス: ${base.announce === "plain" ? "日付なし(予定の名前だけ)" : "日付あり(あと何日かを出す)"}</p>` : "";
+  // 夫婦のカレンダー: 相手が足した予定には「花子が追加」
+  const c = couple();
+  const byNote = c && base && base.createdBy && base.createdBy !== S.userId ? `<p class="sub">${esc(givenOf(c.name))}が追加</p>` : "";
   openPanel(`${head(e.title || "（タイトルなし）")}<div class="pb">
     <p class="sub">${esc(whenText(e))}</p>
     ${label ? `<p><span class="chip" style="--c:${esc(colorOf(e.labelId))}"><i></i>${esc(label.name)}</span></p>` : ""}
-    ${rep ? `<p class="sub">繰り返し: ${esc(rep)}</p>` : ""}${yearsText(e) ? `<p class="sub">${esc(yearsText(e))}</p>` : ""}${annNote}
+    ${rep ? `<p class="sub">繰り返し: ${esc(rep)}</p>` : ""}${yearsText(e) ? `<p class="sub">${esc(yearsText(e))}</p>` : ""}${annNote}${byNote}
     ${e.memo ? `<p style="white-space:pre-wrap;word-break:break-word">${esc(e.memo)}</p>` : ""}
     ${photosDetailHtml(e)}
     <p class="msg err" id="detail-msg"></p>${actions}</div>`);
@@ -738,13 +767,13 @@ async function saveDraft() {
     } else if (d.mode === "all") {
       const { data, error } = await supabase.from("cal_events").update(rowFromDraft(d)).eq("id", d.id).eq("version", d.version).select();
       if (error) throw error;
-      if (!data || !data.length) { await reloadAll(); return renderForm("別の端末で変更されたか、消されています。読み直しました。もう一度直してください。"); }
+      if (!data || !data.length) { await reloadAll(); return renderForm(`${couple() ? "相手か別の端末" : "別の端末"}で変更されたか、消されています。読み直しました。もう一度直してください。`); }
     } else {
       // この回だけ: 元の予定からこの日を外し、変えた内容を1回だけの予定として作る
       const ex = [...new Set([...(d.exdates || []), d.occ])];
       const upd = await supabase.from("cal_events").update({ exdates: ex }).eq("id", d.id).eq("version", d.version).select();
       if (upd.error) throw upd.error;
-      if (!upd.data || !upd.data.length) { await reloadAll(); return renderForm("別の端末で変更されたか、消されています。読み直しました。もう一度直してください。"); }
+      if (!upd.data || !upd.data.length) { await reloadAll(); return renderForm(`${couple() ? "相手か別の端末" : "別の端末"}で変更されたか、消されています。読み直しました。もう一度直してください。`); }
       const ins = await supabase.from("cal_events").insert(rowFromDraft({ ...d, repeat: "none", until: "" })).select().single();
       if (ins.error) {
         await supabase.from("cal_events").update({ exdates: d.exdates || [] }).eq("id", d.id); // 元に戻す
@@ -1102,7 +1131,7 @@ function usageText() {
   for (const list of S.photos.values()) for (const p of list) { photos++; photoBytes += Number(p.size_bytes) || 0; }
   const galleryBytes = S.gallery.reduce((n, g) => n + (Number(g.size_bytes) || 0), 0);
   const mb = (b) => (b < 104858 ? "0.1MB未満" : `${Math.round((b / 1048576) * 10) / 10}MB`);
-  return `約 ${mb(photoBytes + galleryBytes)}(画像の置き場 ${S.gallery.length}/10枚・予定の写真 ${photos}枚)`;
+  return `約 ${mb(photoBytes + galleryBytes)}(画像の置き場 ${S.gallery.length}/${S.galleryMax || 10}枚・予定の写真 ${photos}枚)`;
 }
 
 // 設定の折りたたみ(ラベル・このカレンダーに出すもの)が開いているか。設定を開き直すたびに閉じた状態から始める。
@@ -1115,6 +1144,12 @@ function calViewNote() {
   return on.length ? on.join("・") : "なし";
 }
 
+// 夫婦のカレンダー: 自分で作ったラベルを「自分だけ」(相手に見せない)にする切り替え。相手が作ったラベルには出さない
+function privRow(l) {
+  if (!couple() || l.kind !== "custom" || (l.created_by && l.created_by !== S.userId)) return "";
+  return `<label class="tg priv"><input type="checkbox" data-priv="${esc(l.id)}"${l.private_to ? " checked" : ""}> 🔒 自分だけ(${esc(givenOf(couple().name))}さんに見せない)</label>`;
+}
+
 function settingsHtml() {
   const theme = storageGet(THEME_KEY) || "auto";
   const vis = visibleLabels();
@@ -1124,7 +1159,7 @@ function settingsHtml() {
       <button class="btn sm" data-act="l-up" data-lid="${esc(l.id)}"${i === 0 ? " disabled" : ""} aria-label="上へ">↑</button>
       <button class="btn sm" data-act="l-down" data-lid="${esc(l.id)}"${i === vis.length - 1 ? " disabled" : ""} aria-label="下へ">↓</button>
       ${l.kind === "custom" ? `<button class="btn sm dng" data-act="l-del" data-lid="${esc(l.id)}" aria-label="削除">✕</button>` : '<span style="width:34px"></span>'}
-    </div>`).join("");
+    </div>${privRow(l)}`).join("");
   const customCount = S.labels.filter((l) => l.kind === "custom").length;
   return (`${head("設定")}<div class="pb">
     <div class="links2">
@@ -1143,7 +1178,7 @@ function settingsHtml() {
         <li><b>予定のテンプレート</b>: この設定の下の「予定のテンプレート」に登録すると、予定の追加のいちばん上のボタンで、タイトル・時刻などが入ります。</li>
         <li><b>アナウンス</b>: 予定・重要メモで「アナウンスに出す」にすると、上のラベルの下に、1件ずつ切り替えて出ます(日付ありは「あと○日」)。右の「1/3」で一覧です。</li>
         <li><b>見返せる期間</b>は、過去1年までです。予定の写真は、予定が終わって1か月で消えます(1つの予定に3枚まで)。</li>
-        <li><b>1つのアカウントで1人分</b>のカレンダーです。ほかの利用者と勤務を見せ合うときは、この設定の「👥 カレンダーの共有」で、相手の社員番号にお誘いを送ります(5人まで。見せる範囲は自分で決めます。相手の勤務は名前のラベルで出て、見るだけです)。アプリを使っていない家族には、勤務をGoogleカレンダーに登録して共有します。</li>
+        <li><b>1つのアカウントで1人分</b>のカレンダーです。ほかの利用者と勤務を見せ合うときは、この設定の「👥 カレンダーの共有」で、相手の社員番号にお誘いを送ります(5人まで。見せる範囲は自分で決めます。相手の勤務は名前のラベルで出て、見るだけです)。夫婦は、招待した人のカレンダーを2人で一緒に使えます(予定・TODO・写真なども2人で見て直せます。「自分だけ」にしたラベルの予定は相手に見えません)。アプリを使っていない家族には、勤務をGoogleカレンダーに登録して共有します。</li>
         <li><b>画像にする</b>: 下の「月のカレンダーを画像にする」と「選んだ日に〇をつけて画像にする」で、カレンダーを1枚の画像にして、LINEで送ったり印刷したりできます(画像は端末の中で作ります)。</li>
         <li>ホーム画面に追加すると、アプリのように開けます。最初に1回、社員番号とPINでログインします。</li>
         <li>ホーム画面のアイコンと、画面の色合いは、この設定の下の方で変えられます。「ラベル」と「このカレンダーに出すもの」は、見出しを押すと開きます。</li>
@@ -1166,7 +1201,7 @@ function settingsHtml() {
     <div class="card"><h3>画面の色合い</h3><div class="seg" role="radiogroup">
       ${[["auto", "自動"], ["light", "ライト"], ["dark", "ダーク"]].map(([v, t]) => `<label><input type="radio" name="theme" value="${v}"${theme === v ? " checked" : ""}><span>${t}</span></label>`).join("")}
     </div><p class="sub">「自動」は、端末のダークモードの設定に合わせます。この端末だけの設定です。</p></div>
-    <div class="card" id="my-usage"><h3>あなたの写真・画像の量</h3><p>${esc(usageText())}</p><p class="sub">画像の置き場は1人10枚まで、予定の写真は1つの予定に3枚までです。写真は予定が終わって1か月で消えます。</p></div>
+    <div class="card" id="my-usage"><h3>あなたの写真・画像の量</h3><p>${esc(usageText())}</p><p class="sub">画像の置き場は1人10枚(夫婦のカレンダーは20枚)まで、予定の写真は1つの予定に3枚までです。写真は予定が終わって1か月で消えます。</p></div>
   </div>`);
 }
 function openSettings() { openPanel(settingsHtml()); }
@@ -1287,22 +1322,25 @@ function shareCardHtml() {
   };
   const links = sh.links.map((l) => `<div class="share-row">
       <p><b>${esc(l.partner_name)}</b>さん(${kindText(l.kind)})</p>
+      ${l.kind === "couple" ? `<p class="sub">${l.inviter ? "あなたのカレンダーを、2人で一緒に使っています。" : `${esc(l.partner_name)}さんのカレンダーを、2人で一緒に使っています。`}勤務・休日のラベルの名前と色は、設定の「ラベル」で変えられます(2人で同じ)。</p>` : ""}
       <label class="sub">あなたが見せる範囲 ${scopeSelect(l)}</label>
       <p class="sub">相手から見せてもらう範囲: <b>${esc(scopeText(l.their_scope))}</b></p>
       ${labelEdit(l)}
-      <div class="btns"><button class="btn sm dng" data-act="sh-stop" data-id="${esc(l.id)}" data-name="${esc(l.partner_name)}">共有をやめる</button></div>
+      <div class="btns"><button class="btn sm dng" data-act="sh-stop" data-id="${esc(l.id)}" data-name="${esc(l.partner_name)}" data-kind="${esc(l.kind)}" data-partner="${esc(l.partner_id)}" data-inviter="${l.inviter ? "1" : ""}">共有をやめる</button></div>
     </div>`).join("");
   const sent = sh.sent.map((x) => x.state === "pending"
     ? `<div class="lrow"><span class="tpt">${esc(x.employee_no)} さんへ(${kindText(x.kind)}・${esc(mdText(x.expires_at))}まで)</span><button class="btn sm" data-act="sh-cancel" data-id="${esc(x.id)}">取り消す</button></div>`
     : `<div class="lrow"><span class="tpt">${esc(x.employee_no)} さん: 共有されませんでした</span><button class="btn sm" data-act="sh-cancel" data-id="${esc(x.id)}" aria-label="消す">✕</button></div>`).join("");
   const full = shareCount() >= SHARE_MAX;
   return `<details class="card fold" id="share" data-fold="share"${settingsFold.share || sh.received.length ? " open" : ""}><summary id="share-sum" class="${S.dots.share ? "has-dot" : ""}"><h3>👥 カレンダーの共有</h3><span class="fold-note">${shareCount()}/${SHARE_MAX}人</span></summary>
-      <p class="sub">相手の社員番号でお誘いを送り、相手が「共有する」を押すと、お互いの勤務を見せ合えます(見るだけ)。どこまで見せるかは、それぞれが決めます。相手の勤務は、相手の名前のラベルで出ます(名前と色は、ここで変えられます。相手には関係しません)。</p>
+      <p class="sub">相手の社員番号でお誘いを送り、相手が「共有する」を押すと共有できます。<b>仲間</b>: お互いの勤務を見せ合います(見るだけ。相手の勤務は相手の名前のラベルで出ます。名前と色は、ここで変えられます。相手には関係しません)。<b>夫婦</b>: あなたのカレンダーを2人で一緒に使います(1組まで)。どこまで勤務を見せるかは、それぞれが決めます。</p>
       ${sh.received.length ? `<h4>届いているお誘い</h4>${receivedHtml(sh.received)}` : ""}
       ${sh.links.length ? `<h4>共有している人</h4>${links}` : ""}
       ${sh.sent.length ? `<h4>返事待ち</h4>${sent}` : ""}
       <h4>新しく共有する</h4>
       <input class="in" id="sh-no" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="相手の社員番号(7桁)" aria-label="相手の社員番号">
+      <p class="sub">種類</p>
+      <div class="seg" role="radiogroup"><label><input type="radio" name="sh-kind" value="mate" checked><span>仲間</span></label><label><input type="radio" name="sh-kind" value="couple"${couple() ? " disabled" : ""}><span>夫婦</span></label></div>
       <p class="sub">あなたの勤務を見せる範囲</p>
       ${scopeSeg("sh-scope", "duty")}
       <div class="btns"><button class="btn pri" data-act="sh-send"${full ? " disabled" : ""}>お誘いを送る</button></div>
@@ -1322,6 +1360,13 @@ async function shareRefresh(reloadShifts) {
   loadDots().catch(() => {});
 }
 
+// 夫婦を始めた・やめたとき: 使うカレンダーが変わるので、全部読み直す
+async function coupleChanged() {
+  try { await reloadAll(); } catch (e) { fail(e); }
+  if (S.panel) setPanel(settingsHtml());
+  loadDots().catch(() => {});
+}
+
 function shareSay(text, kind = "") {
   shareNote = { text: friendlyText(text || ""), kind };
   const m = $("share-msg");
@@ -1334,8 +1379,11 @@ async function shareAction(act, el) {
       const no = toHalfWidth($("sh-no").value).replace(/\D/g, "");
       if (no.length !== 7) return shareSay("社員番号は7桁の数字で入れてください。", "err");
       const sc = $("panel").querySelector('input[name="sh-scope"]:checked');
+      const kd = $("panel").querySelector('input[name="sh-kind"]:checked');
+      const kind = kd ? kd.value : "mate";
+      if (kind === "couple" && !window.confirm("夫婦のお誘いを送ります。相手が「共有する」を押すと、あなたのカレンダー(予定・TODO・写真など)を2人で一緒に使います。よろしいですか？")) return;
       el.disabled = true;
-      await shareRpc("cal_share_send", { p_employee_no: no, p_kind: "mate", p_scope: sc ? sc.value : "duty" });
+      await shareRpc("cal_share_send", { p_employee_no: no, p_kind: kind, p_scope: sc ? sc.value : "duty" });
       // 相手がいてもいなくても、同じ文(登録しているか探れないように)
       shareSay(`${no} さんにお誘いを送りました(相手が使っていれば、お知らせに届きます。返事は14日まで待てます)。`, "ok");
       await shareRefresh(false);
@@ -1344,10 +1392,19 @@ async function shareAction(act, el) {
       shareSay("");
       await shareRefresh(false);
     } else if (act === "sh-stop") {
-      if (!window.confirm(`${el.dataset.name}さんとの共有をやめますか？(お互いのカレンダーから、相手の勤務が消えます)`)) return;
+      const isCouple = el.dataset.kind === "couple";
+      if (isCouple) {
+        // 招待された側が作ったものは、招待された側のカレンダーに戻る(招待した側には残らない)
+        const member = el.dataset.inviter ? el.dataset.partner : S.userId;
+        const who = member === S.userId ? "あなた" : `${el.dataset.name}さん`;
+        const evs = S.own.filter((e) => e.createdBy === member).length;
+        let photos = 0;
+        for (const list of S.photos.values()) photos += list.filter((p) => p.created_by === member).length;
+        if (!window.confirm(`${el.dataset.name}さんとの夫婦の共有をやめますか？\n${who}が作った予定 ${evs}件・写真 ${photos}枚(TODO・重要メモ・画像なども)は、${who}のカレンダーに移ります。`)) return;
+      } else if (!window.confirm(`${el.dataset.name}さんとの共有をやめますか？(お互いのカレンダーから、相手の勤務が消えます)`)) return;
       await shareRpc("cal_share_stop", { p_link: el.dataset.id });
       shareSay(`${el.dataset.name}さんとの共有をやめました。`, "ok");
-      await shareRefresh(true);
+      if (isCouple) await coupleChanged(); else await shareRefresh(true);
     }
   } catch (err) {
     el.disabled = false;
@@ -1361,7 +1418,8 @@ async function shareInviteClick(el) {
   try {
     const text = await receivedAction(el, $("panel"));
     if (text) shareSay(text, "ok");
-    await shareRefresh(el.dataset.share === "accept");
+    if (text && el.dataset.share === "accept" && el.dataset.kind === "couple") await coupleChanged();
+    else await shareRefresh(el.dataset.share === "accept");
   } catch (err) {
     el.disabled = false;
     shareSay(err.message || String(err), "err");
@@ -1583,6 +1641,13 @@ function bind() {
     if (draft && el.dataset.f) return readDraftField(el);
     if (tpl && el.dataset.tp) return readTplField(el);
     if (el.dataset.lf) return labelFieldChanged(el);
+    if (el.dataset.priv) {
+      const on = el.checked;
+      if (on && !window.confirm("このラベルと、このラベルの予定を、相手から見えなくします。よろしいですか？")) { el.checked = false; return; }
+      labelUpdate(el.dataset.priv, { private_to: on ? S.userId : null }).then(async () => { await loadLabels(); setPanel(settingsHtml()); render(); })
+        .catch((err) => { el.checked = !on; labelMsg(friendlyText(err.message || String(err))); });
+      return;
+    }
     if (el.dataset.shscope || el.dataset.mv) return shareFieldChanged(el);
     if (el.name === "theme") { storageSet(THEME_KEY, el.value); applyTheme(); return; }
     if (el.name === "appicon") { appIcon.choose(el.value); return; }

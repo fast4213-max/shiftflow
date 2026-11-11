@@ -8,7 +8,7 @@ const C = "c0000000-0000-4000-8000-000000000003";
 
 Deno.test("sharedOwners: 相手が自分に見せる範囲を使う(自分が見せる範囲ではない)", () => {
   const links = [{ user_a: A, user_b: B, scope_a: "none", scope_b: "duty_off" }];
-  assertEquals(sharedOwners(A, links), [{ ownerId: B, scope: "duty_off" }]);
+  assertEquals(sharedOwners(A, links), [{ ownerId: B, scope: "duty_off", couple: false }]);
   assertEquals(sharedOwners(B, links), []); // A は B に見せていない
 });
 
@@ -30,4 +30,11 @@ Deno.test("mateView: 勤務だけの人の休日は返さない。非番は勤�
   assertEquals(mateView(all, "duty").map((e) => [e.group, e.title]), [["duty", "1"], ["duty", "9:00"]]);
   assertEquals(mateView(all, "duty_off").map((e) => [e.group, e.title]), [["duty", "1"], ["off", "公"], ["duty", "9:00"]]);
   assertEquals(mateView(all, "none"), []);
+});
+
+Deno.test("sharedOwners・mateView: 夫婦は非番を非番のまま返す(仲間は勤務に入れる)", () => {
+  const links = [{ user_a: A, user_b: B, scope_a: "duty", scope_b: "duty", kind: "couple" }];
+  assertEquals(sharedOwners(A, links), [{ ownerId: B, scope: "duty", couple: true }]);
+  const all = [ev("duty", "1"), ev("off", "公"), ev("offduty", "9:00")];
+  assertEquals(mateView(all, "duty", true).map((e) => [e.group, e.title]), [["duty", "1"], ["offduty", "9:00"]]);
 });

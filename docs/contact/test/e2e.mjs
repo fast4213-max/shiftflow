@@ -34,7 +34,7 @@ const NOTICES = [
 
 // 偽の Supabase
 function backend(opts = {}) {
-  const st = { cal: { cal_labels: [], cal_events: [] }, calSeq: 0, uploads: [], removed: [], calls: [], inquiries: [], notices: [...NOTICES], nextNotice: 10,
+  const st = { cal: { cal_labels: [], cal_events: [], ...(opts.cal ? JSON.parse(JSON.stringify(opts.cal)) : {}) }, calSeq: 0, uploads: [], removed: [], calls: [], inquiries: [], notices: [...NOTICES], nextNotice: 10,
     guides: (opts.guides || []).map((g, i) => ({ id: i + 1, kind: "video", visible: true, sort_order: i + 1, ...g })), nextGuide: 100,
     appIcons: (opts.appIcons || []).map((x, i) => ({ id: i + 1, visible: true, sort_order: i + 1, ...x })), nextAppIcon: 100, iconUploads: [], iconRemoved: [],
     offices: [{ id: 1, name: "A区所", sort_order: 1 }, { id: 2, name: "B区所", sort_order: 2 }, { id: 3, name: "C区所", sort_order: 3 }] };
@@ -4772,7 +4772,7 @@ await check("共有: お誘いが届くと設定に赤い点。設定でも「�
   await page.click('#share .share-inv .seg label:has-text("見せない")');
   await page.click('#share [data-share="accept"]');
   await page.waitForFunction(() => document.getElementById("share-msg").textContent.includes("共有しました"));
-  assert.deepEqual(be.st.calls.find((c) => c.path.endsWith("/cal_share_accept")).body, { p_invite: "V1", p_scope: "none" });
+  assert.deepEqual(be.st.calls.find((c) => c.path.endsWith("/cal_share_accept")).body, { p_invite: "V1", p_scope: "none", p_import: false });
   assert.ok((await page.textContent("#share")).includes("共有している人"));
   await page.locator("#share").scrollIntoViewIfNeeded();
   await page.screenshot({ path: OUT + "share-settings-linked.png" });
@@ -4806,6 +4806,116 @@ await check("共有: お知らせの「あなたへのお知らせ」にお誘�
   await b.page.waitForTimeout(300);
   assert.equal(await b.page.locator("#mine").isHidden(), true);
   await b.ctx.close();
+});
+
+// ---------- カレンダーの共有・夫婦(docs/share/DESIGN.md の 2・5章) ----------
+// 自分(u1・太郎)は招待された側。花子(ph)のカレンダーを2人で使っている
+const COUPLE_SHARE = { links: [{ id: "K9", kind: "couple", partner_id: "ph", partner_name: "山田 花子", inviter: false, my_scope: "duty_off", their_scope: "duty_off" }], views: [], sent: [], received: [] };
+const COUPLE_CAL = {
+  cal_labels: [
+    { id: "LH1", user_id: "ph", created_by: "ph", member_id: null, kind: "duty", name: "花子", color: "#cc0000", sort: 1 },
+    { id: "LH2", user_id: "ph", created_by: "ph", member_id: null, kind: "off", name: "花子・休", color: "#ff9900", sort: 2 },
+    { id: "LH3", user_id: "ph", created_by: "ph", member_id: null, kind: "offduty", name: "花子・非", color: "#d4607a", sort: 2 },
+    { id: "LC1", user_id: "ph", created_by: "ph", member_id: null, kind: "custom", name: "その他", color: "#6b7280", sort: 3 },
+    { id: "LT1", user_id: "ph", created_by: "u1", member_id: "u1", kind: "duty", name: "太郎", color: "#0033cc", sort: 51 },
+    { id: "LT2", user_id: "ph", created_by: "u1", member_id: "u1", kind: "off", name: "太郎・休", color: "#00aa66", sort: 52 },
+    { id: "LT3", user_id: "ph", created_by: "u1", member_id: "u1", kind: "offduty", name: "太郎・非", color: "#d4607a", sort: 52 },
+    { id: "LC2", user_id: "ph", created_by: "u1", member_id: null, kind: "custom", name: "旅行", color: "#123456", sort: 60, private_to: null },
+  ],
+  cal_events: [
+    { id: "E1", user_id: "ph", created_by: "ph", title: "車検", start_date: today, end_date: today, all_day: true, start_time: "", end_time: "", label_id: "LC1", memo: "", repeat_rule: "none", repeat_until: null, exdates: [], years_label: "", announce: "none", version: 1 },
+    { id: "E2", user_id: "ph", created_by: "u1", title: "釣り", start_date: isoAdd(today, 2), end_date: isoAdd(today, 2), all_day: true, start_time: "", end_time: "", label_id: "LC2", memo: "", repeat_rule: "none", repeat_until: null, exdates: [], years_label: "", announce: "none", version: 1 },
+  ],
+};
+const COUPLE_MATES = [{ ownerId: "ph", scope: "duty_off", couple: true, shifts: [
+  { group: "duty", date: today, endDate: today, allDay: true, startTime: "", endTime: "", calendar: "work", kind: "day", title: "7", description: "" },
+  { group: "off", date: isoAdd(today, 1), endDate: isoAdd(today, 1), allDay: true, startTime: "", endTime: "", calendar: "holiday", kind: "day", title: "公", description: "" },
+] }];
+
+await check("夫婦: 2人のラベル(名前のラベル)が出て、相手の勤務は相手のラベルの色。相手が足した予定に「花子が追加」。画像は20枚まで", async () => {
+  const { page, ctx, be, errors } = await calOpen({}, { share: COUPLE_SHARE, mates: COUPLE_MATES, cal: COUPLE_CAL });
+  await page.waitForSelector('.bar:has-text("車検")');
+  const chips = await page.locator("#chips .chip").allTextContents();
+  for (const n of ["太郎", "太郎・休", "花子", "花子・休", "その他", "旅行"]) assert.ok(chips.includes(n), n + " が無い: " + chips.join());
+  assert.ok(!chips.includes("勤務"), "夫婦なのに「勤務」のラベル: " + chips.join());
+  assert.ok(!be.st.calls.some((c) => c.path.endsWith("/cal_ensure_default_labels")), "自分のラベルがあるのに作り直そうとする");
+  assert.equal(await page.locator('.bar:has-text("7")').first().evaluate((b) => b.style.getPropertyValue("--c")), "#cc0000");
+  assert.equal(await page.locator('.bar:has-text("25")').evaluate((b) => b.style.getPropertyValue("--c")), "#0033cc", "自分の勤務は自分の名前のラベル");
+  await page.click('.bar:has-text("車検")');
+  await page.waitForSelector("#panel:not([hidden])");
+  assert.ok((await page.textContent("#panel")).includes("花子が追加"));
+  await page.click('#panel [data-act="close"]');
+  await page.click('.bar:has-text("釣り")');
+  await page.waitForSelector("#panel:not([hidden])");
+  assert.ok(!(await page.textContent("#panel")).includes("が追加"), "自分の予定に「○○が追加」が出る");
+  await page.click('#panel [data-act="close"]');
+  await page.click("#btn-gal");
+  await page.waitForSelector("#panel:not([hidden])");
+  assert.ok((await page.textContent("#panel .ph h2")).includes("0/20"), await page.textContent("#panel .ph h2"));
+  assert.deepEqual(errors, []);
+  await page.screenshot({ path: OUT + "couple-month.png" });
+  await ctx.close();
+});
+
+await check("夫婦: 相手が「勤務だけ」なら相手の休日のラベル・休日は出ない。自分で作ったラベルだけ「自分だけ」にできる", async () => {
+  const share = JSON.parse(JSON.stringify(COUPLE_SHARE));
+  share.links[0].their_scope = "duty";
+  const { page, ctx, be, errors } = await calOpen({}, { share, mates: COUPLE_MATES, cal: COUPLE_CAL });
+  await page.waitForSelector('.bar:has-text("車検")');
+  assert.ok(!(await page.locator("#chips .chip").allTextContents()).includes("花子・休"));
+  assert.equal(await page.locator('.bar:has-text("公")').count(), 0);
+  await page.click("#tab-settings");
+  await page.click("#labels summary");
+  assert.equal(await page.locator('[data-priv="LC2"]').count(), 1, "自分で作ったラベルに「自分だけ」が無い");
+  assert.equal(await page.locator('[data-priv="LC1"]').count(), 0, "相手が作ったラベルに「自分だけ」が出る");
+  await page.check('[data-priv="LC2"]');
+  await page.waitForFunction(() => document.querySelector('[data-priv="LC2"]') && document.querySelector('[data-priv="LC2"]').checked);
+  assert.equal(be.st.cal.cal_labels.find((l) => l.id === "LC2").private_to, "u1");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("夫婦: やめるときは、自分が作ったものが自分のカレンダーに移ることを確かめてからやめる", async () => {
+  const asked = [];
+  const { page, ctx, be, errors } = await open("calendar/index.html", { userId: "u1",
+    opts: { profile: USER, shifts: CAL_SHIFTS, share: COUPLE_SHARE, mates: COUPLE_MATES, cal: COUPLE_CAL, settings: { holiday_calendar_id: "h", offduty_calendar_id: "o" } },
+    beforeLoad: async (p) => { p.removeAllListeners("dialog"); p.on("dialog", (d) => { asked.push(d.message()); d.accept(); }); } });
+  await page.waitForSelector('.bar:has-text("車検")');
+  await page.click("#tab-settings");
+  await page.click("#share summary");
+  assert.ok((await page.textContent("#share")).includes("山田 花子さんのカレンダーを、2人で一緒に使っています"));
+  await page.click('[data-act="sh-stop"]');
+  await page.waitForFunction(() => document.getElementById("share-msg") && document.getElementById("share-msg").textContent.includes("やめました"));
+  assert.ok(asked.some((t) => t.includes("あなたが作った予定 1件") && t.includes("あなたのカレンダーに移ります")), asked.join(" / "));
+  assert.ok(be.st.calls.some((c) => c.path.endsWith("/cal_share_stop")));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("夫婦: お誘いは種類「夫婦」で送れる。届いた夫婦のお誘いは、取り込むかを選んで受ける", async () => {
+  const { page, ctx, be, errors } = await calOpen({}, { share: { links: [], views: [], sent: [], received: [] }, mates: [] });
+  await page.waitForSelector(".bar");
+  await page.click("#tab-settings");
+  await page.click("#share summary");
+  await page.fill("#sh-no", "7654321");
+  await page.click('#share .seg label:has-text("夫婦")');
+  await page.click('[data-act="sh-send"]');
+  await page.waitForFunction(() => document.getElementById("share-msg").textContent.includes("お誘いを送りました"));
+  assert.equal(be.st.calls.find((c) => c.path.endsWith("/cal_share_send")).body.p_kind, "couple");
+  await ctx.close();
+  const share = { links: [], views: [], sent: [], received: [{ id: "V7", kind: "couple", from_scope: "duty_off", from_name: "山田 花子", expires_at: "2026-11-25T00:00:00Z" }] };
+  const n = await open("notices.html", { userId: "u1", opts: { profile: USER, share },
+    beforeLoad: async (p) => { p.removeAllListeners("dialog"); p.on("dialog", (d) => d.accept().catch(() => {})); } });
+  await n.page.waitForSelector("#mine:not([hidden]) .share-inv");
+  assert.ok((await n.page.textContent("#mine")).includes("2人で一緒に使います"));
+  await n.page.screenshot({ path: OUT + "couple-notices.png", fullPage: true });
+  await n.page.click('#mine .seg label:has-text("取り込む")');
+  await n.page.click('#mine [data-share="accept"]');
+  await n.page.waitForFunction(() => document.getElementById("mine-msg").textContent.includes("2人で使うカレンダー"));
+  assert.deepEqual(n.be.st.calls.find((c) => c.path.endsWith("/cal_share_accept")).body, { p_invite: "V7", p_scope: "duty_off", p_import: true });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(n.errors, []);
+  await n.ctx.close();
 });
 
 await browser.close();

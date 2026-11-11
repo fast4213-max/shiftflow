@@ -235,10 +235,12 @@ export function createExtras(env) {
 
   // ====================== 画像の置き場 ======================
   function galleryHtml() {
-    const full = S.gallery.length >= GALLERY_MAX;
-    return `${head(`画像 ${S.gallery.length}/${GALLERY_MAX}`)}<div class="pb">
+    // 夫婦のカレンダーは20枚(S.galleryMax。docs/share/DESIGN.md)
+    const max = S.galleryMax || GALLERY_MAX;
+    const full = S.gallery.length >= max;
+    return `${head(`画像 ${S.gallery.length}/${max}`)}<div class="pb">
       <label class="btn pri filebtn${full ? " off" : ""}" style="${full ? "opacity:.4" : ""}">＋ 画像を追加<input type="file" id="gal-file" accept="image/*" multiple${full ? " disabled" : ""}></label>
-      <p class="sub">子供の日程表などを置いておけます。1人${GALLERY_MAX}枚までです(自動では消えません)。画像は小さくしてから保存します。</p>
+      <p class="sub">子供の日程表などを置いておけます。${max === GALLERY_MAX ? `1人${max}枚まで` : `夫婦のカレンダーは${max}枚まで`}です(自動では消えません)。画像は小さくしてから保存します。</p>
       <p class="msg err" id="x-msg"></p>
       <div class="ggrid">${S.gallery.map((g) => `<div class="gitem" data-gid="${esc(g.id)}"><img data-path="${esc(g.path)}" data-act="gal-view" data-id="${esc(g.id)}" alt="${esc(g.title)}"><div class="gt"><input data-gtitle="${esc(g.id)}" maxlength="40" value="${esc(g.title)}" placeholder="名前" aria-label="名前"><button class="btn" data-act="gal-del" data-id="${esc(g.id)}" aria-label="消す">✕</button></div></div>`).join("")}</div></div>`;
   }
@@ -247,9 +249,9 @@ export function createExtras(env) {
     hydrate($("panel"));
   }
   async function addImages(files) {
-    const room = GALLERY_MAX - S.gallery.length;
+    const room = (S.galleryMax || GALLERY_MAX) - S.gallery.length;
     const list = [...files].slice(0, Math.max(0, room));
-    if (!list.length) return say("x-msg", `画像は${GALLERY_MAX}枚までです。`);
+    if (!list.length) return say("x-msg", `画像は${S.galleryMax || GALLERY_MAX}枚までです。`);
     say("x-msg", "保存しています…", true);
     let skipped = 0;
     for (const f of list) {
@@ -268,7 +270,7 @@ export function createExtras(env) {
     }
     setPanel(galleryHtml());
     hydrate($("panel"));
-    if (files.length > list.length) say("x-msg", `${GALLERY_MAX}枚までなので、入りきらなかった分は入れていません。`);
+    if (files.length > list.length) say("x-msg", `${S.galleryMax || GALLERY_MAX}枚までなので、入りきらなかった分は入れていません。`);
     else if (skipped) say("x-msg", `${skipped}枚は保存できませんでした。`);
   }
   async function galDel(id) {
