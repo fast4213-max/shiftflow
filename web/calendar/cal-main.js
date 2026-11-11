@@ -84,7 +84,8 @@ const labelShown = (l) => {
   if (!isMine(l)) {
     const c = couple();
     if (!c || c.partner !== shiftOwnerOf(l) || c.theirScope === "none") return false;
-    return l.kind === "duty" ? true : l.kind === "off" ? c.theirScope === "duty_off" : S.cfg.offduty;
+    // 相手の非番(「・非」)は、相手の勤務を1段で出すので、予定が入らない。ボタンは出さない
+    return l.kind === "duty" ? true : l.kind === "off" ? c.theirScope === "duty_off" : false;
   }
   return l.kind === "duty" ? S.cfg.duty : l.kind === "off" ? S.cfg.off : l.kind === "offduty" ? S.cfg.offduty : true;
 };
