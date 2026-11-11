@@ -85,8 +85,24 @@ async function main() {
 
   // 時間つきで登録するあいだは、「2段」「名前に時間」は使われないので押せなくする(チェックは残す)
   const timedOnly = ["split-day", "split-offduty", "title-day", "title-offduty"];
-  const updateTimed = () => timedOnly.forEach((id) => ($(id).disabled = $("timed-events").checked));
-  $("timed-events").addEventListener("change", updateTimed);
+  // 「2段」と「名前に時間」は、どちらか一方だけ(片方にチェックがあるあいだ、もう片方は押せない)。
+  // 2つとも保存されていた人は、アプリのカレンダーで出ていた「名前に時間」を残して、「2段」を外す
+  const splits = ["split-day", "split-offduty"];
+  const titles = ["title-day", "title-offduty"];
+  const anyOn = (ids) => ids.some((id) => $(id).checked);
+  if (anyOn(splits) && anyOn(titles)) splits.forEach((id) => ($(id).checked = false));
+  const updateTimed = () => {
+    const timed = $("timed-events").checked;
+    splits.forEach((id) => ($(id).disabled = timed || anyOn(titles)));
+    titles.forEach((id) => ($(id).disabled = timed || anyOn(splits)));
+  };
+  // 簡単設定が「非番を2段で出す」を入れたときなど、プログラムが入れたチェックでも、反対側は外す
+  const clearOpposite = (ids, opposite) => ids.forEach((id) => $(id).addEventListener("change", () => {
+    if ($(id).checked) opposite.forEach((o) => ($(o).checked = false));
+  }));
+  clearOpposite(splits, titles);
+  clearOpposite(titles, splits);
+  [...timedOnly, "timed-events"].forEach((id) => $(id).addEventListener("change", updateTimed));
   updateTimed();
 
   // 区所・ID・「出勤を2件」「非番を2件」・タイトルの時間・時間つきを変えたら、保存するまでテスト済みの表示と「勤務入力へ」を消す
