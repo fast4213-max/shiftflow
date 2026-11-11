@@ -61,10 +61,12 @@ serve(async (req) => {
     if (!masters.has(officeId)) masters.set(officeId, loadMasterSet(ctx, officeId));
     return masters.get(officeId)!;
   };
-  const build = (master: unknown, rows: { date: string; code: string; memo: string }[]): ViewEvent[] => {
+  // 共有の相手の勤務は、あなたが2段(出勤・非番を2件)の設定にしていても、1段で出す(2段にするのは自分の勤務だけ)
+  const mateViewSettings = { ...viewSettings, splitDayEvents: false, splitOffdutyEvents: false };
+  const build = (master: unknown, rows: { date: string; code: string; memo: string }[], settings = viewSettings): ViewEvent[] => {
     const records: Record<string, { code: string; memo: string }> = {};
     for (const r of rows) records[r.date] = { code: r.code, memo: r.memo };
-    return buildShiftViewWithCarry({ months, records, master, holidays: holidays.map((h) => h.date), settings: viewSettings });
+    return buildShiftViewWithCarry({ months, records, master, holidays: holidays.map((h) => h.date), settings });
   };
 
   // 相手の勤務が読めなくても、自分の勤務は返す(matesFailed で画面に知らせる。AR4)
@@ -114,7 +116,7 @@ serve(async (req) => {
       if (recRes.error) throw recRes.error;
       // メモは、先頭の時間だけにしてから組み立てる(手で書いた言葉は相手に見せない。AR2)
       const rows = ((recRes.data || []) as { date: string; code: string; memo: string }[]).map((r) => ({ ...r, memo: timeOnlyMemo(r.memo) }));
-      return { ownerId: o.ownerId, scope: o.scope, couple: o.couple, shifts: mateView(build(master, rows), o.scope, o.couple) };
+      return { ownerId: o.ownerId, scope: o.scope, couple: o.couple, shifts: mateView(build(master, rows, mateViewSettings), o.scope, o.couple) };
     }));
     return built.filter((x) => x !== null);
   }
