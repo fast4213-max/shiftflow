@@ -700,6 +700,24 @@ await check("設定: 名前に時間を付ける(出勤・非番)を読み込み
   await ctx.close();
 });
 
+await check("設定: 「2段」と「名前に時間」はどちらか一方だけ(片方にチェックがあるあいだ、もう片方は押せない)", async () => {
+  const { page, ctx, errors } = await open("settings.html", { userId: "u1", opts: { profile: USER, settings: { split_day_events: true } } });
+  await page.waitForFunction(() => document.getElementById("split-day").checked);
+  for (const id of ["#title-day", "#title-offduty"]) assert.equal(await page.isDisabled(id), true, id);
+  assert.equal(await page.isDisabled("#split-offduty"), false);
+  await page.uncheck("#split-day");
+  for (const id of ["#title-day", "#title-offduty"]) assert.equal(await page.isDisabled(id), false, id);
+  await page.check("#title-day");
+  for (const id of ["#split-day", "#split-offduty"]) assert.equal(await page.isDisabled(id), true, id);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+  // 両方保存されていた人は、「名前に時間」を残して「2段」を外す(アプリのカレンダーの出方のまま)
+  const b = await open("settings.html", { userId: "u1", opts: { profile: USER, settings: { split_day_events: true, title_day_time: true } } });
+  await b.page.waitForFunction(() => document.getElementById("title-day").checked);
+  assert.equal(await b.page.isChecked("#split-day"), false);
+  await b.ctx.close();
+});
+
 await check("設定: 時間つきで登録するを読み込み、オンのあいだは「2件」「名前に時間」を押せない。保存で送る", async () => {
   const { page, ctx, be, errors } = await open("settings.html", {
     userId: "u1",
