@@ -401,8 +401,8 @@ async function check(name, fn) {
   }
 }
 
-async function open(path, { opts = {}, userId = null, viewport = { width: 390, height: 844 }, beforeLoad } = {}) {
-  const ctx = await browser.newContext({ viewport });
+async function open(path, { opts = {}, userId = null, viewport = { width: 390, height: 844 }, beforeLoad, deviceScaleFactor = 1 } = {}) {
+  const ctx = await browser.newContext({ viewport, deviceScaleFactor });
   const page = await ctx.newPage();
   page.setDefaultTimeout(8000);
   const be = backend(opts);
@@ -4993,6 +4993,45 @@ await check("夫婦(AR6): 月を移ったとき、1分たっていれば、相�
   };
   assert.ok((await run(COUPLE_SHARE, COUPLE_CAL)) >= 1, "夫婦なのに、月を移っても予定を読み直さない");
   assert.equal(await run({ links: [], views: [], sent: [], received: [] }, undefined), 0, "夫婦でないのに、月を移るたびに予定を読み直す");
+});
+
+// ---------- 文字スタンプの上下の中央(2026-11-11。置いた文字が、丸の中心より上に寄っていた) ----------
+await check("スタンプ: 文字のスタンプの文字が、丸の上下の中央にある(置いた・トレー。丸の高さの 4% 以内)", async () => {
+  const cal = {
+    cal_stamp_defs: [{ id: "SD1", user_id: "u1", kind: "text", emoji: "", image_path: "", text: "テスト", text_color: "#ffffff", bg_color: "#5b4bd6", shape: "round", default_size: 0.5, sort: 1, created_at: "2026-11-02T00:00:00Z" }],
+    cal_stamps: [{ id: "ST1", user_id: "u1", date: today, stamp_def_id: "SD1", x: 0.5, y: 0.6, size: 0.5, rotation: 0, notes: [], created_at: "2026-11-02T00:00:00Z" }],
+  };
+  const { page, ctx, errors } = await calOpen({ deviceScaleFactor: 4 }, { cal }); // 4倍の解像度で測る(等倍だと1画素が丸の高さの約7%になる。Chrome は文字の位置を 1 CSS px 単位で動かすので、許容は 4%)
+  await page.waitForSelector(".stamp .tx");
+  // 要素の画像から、丸(背景色の紫)の上下の端と、その中の白い文字の上下の端を測る。
+  // 丸の外のマスの白っぽい背景を文字と間違えないよう、丸の範囲を先に決めて、その内側だけで文字を探す(丸の角を避け、中ほどの幅だけ見る)
+  const measure = async (sel) => {
+    const png = await page.locator(sel).first().screenshot({ path: OUT + "stamp-tx-" + sel.replace(/[^a-z]/g, "") + ".png" });
+    return await page.evaluate(async (d) => {
+      const img = new Image(); img.src = "data:image/png;base64," + d; await img.decode();
+      const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
+      const g = c.getContext("2d"); g.drawImage(img, 0, 0);
+      const px = g.getImageData(0, 0, c.width, c.height).data;
+      const x0 = Math.floor(c.width * 0.35), x1 = Math.floor(c.width * 0.65);
+      const rowCount = (y, pred) => { let n = 0; for (let x = x0; x < x1; x++) { const i = (y * c.width + x) * 4; if (pred(px[i], px[i + 1], px[i + 2])) n++; } return n; };
+      const isPurple = (r, gg, b) => b > 150 && r < 140 && gg < 130;   // 丸の背景(#5b4bd6)
+      const isWhite = (r, gg, b) => r > 190 && gg > 190 && b > 190;
+      let pTop = -1, pBot = -1, top = -1, bot = -1;
+      for (let y = 0; y < c.height; y++) if (rowCount(y, isPurple) > 0) { if (pTop < 0) pTop = y; pBot = y; }
+      for (let y = Math.max(pTop, 0); y <= pBot; y++) if (rowCount(y, isWhite) > 0) { if (top < 0) top = y; bot = y; }
+      return { pTop, pBot, top, bot, scale: img.width };
+    }, png.toString("base64"));
+  };
+  const off = (m) => (((m.top - m.pTop) - (m.pBot - m.bot)) / 2) / (m.pBot - m.pTop + 1); // + は下、- は上(丸の高さに対する割合)
+  const placed = await measure(".stamp .tx");
+  assert.ok(placed.top >= 0 && placed.pTop >= 0, "置いた文字が見つからない");
+  assert.ok(Math.abs(off(placed)) <= 0.04, `置いた文字が上下の中央からずれている(${(off(placed) * 100).toFixed(1)}%。+は下)`);
+  await page.click("#tab-stamp");
+  await page.waitForSelector(".tray .tk .tx");
+  const tray = await measure(".tray .tk .tx");
+  assert.ok(Math.abs(off(tray)) <= 0.04, `トレーの文字が上下の中央からずれている(${(off(tray) * 100).toFixed(1)}%。+は下)`);
+  assert.deepEqual(errors, []);
+  await ctx.close();
 });
 
 await browser.close();
