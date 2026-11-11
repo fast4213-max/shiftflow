@@ -1030,7 +1030,7 @@ begin
   assert public.cal_share_inbox_count() = 0, '共有したのに、お誘いが残っている';
   j := public.cal_share_list();
   assert jsonb_array_length(j->'links') = 1 and j->'links'->0->>'my_scope' = 'none' and j->'links'->0->>'their_scope' = 'duty_off', '共有の範囲が違う(u2から)';
-  assert j->'views'->0->>'name' = '有1' and j->'views'->0->>'off_name' = '有1・休', '名前のラベルの初期値が下の名前でない';
+  assert j->'views'->0->>'name' = '共' and j->'views'->0->>'off_name' = '共・休', '名前のラベルの初期値が苗字でない';
   lnk := (j->'links'->0->>'id')::uuid;
   -- 名前のラベルは直せる。ほかの人の分は直せない
   update public.cal_share_views set name = 'いち', color = '#123456' where owner_id = u[1];
@@ -1040,7 +1040,7 @@ begin
   perform set_config('request.jwt.claim.sub', u[1]::text, true);
   j := public.cal_share_list();
   assert j->'links'->0->>'partner_name' = '共 有2' and j->'links'->0->>'my_scope' = 'duty_off' and j->'links'->0->>'their_scope' = 'none', '共有の範囲が違う(u1から)';
-  assert (select name from public.cal_share_views where owner_id = u[2]) = '有2', 'u2 の変更が u1 の名前のラベルに効いている';
+  assert (select name from public.cal_share_views where owner_id = u[2]) = '共', 'u2 の変更が u1 の名前のラベルに効いている';
   ok := false; begin perform public.cal_share_send('8000002', 'mate', 'duty'); exception when unique_violation then ok := true; end;
   assert ok, '共有中の人に、また送れる';
   perform public.cal_share_set_scope(lnk, 'duty');
