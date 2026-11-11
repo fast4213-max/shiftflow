@@ -88,7 +88,37 @@ function backend(opts = {}) {
     // shiftflowカレンダー: 勤務の予定を組み立てる関数と、cal_* の表(メモリの中だけの偽物)
     if (path === "/functions/v1/calendar-shifts") {
       if (opts.shiftsFail) return json({ error: "勤務の予定を読めませんでした。" }, 500);
-      return json({ shifts: opts.shifts || [], holidays: opts.calHolidays || [], needOffice: !!opts.needOffice });
+      return json({ shifts: opts.shifts || [], holidays: opts.calHolidays || [], needOffice: !!opts.needOffice, ...(body && body.mates ? { mates: opts.mates || [] } : {}) });
+    }
+    // カレンダーの共有(docs/share/DESIGN.md)の関数の偽物。呼ばれた中身は st.calls に残る
+    if (path.startsWith("/rest/v1/rpc/cal_share_")) {
+      const fn = path.slice("/rest/v1/rpc/".length);
+      const sh = st.share || (st.share = JSON.parse(JSON.stringify(opts.share || { links: [], views: [], sent: [], received: [] })));
+      if (opts.shareFail && opts.shareFail[fn]) return json({ code: "P0001", message: opts.shareFail[fn] }, 400);
+      if (fn === "cal_share_list") return json(sh);
+      if (fn === "cal_share_inbox_count") return json(sh.received.length);
+      if (fn === "cal_share_send") {
+        sh.sent.unshift({ id: "I" + ++st.calSeq, employee_no: body.p_employee_no, kind: body.p_kind, scope: body.p_scope, state: "pending", expires_at: "2026-11-25T00:00:00Z" });
+        return json(null, 204);
+      }
+      if (fn === "cal_share_cancel") { sh.sent = sh.sent.filter((x) => x.id !== body.p_invite); return json(null, 204); }
+      if (fn === "cal_share_decline") { sh.received = sh.received.filter((x) => x.id !== body.p_invite); return json(null, 204); }
+      if (fn === "cal_share_accept") {
+        const r = sh.received.find((x) => x.id === body.p_invite);
+        sh.received = sh.received.filter((x) => x.id !== body.p_invite);
+        if (r) {
+          sh.links.push({ id: "K" + ++st.calSeq, kind: r.kind, partner_id: "p-" + r.id, partner_name: r.from_name, inviter: false, my_scope: body.p_scope, their_scope: r.from_scope });
+          sh.views.push({ owner_id: "p-" + r.id, name: r.from_name.split(" ").pop(), color: "#16a085", off_name: r.from_name.split(" ").pop() + "・休", off_color: "#f39c12", sort: sh.views.length + 1 });
+        }
+        return json(null, 204);
+      }
+      if (fn === "cal_share_set_scope") { const l = sh.links.find((x) => x.id === body.p_link); if (l) l.my_scope = body.p_scope; return json(null, 204); }
+      if (fn === "cal_share_stop") {
+        const l = sh.links.find((x) => x.id === body.p_link);
+        sh.links = sh.links.filter((x) => x.id !== body.p_link);
+        if (l) sh.views = sh.views.filter((v) => v.owner_id !== l.partner_id);
+        return json(null, 204);
+      }
     }
     if (path === "/rest/v1/rpc/cal_ensure_default_labels") {
       if (!st.cal.cal_labels.length) {
@@ -136,6 +166,13 @@ function backend(opts = {}) {
         st.uploads.push({ path: rest.slice("calendar/".length), size: buf.length, head: buf.subarray(0, 400).toString("latin1") });
         return json({ Key: "calendar/" + rest.slice("calendar/".length), Id: "x" });
       }
+    }
+    if (path === "/rest/v1/cal_share_views" && req.method() === "PATCH") {
+      const owner = url.searchParams.get("owner_id").replace("eq.", "");
+      const v = ((st.share || {}).views || []).find((x) => x.owner_id === owner);
+      if (v) Object.assign(v, body);
+      st.viewPatches = [...(st.viewPatches || []), { owner, body, viewer: url.searchParams.get("viewer_id") }];
+      return json(v ? [v] : []);
     }
     if (path.startsWith("/rest/v1/cal_")) {
       const table = path.slice("/rest/v1/".length);
@@ -2561,13 +2598,13 @@ await check("カレンダー設定: いちばん上に お知らせ・お問い�
   await ctx.close();
 });
 
-await check("カレンダー設定: 説明の下に 画像・テンプレート・ラベル・出すもの・アイコン・色合い・写真の量の順。ラベルと出すものは閉じていて、押すと開く。ラベルの追加・色・名前・並び替え・削除(使っているラベルは消せない)", async () => {
+await check("カレンダー設定: 説明の下に 画像・テンプレート・ラベル・出すもの・共有・アイコン・色合い・写真の量の順。ラベルと出すものは閉じていて、押すと開く。ラベルの追加・色・名前・並び替え・削除(使っているラベルは消せない)", async () => {
   const { page, ctx, be, errors } = await calOpen();
   await page.waitForSelector(".bar");
   await page.click("#tab-settings");
   await page.waitForSelector("#about");
   const order = await page.$$eval("#panel .card", (els) => els.map((e) => e.querySelector("h3").textContent));
-  assert.deepEqual(order, ["shiftflowカレンダーについて", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "予定のテンプレート", "ラベル", "このカレンダーに出すもの", "ホーム画面のアイコン", "画面の色合い", "あなたの写真・画像の量"]);
+  assert.deepEqual(order, ["shiftflowカレンダーについて", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "予定のテンプレート", "ラベル", "このカレンダーに出すもの", "👥 カレンダーの共有", "ホーム画面のアイコン", "画面の色合い", "あなたの写真・画像の量"]);
   assert.ok((await page.textContent("#about")).includes("1つのアカウントで1人分"));
   // ラベル・このカレンダーに出すものは、最初は閉じていて、見出しの横に一言が出る
   for (const id of ["labels", "calview"]) assert.equal(await page.$eval("#" + id, (d) => d.open), false, id);
@@ -3105,7 +3142,7 @@ await check("カレンダー設定: 自分の写真・画像の量が出る(MB�
   const text = await page.textContent("#my-usage");
   assert.ok(text.includes("約 3.5MB(画像の置き場 1/10枚・予定の写真 1枚)"), text);
   const order = await page.$$eval("#panel .card", (els) => els.map((e) => e.querySelector("h3").textContent));
-  assert.deepEqual(order, ["shiftflowカレンダーについて", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "予定のテンプレート", "ラベル", "このカレンダーに出すもの", "ホーム画面のアイコン", "画面の色合い", "あなたの写真・画像の量"]);
+  assert.deepEqual(order, ["shiftflowカレンダーについて", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "予定のテンプレート", "ラベル", "このカレンダーに出すもの", "👥 カレンダーの共有", "ホーム画面のアイコン", "画面の色合い", "あなたの写真・画像の量"]);
   await ctx.close();
 });
 
@@ -4631,6 +4668,144 @@ await check("デバッグ AO3・AO4・AO6: アナウンスは切り替えても�
   assert.equal(await page.evaluate(() => !document.getElementById("panel").hidden), true, "画面は閉じない");
   assert.deepEqual(errors, []);
   await ctx.close();
+});
+
+// ---------- カレンダーの共有(docs/share/DESIGN.md) ----------
+const SHARE_TANAKA = {
+  links: [{ id: "K1", kind: "mate", partner_id: "pt", partner_name: "田中 一郎", inviter: true, my_scope: "duty", their_scope: "duty_off" }],
+  views: [{ owner_id: "pt", name: "一郎", color: "#16a085", off_name: "一郎・休", off_color: "#f39c12", sort: 1 }],
+  sent: [], received: [],
+};
+const MATES_TANAKA = [{ ownerId: "pt", scope: "duty_off", shifts: [
+  { group: "duty", date: today, endDate: today, allDay: true, startTime: "", endTime: "", calendar: "work", kind: "day", title: "7(8:30)", description: "" },
+  { group: "off", date: isoAdd(today, 1), endDate: isoAdd(today, 1), allDay: true, startTime: "", endTime: "", calendar: "holiday", kind: "day", title: "公", description: "" },
+] }];
+
+await check("共有: 相手の勤務と休日が、相手の名前のラベル(2つ・2色)で出る。ボタンで隠せる。詳細は見るだけ", async () => {
+  const { page, ctx, be, errors } = await calOpen({}, { share: SHARE_TANAKA, mates: MATES_TANAKA });
+  await page.waitForSelector('.bar:has-text("7(8:30)")');
+  assert.deepEqual(await page.locator("#chips .chip").allTextContents(), ["勤務", "休日", "非番", "その他", "一郎", "一郎・休"]);
+  assert.ok(be.st.calls.some((c) => c.path === "/functions/v1/calendar-shifts" && c.body.mates === true), "mates: true で呼ぶ");
+  const col = await page.locator('.bar:has-text("7(8:30)")').evaluate((b) => b.style.getPropertyValue("--c"));
+  assert.equal(col, "#16a085");
+  assert.equal(await page.locator('.bar:has-text("公")').evaluate((b) => b.style.getPropertyValue("--c")), "#f39c12");
+  await page.click('.bar:has-text("7(8:30)")');
+  await page.waitForSelector("#panel:not([hidden])");
+  const txt = await page.textContent("#panel");
+  assert.ok(txt.includes("田中 一郎さんの勤務です") && txt.includes("見るだけ"), txt);
+  assert.equal(await page.locator('#panel [data-act="edit"], #panel [data-act="del"]').count(), 0, "直すボタンは出ない");
+  await page.click('#panel [data-act="close"]');
+  await page.click('#chips .chip:has-text("一郎・休")');
+  assert.equal(await page.locator('.bar:has-text("公")').count(), 0);
+  assert.equal(await page.locator('.bar:has-text("7(8:30)")').count(), 1);
+  assert.deepEqual(errors, []);
+  await page.screenshot({ path: OUT + "share-month.png" });
+  await ctx.close();
+});
+
+await check("共有: 相手が「勤務だけ」なら、名前のラベルは1つ。休日の予定が来ても出さない", async () => {
+  const share = JSON.parse(JSON.stringify(SHARE_TANAKA));
+  share.links[0].their_scope = "duty";
+  const { page, ctx, errors } = await calOpen({}, { share, mates: MATES_TANAKA });
+  await page.waitForSelector('.bar:has-text("7(8:30)")');
+  assert.deepEqual((await page.locator("#chips .chip").allTextContents()).slice(4), ["一郎"]);
+  assert.equal(await page.locator('.bar:has-text("公")').count(), 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("共有: 設定の「カレンダーの共有」はアイコンの設定の上。お誘いを送る・7桁でないと送らない・取り消す・名前のラベルを直す・範囲を変える・やめる", async () => {
+  const { page, ctx, be, errors } = await calOpen({}, { share: SHARE_TANAKA, mates: MATES_TANAKA });
+  await page.waitForSelector('.bar:has-text("7(8:30)")');
+  await page.click("#tab-settings");
+  await page.waitForSelector("#share");
+  // 並び: 共有のカードのすぐ下に、アイコンの設定
+  const order = await page.evaluate(() => { const c = document.getElementById("share"); return c.nextElementSibling && c.nextElementSibling.textContent; });
+  assert.ok(/アイコン/.test(order || ""), "共有の次がアイコンの設定でない: " + order);
+  await page.click("#share summary");
+  assert.ok((await page.textContent("#share summary")).includes("1/5人"));
+  // 7桁でない
+  await page.fill("#sh-no", "12345");
+  await page.click('[data-act="sh-send"]');
+  await page.waitForFunction(() => document.getElementById("share-msg").textContent.includes("7桁"));
+  assert.equal(be.st.calls.filter((c) => c.path.endsWith("/cal_share_send")).length, 0);
+  // 全角でも送れる。範囲は選んだもの
+  await page.fill("#sh-no", "１２３４５６７");
+  await page.click('#share .seg label:has-text("勤務と休日")');
+  await page.click('[data-act="sh-send"]');
+  await page.waitForFunction(() => document.getElementById("share-msg").textContent.includes("お誘いを送りました"));
+  const sent = be.st.calls.find((c) => c.path.endsWith("/cal_share_send"));
+  assert.deepEqual(sent.body, { p_employee_no: "1234567", p_kind: "mate", p_scope: "duty_off" });
+  assert.ok((await page.textContent("#share")).includes("1234567 さんへ"), "返事待ちに出ない");
+  assert.ok((await page.textContent("#share summary")).includes("2/5人"));
+  // 取り消す
+  await page.click('[data-act="sh-cancel"]');
+  await page.waitForFunction(() => !document.getElementById("share").textContent.includes("1234567 さんへ"));
+  // 名前のラベルを直す → 上のボタンも変わる
+  await page.fill('[data-mv="name"]', "いっちゃん");
+  await page.press('[data-mv="name"]', "Tab");
+  await page.waitForFunction(() => [...document.querySelectorAll("#chips .chip")].some((c) => c.textContent === "いっちゃん"));
+  assert.deepEqual(be.st.viewPatches[0].body, { name: "いっちゃん" });
+  assert.equal(be.st.viewPatches[0].viewer, "eq.u1", "自分の行だけ直す");
+  // 見せる範囲を変える
+  await page.selectOption('[data-shscope="K1"]', "none");
+  await page.waitForFunction(() => document.getElementById("share-msg").textContent.includes("見せない"));
+  assert.deepEqual(be.st.calls.find((c) => c.path.endsWith("/cal_share_set_scope")).body, { p_link: "K1", p_scope: "none" });
+  // やめる → 相手の勤務とラベルが消える
+  await page.click('[data-act="sh-stop"]');
+  await page.waitForFunction(() => !document.querySelector('.bar') || ![...document.querySelectorAll(".bar")].some((b) => b.textContent === "7(8:30)"));
+  assert.ok(!(await page.locator("#chips .chip").allTextContents()).includes("いっちゃん"));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("共有: お誘いが届くと設定に赤い点。設定でも「共有する」を押せて、選んだ範囲で受ける。送れないときは理由を出す", async () => {
+  const share = { links: [], views: [], sent: [], received: [{ id: "V1", kind: "mate", from_scope: "duty_off", from_name: "山田 花子", expires_at: "2026-11-25T00:00:00Z" }] };
+  const { page, ctx, be, errors } = await calOpen({}, { share, mates: [] , shareFail: { cal_share_send: "共有できるのは5人までです(返事待ちも数えます)。" } });
+  await page.waitForFunction(() => document.getElementById("tab-settings").classList.contains("has-dot"));
+  await page.click("#tab-settings");
+  await page.waitForSelector("#share[open]"); // 届いているお誘いがあるときは開いている
+  assert.ok((await page.textContent("#share")).includes("山田 花子さん"));
+  await page.locator("#share").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: OUT + "share-settings.png" });
+  await page.click('#share .share-inv .seg label:has-text("見せない")');
+  await page.click('#share [data-share="accept"]');
+  await page.waitForFunction(() => document.getElementById("share-msg").textContent.includes("共有しました"));
+  assert.deepEqual(be.st.calls.find((c) => c.path.endsWith("/cal_share_accept")).body, { p_invite: "V1", p_scope: "none" });
+  assert.ok((await page.textContent("#share")).includes("共有している人"));
+  await page.locator("#share").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: OUT + "share-settings-linked.png" });
+  // サーバーが断った理由は、そのまま出す
+  await page.fill("#sh-no", "7654321");
+  await page.click('[data-act="sh-send"]');
+  await page.waitForFunction(() => document.getElementById("share-msg").textContent.includes("5人まで"));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("共有: お知らせの「あなたへのお知らせ」にお誘いが出て、断れる。お誘いがないときは出ない。メニューのお知らせに赤い点", async () => {
+  const share = { links: [], views: [], sent: [], received: [{ id: "V2", kind: "mate", from_scope: "duty", from_name: "<b>佐藤</b> 次郎", expires_at: "2026-11-25T00:00:00Z" }] };
+  const a = await open("input.html", { userId: "u1", opts: { profile: USER, share } });
+  await a.page.waitForFunction(() => document.getElementById("nav-notices") && document.getElementById("nav-notices").classList.contains("has-dot"));
+  await a.ctx.close();
+  const { page, ctx, be, errors } = await open("notices.html", { userId: "u1", opts: { profile: USER, share },
+    beforeLoad: async (p) => { p.removeAllListeners("dialog"); p.on("dialog", (d) => d.accept().catch(() => {})); } });
+  await page.waitForSelector("#mine:not([hidden]) .share-inv");
+  const txt = await page.textContent("#mine");
+  assert.ok(txt.includes("<b>佐藤</b> 次郎さん"), "名前は文字のまま: " + txt);
+  await page.screenshot({ path: OUT + "share-notices.png" });
+  await page.click('#mine [data-share="decline"]');
+  await page.waitForFunction(() => document.getElementById("mine-msg").textContent.includes("断りました"));
+  assert.deepEqual(be.st.calls.find((c) => c.path.endsWith("/cal_share_decline")).body, { p_invite: "V2" });
+  assert.equal(await page.locator("#mine .share-inv").count(), 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+  const b = await open("notices.html", { userId: "u1", opts: { profile: USER } });
+  await b.page.waitForFunction(() => document.getElementById("message").textContent !== "読み込み中です…");
+  await b.page.waitForTimeout(300);
+  assert.equal(await b.page.locator("#mine").isHidden(), true);
+  await b.ctx.close();
 });
 
 await browser.close();

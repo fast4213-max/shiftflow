@@ -1,13 +1,16 @@
 // アプリ内カレンダー用: 指定した期間の勤務の予定と祝日を返す(Google には何も書かない・何も読まない)。
 // 勤務の記録(shift_records)を、利用者の設定(2件・名前に時間・時間つき)どおりに組み立てる(_shared/shift-view.ts)。
 // 読み取りだけで、データは変えない。
+// mates: true のときは、共有で自分に勤務を見せてくれている人の勤務も返す(docs/share/DESIGN.md)。
+//   相手の勤務の記録+相手の区所のマスタ+自分(見る人)の表記の設定で組み立てる。範囲が「勤務だけ」の人の休日は返さない。
 
 import { requireMember } from "../_shared/auth.ts";
 import { ensureHolidayYears } from "../_shared/holidays.ts";
 import { AppError, readBody, serve } from "../_shared/http.ts";
 import { addDays, dateKey, daysInMonth, holidayYearsFor } from "../_shared/plan.js";
 import { loadMasterSet } from "../_shared/shift-calendar.ts";
-import { buildShiftViewWithCarry, monthsBetween, validIso } from "../_shared/shift-view.ts";
+import { buildShiftViewWithCarry, monthsBetween, validIso, type ViewEvent } from "../_shared/shift-view.ts";
+import { mateView, type ShareLink, sharedOwners } from "../_shared/share.ts";
 
 const MAX_MONTHS = 5;
 
@@ -45,29 +48,60 @@ serve(async (req) => {
   const holidays = (holRes.data || []) as { date: string; name: string }[];
   if (settingsRes.error) throw settingsRes.error;
   const s = settingsRes.data;
-  // 区所が未設定なら、勤務の予定は出せない(祝日だけ返す)
-  if (!s || !s.office_id) return { shifts: [], holidays, needOffice: true };
+  const viewSettings = {
+    splitDayEvents: !!s?.split_day_events,
+    splitOffdutyEvents: !!s?.split_offduty_events,
+    titleDayTime: !!s?.title_day_time,
+    titleOffdutyTime: !!s?.title_offduty_time,
+    timedEvents: !!s?.timed_events,
+  };
+  // マスタは区所ごとに1回だけ読む(自分と相手が同じ区所のとき)
+  const masters = new Map<number, Promise<unknown>>();
+  const masterOf = (officeId: number) => {
+    if (!masters.has(officeId)) masters.set(officeId, loadMasterSet(ctx, officeId));
+    return masters.get(officeId)!;
+  };
+  const build = (master: unknown, rows: { date: string; code: string; memo: string }[]): ViewEvent[] => {
+    const records: Record<string, { code: string; memo: string }> = {};
+    for (const r of rows) records[r.date] = { code: r.code, memo: r.memo };
+    return buildShiftViewWithCarry({ months, records, master, holidays: holidays.map((h) => h.date), settings: viewSettings });
+  };
+
+  const matesP = body.mates === true ? loadMates() : Promise.resolve(undefined);
+
+  // 区所が未設定なら、自分の勤務の予定は出せない(祝日と、共有の相手の勤務だけ返す)
+  if (!s || !s.office_id) return { shifts: [], holidays, needOffice: true, mates: await matesP };
 
   const [master, recordsRes] = await Promise.all([
-    loadMasterSet(ctx, s.office_id as number),
+    masterOf(s.office_id as number),
     ctx.db.from("shift_records").select("date, code, memo").gte("date", recFrom).lte("date", recTo),
   ]);
   if (recordsRes.error) throw recordsRes.error;
-  const records: Record<string, { code: string; memo: string }> = {};
-  for (const r of (recordsRes.data || [])) records[r.date as string] = { code: r.code as string, memo: r.memo as string };
+  const shifts = build(master, (recordsRes.data || []) as { date: string; code: string; memo: string }[]);
+  return { shifts, holidays, needOffice: false, mates: await matesP };
 
-  const shifts = buildShiftViewWithCarry({
-    months,
-    records,
-    master,
-    holidays: holidays.map((h) => h.date),
-    settings: {
-      splitDayEvents: !!s.split_day_events,
-      splitOffdutyEvents: !!s.split_offduty_events,
-      titleDayTime: !!s.title_day_time,
-      titleOffdutyTime: !!s.title_offduty_time,
-      timedEvents: !!s.timed_events,
-    },
-  });
-  return { shifts, holidays, needOffice: false };
+  // 共有の相手の勤務。許可(見せる範囲)はサーバーで確かめる。相手の記録は service_role で読む(本人以外は RLS で読めないため)
+  async function loadMates() {
+    const linksRes = await ctx.admin.from("cal_share_links").select("user_a, user_b, scope_a, scope_b")
+      .or(`user_a.eq.${ctx.userId},user_b.eq.${ctx.userId}`);
+    if (linksRes.error) throw linksRes.error;
+    const owners = sharedOwners(ctx.userId, (linksRes.data || []) as ShareLink[]);
+    if (!owners.length) return [];
+    const ids = owners.map((o) => o.ownerId);
+    const setRes = await ctx.admin.from("user_settings").select("user_id, office_id").in("user_id", ids);
+    if (setRes.error) throw setRes.error;
+    const office = new Map((setRes.data || []).map((r) => [r.user_id as string, r.office_id as number | null]));
+    // 記録は人ごとに読む(5人分を1回で読むと、1回に読める行数を超えることがあるため)
+    const built = await Promise.all(owners.map(async (o) => {
+      const officeId = office.get(o.ownerId);
+      if (!officeId) return null; // 区所を選んでいない人の勤務は、組み立てられない
+      const [master, recRes] = await Promise.all([
+        masterOf(officeId),
+        ctx.admin.from("shift_records").select("date, code, memo").eq("user_id", o.ownerId).gte("date", recFrom).lte("date", recTo),
+      ]);
+      if (recRes.error) throw recRes.error;
+      return { ownerId: o.ownerId, scope: o.scope, shifts: mateView(build(master, (recRes.data || []) as { date: string; code: string; memo: string }[]), o.scope) };
+    }));
+    return built.filter((x) => x !== null);
+  }
 });

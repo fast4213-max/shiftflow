@@ -36,7 +36,7 @@ cron-job.org ──(6時間ごと)──▶ Supabase の keepalive() … 無料�
 - 管理画面には、最初の画面の「管理」タブから管理用パスワードで入る
 - 利用者は、自分のカレンダーをサービスアカウントのメールアドレスと共有し、カレンダーIDを設定画面に入れる(休日用のカレンダーは、なくてもよい。空にすると「休日」の番号は登録されない。休みも勤務用に入れたいときは、休日用に勤務用と同じIDを入れる。非番の時間用も、なくてもよい。空なら勤務用に入る)
 - Edge Function は、リクエストに書かれたカレンダーIDは使わず、ログイン中の本人が登録したIDだけを使う
-- カレンダーのホーム画面のアイコンは、管理画面の「設定」タブで足せる(利用者はカレンダーの設定の一番下で選ぶ)。お知らせ(ログイン画面・ログイン後の「お知らせ」)とお問い合わせ(ログイン前でも使える)は、管理画面から出す・返事をする。カレンダーからは設定の一番上のボタンで開く。まだ見ていないお知らせ・返事には赤い点が付く。セットアップは [`docs/contact/SETUP.md`](docs/contact/SETUP.md)、設計と予想されるバグの一覧は [`docs/contact/DESIGN.md`](docs/contact/DESIGN.md)
+- カレンダーのホーム画面のアイコンは、管理画面の「設定」タブで足せる(利用者はカレンダーの設定の一番下で選ぶ)。お知らせ(ログイン画面・ログイン後の「お知らせ」)とお問い合わせ(ログイン前でも使える)は、管理画面から出す・返事をする(カレンダーの共有のお誘いは、ログイン後の「お知らせ」のいちばん上に、届いた本人にだけ出る)。カレンダーからは設定の一番上のボタンで開く。まだ見ていないお知らせ・返事には赤い点が付く。セットアップは [`docs/contact/SETUP.md`](docs/contact/SETUP.md)、設計と予想されるバグの一覧は [`docs/contact/DESIGN.md`](docs/contact/DESIGN.md)
 
 ## ファイル
 
@@ -54,6 +54,7 @@ web/                        画面(GitHub Pages で配信)
   calendar/                 shiftflowカレンダー(アプリ内のカレンダー。index.html・cal-main.js[画面・予定のテンプレート]・cal-extra.js[TODO・重要メモ・画像・スタンプ]・cal-image.js[月の画像・〇つきの画像]・cal-ann.js[アナウンスの行]・cal-core.js[計算]・専用の manifest とアイコン)。設計は docs/mycalendar/DESIGN.md
   js/config.js              Supabase の URL と公開キー、OAuth クライアント ID(★自分の値を書く)
   js/plan.js                予定の組み立て(supabase/functions/_shared/plan.js と同じ内容)
+  js/share.js               カレンダーの共有(お誘い・返事)の部品。お知らせとカレンダーの設定で使う
 supabase/
   migrations/*.sql          テーブル・RLS・SQL関数
   seed.sql, seed/*.csv      ローカル用の架空データ
@@ -67,7 +68,7 @@ supabase/
     register-month/         月の入力を保存してカレンダーに登録
     delete-month/           月のアプリの予定だけ削除し、その月の入力内容も消す(手で入れた予定は消さない)
     sync-holidays/          祝日を取得して保存
-    calendar-shifts/        shiftflowカレンダー用: 勤務の記録を、勤務入力の設定どおりに予定へ組み立てて返す(読み取りだけ。Google には触らない)
+    calendar-shifts/        shiftflowカレンダー用: 勤務の記録を、勤務入力の設定どおりに予定へ組み立てて返す(読み取りだけ。Google には触らない)。共有の相手の勤務も、見せてもらえる範囲だけ返す
     contact/                お問い合わせの送信・返事を見る
     admin-contact/          お問い合わせの一覧・返事(管理者だけ)
     mail-inbound/           GAS からの受信メールの取り込み・古いものの削除(合言葉で確かめる)
@@ -76,6 +77,7 @@ supabase/
 docs/DESIGN.md              設計
 docs/contact/               お問い合わせ・お知らせの設計・セットアップ・GAS のコード(gas/Code.gs)・テスト
 docs/kouban/                交番から休みを入れる(勤務入力の「交番」「⚙」)の設計と計算のテスト
+docs/share/                 カレンダーの共有(仲間・夫婦)の設計
 docs/proposal/              改善提案書(A4 1枚の PDF と、作るスクリプト)
 docs/sheets/                セキュリティシート・管理者の手引き・使い方(A4 1枚ずつの PDF と、作るスクリプト)。提出用は、ここと docs/proposal の4つ
 WORKLOG.md                  作業ログ(要約と現在の状態)。デバッグの記録は docs/DEBUG-LOG.md(最初に全回の一覧表。1〜10回目は docs/DEBUG-LOG-archive.md・11〜17回目は -archive-2・18〜22回目は -archive-3・23回目は -archive-4・24回目は -archive-5・25回目は -archive-6・26回目は -archive-7・27回目は -archive-8)、古い履歴は docs/WORKLOG-archive*.md

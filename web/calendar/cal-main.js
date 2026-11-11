@@ -2,12 +2,13 @@
 // 勤務の予定は、勤務の記録から Edge Function(calendar-shifts)が、勤務入力の設定どおりに組み立てて返す(Google には何も書かない・読まない)。
 // 自分で作る予定・ラベルは、Supabase の cal_* の表(本人の行だけ・RLS)。
 import {
-  callFunction, currentSession, fetchContactReplyAt, fetchNotices, friendlyText, go, hasUnseenReply, loadProfile, loadSettings, selectAllPages, supabase, unseenNotices,
+  callFunction, currentSession, fetchContactReplyAt, fetchNotices, friendlyText, go, hasUnseenReply, loadProfile, loadSettings, selectAllPages, supabase, toHalfWidth, unseenNotices,
 } from "../js/app.js?v=dev";
 import { createExtras, shrinkForEvent } from "./cal-extra.js?v=dev";
 import { createImager } from "./cal-image.js?v=dev";
 import { createAnnouncer } from "./cal-ann.js?v=dev";
 import * as appIcon from "./cal-icon.js?v=dev";
+import { fetchShare, fetchShareInboxCount, kindText, mdText, receivedAction, receivedHtml, scopeSeg, scopeText, SCOPES, SHARE_MAX, shareRpc } from "../js/share.js?v=dev";
 import {
   addDays, addMonths, announceItems, ANNOUNCE_MAX, compareForDay, dateKey, datesText, daysInMonth, diffDays, expandEvent, resolveCalView, gridRange, layoutWeek, monthIndex, monthLimits, oldestDate, photosClosed, textOn, todayJst, weekday, whenText, WEEKDAYS,
   shiftSpan, yearsText,
@@ -41,6 +42,7 @@ const S = {
   todos: [], importants: [], gallery: [], stampDefs: [], stamps: [], // 後の段階の表(cal-extra.js)
   templates: [],       // 予定のテンプレート(cal_templates)
   dots: { notices: false, contact: false }, // まだ見ていないお知らせ・お問い合わせの返事(設定の赤い点)
+  share: { links: [], views: [], sent: [], received: [] }, // カレンダーの共有(docs/share/DESIGN.md。cal_share_list)
 };
 let extras = null;
 let imager = null; // 月の画像・〇つきの画像(cal-image.js)
@@ -75,10 +77,30 @@ const labelForGroup = (g) => {
   if (g === "offduty") return S.cfg.offduty ? labelKind("offduty") || duty : duty;
   return duty;
 };
-const labelOf = (id) => S.labels.find((l) => l.id === id);
+// 共有の相手の名前のラベル(仲間)。相手が見せている範囲で、勤務だけなら1つ・勤務と休日なら2つ。
+// 名前・色は見る人が決める(cal_share_views)。id は「m:相手のID」「m:相手のID:off」(DB のラベルではない)
+function mateLabels() {
+  const out = [];
+  for (const v of S.share.views) {
+    const link = S.share.links.find((l) => l.partner_id === v.owner_id);
+    if (!link || link.their_scope === "none") continue;
+    out.push({ id: `m:${v.owner_id}`, kind: "mate", owner: v.owner_id, name: v.name, color: v.color });
+    if (link.their_scope === "duty_off") out.push({ id: `m:${v.owner_id}:off`, kind: "mateoff", owner: v.owner_id, name: v.off_name, color: v.off_color });
+  }
+  return out;
+}
+const mateLabelId = (owner, group) => (group === "off" ? `m:${owner}:off` : `m:${owner}`);
+const labelOf = (id) => S.labels.find((l) => l.id === id) || (String(id).startsWith("m:") ? mateLabels().find((l) => l.id === id) : undefined);
 const labelKind = (kind) => S.labels.find((l) => l.kind === kind);
 const colorOf = (id) => (labelOf(id) || {}).color || FALLBACK.custom;
-const rankOf = (id) => { const i = S.labels.findIndex((l) => l.id === id); return i < 0 ? 99 : i; };
+// 並びは、自分のラベル → 共有の相手の名前のラベル
+const rankOf = (id) => {
+  const i = S.labels.findIndex((l) => l.id === id);
+  if (i >= 0) return i;
+  const j = String(id).startsWith("m:") ? mateLabels().findIndex((l) => l.id === id) : -1;
+  return j < 0 ? 99 : 60 + j;
+};
+const partnerName = (owner) => (S.share.links.find((l) => l.partner_id === owner) || {}).partner_name || "";
 
 function applyTheme() {
   const t = storageGet(THEME_KEY);
@@ -113,6 +135,11 @@ async function loadLabels() {
   S.labels = rows;
 }
 
+// カレンダーの共有の一覧。読めなくても、カレンダーは動かす(名前のラベルは前のまま)
+async function loadShare() {
+  try { S.share = await fetchShare(); } catch (_) { /* 前のまま */ }
+}
+
 async function loadTemplates() {
   const { data, error } = await supabase.from("cal_templates").select("*").order("sort").order("created_at");
   if (error) throw error;
@@ -142,7 +169,8 @@ async function loadPhotos() {
 // months: 続いている月の並び({y, m}。3か月まで。サーバーが読める範囲は、月の画面の前後の週を含めて5か月まで)
 async function loadShiftsRange(months) {
   const first = months[0], last = months[months.length - 1];
-  const res = await callFunction("calendar-shifts", { from: gridRange(first.y, first.m).from, to: gridRange(last.y, last.m).to }, { timeoutMs: 40000 });
+  // mates: 共有で勤務を見せてくれている人の勤務も、一緒に返してもらう(docs/share/DESIGN.md)
+  const res = await callFunction("calendar-shifts", { from: gridRange(first.y, first.m).from, to: gridRange(last.y, last.m).to, mates: true }, { timeoutMs: 40000 });
   for (const h of res.holidays || []) S.holidays.set(h.date, h.name);
   S.needOffice = !!res.needOffice;
   // どのラベルになるかは、画面に出すとき(eventsBetween)に決める(設定を変えても、読み直さなくてよいように)。
@@ -151,6 +179,13 @@ async function loadShiftsRange(months) {
     src: "shift", id: `s:${first.y}-${first.m}:${e.date}:${i}`, title: e.title, start: e.date, end: e.endDate, allDay: e.allDay,
     startTime: e.startTime, endTime: e.endTime, kind: e.kind || "", group: e.group || (e.calendar === "holiday" ? "off" : "duty"), memo: e.description || "", repeat: "none",
   }));
+  // 共有の相手の勤務(見るだけ)。group は duty か off(非番はサーバーで勤務に入れてある)
+  for (const m of res.mates || []) {
+    (m.shifts || []).forEach((e, i) => events.push({
+      src: "mate", owner: m.ownerId, id: `m:${m.ownerId}:${first.y}-${first.m}:${e.date}:${i}`, title: e.title, start: e.date, end: e.endDate, allDay: e.allDay,
+      startTime: e.startTime, endTime: e.endTime, kind: e.kind || "", group: e.group === "off" ? "off" : "duty", memo: e.description || "", repeat: "none",
+    }));
+  }
   // 予定は最初の月に入れ、あとの月は「読んだ」印だけ(同じ予定を何度も数えないように)
   months.forEach((t, i) => S.shifts.set(`${t.y}-${t.m}`, { events: i === 0 ? events : [] }));
 }
@@ -162,7 +197,7 @@ async function reloadAll({ keepShifts = false } = {}) {
   try {
     // 設定で非番の時間用カレンダーを足した・外したあとに、反映する(読めなければ、今のまま)
     try { const st = await loadSettings(S.session); S.settingsRow = st; S.cfg = resolveCalView(st); } catch (_) { /* 今のまま */ }
-    await Promise.all([loadLabels(), loadOwn(), extras.load(), loadTemplates()]);
+    await Promise.all([loadLabels(), loadOwn(), extras.load(), loadTemplates(), loadShare()]);
     await loadPhotos().catch(() => {});
     await ensureAround();
   } catch (e) {
@@ -216,9 +251,17 @@ function eventsBetween(a, b) {
   const seen = new Set();
   for (const { events } of S.shifts.values()) {
     for (const e of events) {
-      if (e.end < a || e.start > b || !groupShown(e.group)) continue;
-      const label = labelForGroup(e.group);
-      const labelId = label ? label.id : "";
+      if (e.end < a || e.start > b) continue;
+      let labelId;
+      if (e.src === "mate") {
+        // 相手が範囲を狭めた(休日を見せなくなった・見せなくなった)ときは、ラベルが無いので出さない
+        labelId = mateLabelId(e.owner, e.group);
+        if (!labelOf(labelId)) continue;
+      } else {
+        if (!groupShown(e.group)) continue;
+        const label = labelForGroup(e.group);
+        labelId = label ? label.id : "";
+      }
       const k = `${e.start}|${e.end}|${e.title}|${e.startTime}|${labelId}`;
       if (seen.has(k)) continue;
       seen.add(k);
@@ -245,7 +288,7 @@ function setStampsOff(on) {
 
 function renderChips() {
   const el = $("chips");
-  el.innerHTML = visibleLabels().map((l) =>
+  el.innerHTML = [...visibleLabels(), ...mateLabels()].map((l) =>
     `<button class="chip${S.hidden.has(l.id) ? " off" : ""}" data-chip="${esc(l.id)}" style="--c:${esc(l.color)}" aria-pressed="${S.hidden.has(l.id) ? "false" : "true"}"><i></i>${esc(l.name)}</button>`).join("") +
     // スタンプを作っている人だけ、最後に「スタンプ」(全部を一度に出す・隠す)
     (S.stampDefs.length ? `<button class="chip stchip${S.stampsOff ? " off" : ""}" data-chip-stamps="1" aria-pressed="${S.stampsOff ? "false" : "true"}"><i aria-hidden="true">★</i>スタンプ</button>` : "");
@@ -483,7 +526,9 @@ function openEvent(uid) {
   const label = labelOf(e.labelId);
   const rep = repeatText(e);
   let actions;
-  if (e.src === "shift") {
+  if (e.src === "mate") {
+    actions = `<p class="sub">${esc(partnerName(e.owner) || "共有の相手")}さんの${e.group === "off" ? "休日" : "勤務"}です(共有。見るだけ)。表記は、あなたの勤務入力の設定どおりです。</p>`;
+  } else if (e.src === "shift") {
     actions = '<p class="sub">勤務の予定は、勤務入力で直します。</p><div class="btns"><a class="btn" href="../input.html">勤務入力を開く</a></div>';
   } else if (e.repeat && e.repeat !== "none") {
     actions = `<div class="btns"><button class="btn" data-act="edit" data-uid="${esc(uid)}" data-mode="occ">この回だけ編集</button><button class="btn" data-act="edit" data-uid="${esc(uid)}" data-mode="all">全ての回を編集</button></div>
@@ -1062,7 +1107,7 @@ function usageText() {
 
 // 設定の折りたたみ(ラベル・このカレンダーに出すもの)が開いているか。設定を開き直すたびに閉じた状態から始める。
 // 設定の中身を描き直したとき(ラベルの追加・チェックの切り替えなど)に閉じてしまわないよう、開閉をここに覚える(保存はしない)
-let settingsFold = { labels: false, calview: false };
+let settingsFold = { labels: false, calview: false, share: false };
 
 // 「このカレンダーに出すもの」を閉じていても分かるように、見出しの横に出す一言(例: 勤務・休日)
 function calViewNote() {
@@ -1098,7 +1143,7 @@ function settingsHtml() {
         <li><b>予定のテンプレート</b>: この設定の下の「予定のテンプレート」に登録すると、予定の追加のいちばん上のボタンで、タイトル・時刻などが入ります。</li>
         <li><b>アナウンス</b>: 予定・重要メモで「アナウンスに出す」にすると、上のラベルの下に、1件ずつ切り替えて出ます(日付ありは「あと○日」)。右の「1/3」で一覧です。</li>
         <li><b>見返せる期間</b>は、過去1年までです。予定の写真は、予定が終わって1か月で消えます(1つの予定に3枚まで)。</li>
-        <li><b>1つのアカウントで1人分</b>のカレンダーです。家族に見せたいときは、このアプリのURLを教えて、その人が自分のアカウントでログインして使うか、勤務をGoogleカレンダーに登録して共有します。</li>
+        <li><b>1つのアカウントで1人分</b>のカレンダーです。ほかの利用者と勤務を見せ合うときは、この設定の「👥 カレンダーの共有」で、相手の社員番号にお誘いを送ります(5人まで。見せる範囲は自分で決めます。相手の勤務は名前のラベルで出て、見るだけです)。アプリを使っていない家族には、勤務をGoogleカレンダーに登録して共有します。</li>
         <li><b>画像にする</b>: 下の「月のカレンダーを画像にする」と「選んだ日に〇をつけて画像にする」で、カレンダーを1枚の画像にして、LINEで送ったり印刷したりできます(画像は端末の中で作ります)。</li>
         <li>ホーム画面に追加すると、アプリのように開けます。最初に1回、社員番号とPINでログインします。</li>
         <li>ホーム画面のアイコンと、画面の色合いは、この設定の下の方で変えられます。「ラベル」と「このカレンダーに出すもの」は、見出しを押すと開きます。</li>
@@ -1116,6 +1161,7 @@ function settingsHtml() {
       <label class="tg"><input type="checkbox" data-cv="cal_offduty_label" id="cv-offduty"${S.cfg.offduty ? " checked" : ""}> 非番の時間を別のボタンにする</label>
       <p class="sub">チェックを外したものは、このカレンダーに出ません(ボタンも出ません)。Googleカレンダーに登録している人で、休日用のカレンダーを作っていない人は、休日が外れた状態から始まります。非番は、「非番を2段で出す」設定のとき、「〜」の下に出る退勤時間の帯が、別のボタン・別の色になります(外すと、勤務に含めて出します)。</p>
       <p class="msg err" id="cv-msg"></p></details>
+    ${shareCardHtml()}
     ${appIcon.sectionHtml(esc)}
     <div class="card"><h3>画面の色合い</h3><div class="seg" role="radiogroup">
       ${[["auto", "自動"], ["light", "ライト"], ["dark", "ダーク"]].map(([v, t]) => `<label><input type="radio" name="theme" value="${v}"${theme === v ? " checked" : ""}><span>${t}</span></label>`).join("")}
@@ -1129,11 +1175,13 @@ function openSettings() { openPanel(settingsHtml()); }
 // 見た記録は勤務入力側と同じもの(この端末に1つ)。見て「戻る」で戻ると、画面を読み直す(app.js)ので点も付け直る。
 // 読めないときは点を出さない(カレンダーの動きは止めない)
 async function loadDots() {
-  const [notices, replyAt] = await Promise.all([fetchNotices().catch(() => null), fetchContactReplyAt().catch(() => null)]);
-  S.dots = { notices: !!(notices && unseenNotices(notices).length), contact: hasUnseenReply(replyAt) };
+  const [notices, replyAt, inbox] = await Promise.all([fetchNotices().catch(() => null), fetchContactReplyAt().catch(() => null), fetchShareInboxCount().catch(() => null)]);
+  // 共有のお誘いは、返事をするまで点を出す(お知らせのいちばん上と、設定の「カレンダーの共有」に出る)
+  S.dots = { notices: !!(notices && unseenNotices(notices).length) || !!inbox, contact: hasUnseenReply(replyAt), share: !!inbox };
   $("tab-settings").classList.toggle("has-dot", S.dots.notices || S.dots.contact);
   $("to-notices")?.classList.toggle("has-dot", S.dots.notices); // 読めるより先に設定を開いていたとき
   $("to-contact")?.classList.toggle("has-dot", S.dots.contact);
+  $("share-sum")?.classList.toggle("has-dot", S.dots.share);
 }
 
 // カレンダーに出すもの(勤務・休日・非番): 保存して、すぐ反映する
@@ -1222,6 +1270,132 @@ async function labelFieldChanged(el) {
   }
 }
 
+// ---------- カレンダーの共有(docs/share/DESIGN.md) ----------
+// 設定の「アイコンの設定」のすぐ上。共有している人・届いているお誘い・返事待ち・新しく共有する
+let shareNote = { text: "", kind: "" }; // 直前の操作の結果(描き直しても消えないように、ここに持つ)
+
+function shareCount() { return S.share.links.length + S.share.sent.filter((x) => x.state === "pending").length; }
+
+function shareCardHtml() {
+  const sh = S.share;
+  const scopeSelect = (link) => `<select class="in" data-shscope="${esc(link.id)}" aria-label="${esc(link.partner_name)}さんに見せる範囲">${SCOPES.map(([v, t]) => `<option value="${v}"${v === link.my_scope ? " selected" : ""}>${t}</option>`).join("")}</select>`;
+  const labelEdit = (link) => {
+    const v = sh.views.find((x) => x.owner_id === link.partner_id);
+    if (!v || link.their_scope === "none") return "";
+    const row = (nameKey, colorKey, what) => `<div class="lrow"><input type="color" value="${esc(v[colorKey])}" data-mv="${colorKey}" data-owner="${esc(v.owner_id)}" aria-label="${what}のラベルの色"><input class="in" value="${esc(v[nameKey])}" maxlength="10" data-mv="${nameKey}" data-owner="${esc(v.owner_id)}" aria-label="${what}のラベルの名前"><span class="fold-note">${what}</span></div>`;
+    return row("name", "color", "勤務") + (link.their_scope === "duty_off" ? row("off_name", "off_color", "休日") : "");
+  };
+  const links = sh.links.map((l) => `<div class="share-row">
+      <p><b>${esc(l.partner_name)}</b>さん(${kindText(l.kind)})</p>
+      <label class="sub">あなたが見せる範囲 ${scopeSelect(l)}</label>
+      <p class="sub">相手から見せてもらう範囲: <b>${esc(scopeText(l.their_scope))}</b></p>
+      ${labelEdit(l)}
+      <div class="btns"><button class="btn sm dng" data-act="sh-stop" data-id="${esc(l.id)}" data-name="${esc(l.partner_name)}">共有をやめる</button></div>
+    </div>`).join("");
+  const sent = sh.sent.map((x) => x.state === "pending"
+    ? `<div class="lrow"><span class="tpt">${esc(x.employee_no)} さんへ(${kindText(x.kind)}・${esc(mdText(x.expires_at))}まで)</span><button class="btn sm" data-act="sh-cancel" data-id="${esc(x.id)}">取り消す</button></div>`
+    : `<div class="lrow"><span class="tpt">${esc(x.employee_no)} さん: 共有されませんでした</span><button class="btn sm" data-act="sh-cancel" data-id="${esc(x.id)}" aria-label="消す">✕</button></div>`).join("");
+  const full = shareCount() >= SHARE_MAX;
+  return `<details class="card fold" id="share" data-fold="share"${settingsFold.share || sh.received.length ? " open" : ""}><summary id="share-sum" class="${S.dots.share ? "has-dot" : ""}"><h3>👥 カレンダーの共有</h3><span class="fold-note">${shareCount()}/${SHARE_MAX}人</span></summary>
+      <p class="sub">相手の社員番号でお誘いを送り、相手が「共有する」を押すと、お互いの勤務を見せ合えます(見るだけ)。どこまで見せるかは、それぞれが決めます。相手の勤務は、相手の名前のラベルで出ます(名前と色は、ここで変えられます。相手には関係しません)。</p>
+      ${sh.received.length ? `<h4>届いているお誘い</h4>${receivedHtml(sh.received)}` : ""}
+      ${sh.links.length ? `<h4>共有している人</h4>${links}` : ""}
+      ${sh.sent.length ? `<h4>返事待ち</h4>${sent}` : ""}
+      <h4>新しく共有する</h4>
+      <input class="in" id="sh-no" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="相手の社員番号(7桁)" aria-label="相手の社員番号">
+      <p class="sub">あなたの勤務を見せる範囲</p>
+      ${scopeSeg("sh-scope", "duty")}
+      <div class="btns"><button class="btn pri" data-act="sh-send"${full ? " disabled" : ""}>お誘いを送る</button></div>
+      ${full ? `<p class="sub">共有できるのは${SHARE_MAX}人までです(返事待ちも数えます)。</p>` : ""}
+      <p class="msg${shareNote.kind ? " " + shareNote.kind : ""}" id="share-msg">${esc(shareNote.text)}</p></details>`;
+}
+
+// 共有を変えたあと: 一覧を読み直し、必要なら勤務(相手の分)も読み直して描き直す
+async function shareRefresh(reloadShifts) {
+  await loadShare();
+  if (reloadShifts) {
+    S.shifts = new Map();
+    try { await ensureAround(); } catch (e) { fail(e); }
+  }
+  if (S.panel) setPanel(settingsHtml());
+  render();
+  loadDots().catch(() => {});
+}
+
+function shareSay(text, kind = "") {
+  shareNote = { text: friendlyText(text || ""), kind };
+  const m = $("share-msg");
+  if (m) { m.textContent = shareNote.text; m.className = "msg" + (kind ? " " + kind : ""); }
+}
+
+async function shareAction(act, el) {
+  try {
+    if (act === "sh-send") {
+      const no = toHalfWidth($("sh-no").value).replace(/\D/g, "");
+      if (no.length !== 7) return shareSay("社員番号は7桁の数字で入れてください。", "err");
+      const sc = $("panel").querySelector('input[name="sh-scope"]:checked');
+      el.disabled = true;
+      await shareRpc("cal_share_send", { p_employee_no: no, p_kind: "mate", p_scope: sc ? sc.value : "duty" });
+      // 相手がいてもいなくても、同じ文(登録しているか探れないように)
+      shareSay(`${no} さんにお誘いを送りました(相手が使っていれば、お知らせに届きます。返事は14日まで待てます)。`, "ok");
+      await shareRefresh(false);
+    } else if (act === "sh-cancel") {
+      await shareRpc("cal_share_cancel", { p_invite: el.dataset.id });
+      shareSay("");
+      await shareRefresh(false);
+    } else if (act === "sh-stop") {
+      if (!window.confirm(`${el.dataset.name}さんとの共有をやめますか？(お互いのカレンダーから、相手の勤務が消えます)`)) return;
+      await shareRpc("cal_share_stop", { p_link: el.dataset.id });
+      shareSay(`${el.dataset.name}さんとの共有をやめました。`, "ok");
+      await shareRefresh(true);
+    }
+  } catch (err) {
+    el.disabled = false;
+    shareSay(err.message || String(err), "err");
+  }
+}
+
+// 届いているお誘いの「共有する」「断る」(お知らせと同じ部品)
+async function shareInviteClick(el) {
+  el.disabled = true;
+  try {
+    const text = await receivedAction(el, $("panel"));
+    if (text) shareSay(text, "ok");
+    await shareRefresh(el.dataset.share === "accept");
+  } catch (err) {
+    el.disabled = false;
+    shareSay(err.message || String(err), "err");
+  }
+}
+
+// 見せる範囲(select)・名前のラベルの名前と色を変えたとき
+async function shareFieldChanged(el) {
+  try {
+    if (el.dataset.shscope) {
+      await shareRpc("cal_share_set_scope", { p_link: el.dataset.shscope, p_scope: el.value });
+      shareSay(`見せる範囲を「${scopeText(el.value)}」にしました。相手が次にカレンダーを開いたときに変わります。`, "ok");
+      await shareRefresh(false);
+      return;
+    }
+    const key = el.dataset.mv, owner = el.dataset.owner;
+    const v = S.share.views.find((x) => x.owner_id === owner);
+    if (!v) return;
+    let value = el.value;
+    if (key === "name" || key === "off_name") {
+      value = value.trim();
+      if (!value) { el.value = v[key]; return shareSay("名前は空にできません。", "err"); }
+    }
+    if (value === v[key]) return;
+    const { error } = await supabase.from("cal_share_views").update({ [key]: value }).eq("viewer_id", S.userId).eq("owner_id", owner);
+    if (error) throw error;
+    v[key] = value;
+    shareSay("");
+    render();
+  } catch (err) {
+    shareSay(err.message || String(err), "err");
+  }
+}
+
 // ---------- 月の移動 ----------
 
 // 月の移動(◀ ▶ のボタン): その月の最初の週が上に来るまで、なめらかに動く。月の表示と読み込みは、スクロールの動きに合わせて追いかける
@@ -1262,7 +1436,7 @@ function bind() {
     const inMonth = S.today.slice(0, 7) === dateKey(S.y, S.m, 1).slice(0, 7);
     openForm(null, inMonth ? S.today : dateKey(S.y, S.m, 1));
   });
-  $("tab-settings").addEventListener("click", () => { settingsFold = { labels: false, calview: false }; openSettings(); });
+  $("tab-settings").addEventListener("click", () => { settingsFold = { labels: false, calview: false, share: false }; openSettings(); });
   // 折りたたみの開閉を覚える(toggle は泡立たないので、取り込みの段階で受ける)
   $("panel").addEventListener("toggle", (ev) => { const k = ev.target.dataset && ev.target.dataset.fold; if (k) settingsFold[k] = ev.target.open; }, true);
   $("tab-todo").addEventListener("click", () => extras.openTodo());
@@ -1366,6 +1540,8 @@ function bind() {
   });
 
   $("panel").addEventListener("click", (ev) => {
+    const inv = ev.target.closest("[data-share]");
+    if (inv) return shareInviteClick(inv);
     const el = ev.target.closest("[data-act],[data-uid]");
     if (!el) return;
     const act = el.dataset.act;
@@ -1384,6 +1560,7 @@ function bind() {
     if (act === "cp-open" || act === "cp-cancel") return copyFormAct(act);
     if (act.startsWith("pk-")) return pickAct(act, el);
     if (act.startsWith("l-")) return settingsAction(act, el);
+    if (act.startsWith("sh-")) return shareAction(act, el);
     if (act.startsWith("img-") || act.startsWith("mark-")) return imager.act(act, el);
     if (act === "ph-view") {
       const cap = el.dataset.exp ? `この写真は${Number(el.dataset.exp.slice(5, 7))}月${Number(el.dataset.exp.slice(8, 10))}日に消えます` : "";
@@ -1406,6 +1583,7 @@ function bind() {
     if (draft && el.dataset.f) return readDraftField(el);
     if (tpl && el.dataset.tp) return readTplField(el);
     if (el.dataset.lf) return labelFieldChanged(el);
+    if (el.dataset.shscope || el.dataset.mv) return shareFieldChanged(el);
     if (el.name === "theme") { storageSet(THEME_KEY, el.value); applyTheme(); return; }
     if (el.name === "appicon") { appIcon.choose(el.value); return; }
     if (el.dataset.cv) {
@@ -1470,7 +1648,7 @@ async function main() {
   let firstErr = null;
   const prev = addMonths(S.y, S.m, -1);
   const firstShifts = loadShiftsRange([prev, { y: S.y, m: S.m }]).catch((e) => { firstErr = e; });
-  await Promise.all([loadLabels(), loadOwn(), extras.load(), loadTemplates(), loadPhotos().catch(() => {}), firstShifts]);
+  await Promise.all([loadLabels(), loadOwn(), extras.load(), loadTemplates(), loadPhotos().catch(() => {}), loadShare(), firstShifts]);
   $("boot").hidden = true;
   render();
   scrollToDate(S.today, 1); // 今日の週が、上から2段目に来る位置から

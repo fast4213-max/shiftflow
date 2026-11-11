@@ -964,3 +964,128 @@ begin
   delete from auth.users where id in (u1, u2);
 end
 $$;
+
+-- カレンダーの共有(docs/share/DESIGN.md): 表は読むだけ・関数で送る/受ける/やめる・5人まで・1日10回・いない番号でも同じ
+do $$
+declare
+  u uuid[] := array['abababab-0000-4000-8000-000000000001', 'abababab-0000-4000-8000-000000000002', 'abababab-0000-4000-8000-000000000003',
+                    'abababab-0000-4000-8000-000000000004', 'abababab-0000-4000-8000-000000000005', 'abababab-0000-4000-8000-000000000006',
+                    'abababab-0000-4000-8000-000000000007', 'abababab-0000-4000-8000-000000000008']::uuid[];
+  t text;
+  inv uuid;
+  lnk uuid;
+  j jsonb;
+  ok boolean;
+  n int;
+begin
+  -- 権限: 表は読むだけ(views は名前・色・並びだけ直せる)。送った記録は読めない。未ログインは何もできない
+  foreach t in array array['cal_share_invites', 'cal_share_links', 'cal_share_views', 'cal_share_sends'] loop
+    assert (select relrowsecurity from pg_class where oid = ('public.' || t)::regclass), t || ' の RLS が無効';
+    assert not has_table_privilege('anon', 'public.' || t, 'select, insert, update, delete'), 'anon が ' || t || ' を触れる';
+    assert not has_table_privilege('authenticated', 'public.' || t, 'insert, delete'), 'authenticated が ' || t || ' に直接書ける';
+  end loop;
+  assert not has_table_privilege('authenticated', 'public.cal_share_sends', 'select'), '送った記録が読める';
+  assert not has_table_privilege('authenticated', 'public.cal_share_links', 'update'), '共有の範囲を表で直接書き換えられる';
+  assert not has_column_privilege('authenticated', 'public.cal_share_views', 'owner_id', 'update'), '名前のラベルの相手を書き換えられる';
+  assert has_column_privilege('authenticated', 'public.cal_share_views', 'color', 'update'), '名前のラベルの色を直せない';
+  assert not has_function_privilege('authenticated', 'public.cal_share_count(uuid,uuid)', 'execute'), 'cal_share_count を利用者が呼べる';
+  assert not has_function_privilege('authenticated', 'public.cal_share_add_view(uuid,uuid)', 'execute'), 'cal_share_add_view を利用者が呼べる';
+  assert not has_function_privilege('anon', 'public.cal_share_send(text,text,text)', 'execute'), 'anon が cal_share_send を呼べる';
+  assert has_function_privilege('authenticated', 'public.cal_share_accept(uuid,text)', 'execute'), '利用者が cal_share_accept を呼べない';
+
+  insert into auth.users (id) select unnest(u);
+  for n in 1..8 loop
+    insert into public.profiles (user_id, employee_no, family_name, given_name) values (u[n], '800000' || n, '共', '有' || n);
+  end loop;
+
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub', u[1]::text, true);
+  -- 入力の確かめ: 7桁でない・自分あて・種類
+  ok := false; begin perform public.cal_share_send('123', 'mate', 'duty'); exception when invalid_parameter_value then ok := true; end;
+  assert ok, '7桁でない社員番号で送れる';
+  ok := false; begin perform public.cal_share_send('8000001', 'mate', 'duty'); exception when invalid_parameter_value then ok := true; end;
+  assert ok, '自分あてに送れる';
+  ok := false; begin perform public.cal_share_send('8000002', 'all', 'duty'); exception when invalid_parameter_value then ok := true; end;
+  assert ok, '決めていない種類で送れる';
+  -- いない番号といる番号で、同じように終わる(どちらもエラーにならず、返事待ちに出る)
+  perform public.cal_share_send('8000002', 'mate', 'duty_off');
+  perform public.cal_share_send('9999999', 'mate', 'duty');
+  j := public.cal_share_list();
+  assert jsonb_array_length(j->'sent') = 2 and (select bool_and(x->>'state' = 'pending') from jsonb_array_elements(j->'sent') x), 'いない番号あてのお誘いが、返事待ちに出ない';
+  assert not (j::text like '%有2%'), '返事の前に、相手の名前が送った側に見える';
+  ok := false; begin perform public.cal_share_send('8000002', 'mate', 'duty'); exception when unique_violation then ok := true; end;
+  assert ok, '同じ番号に、返事待ちのまま2回送れる';
+
+  -- u2: 自分あてのお誘いだけ見える。送った人の名前が出る
+  perform set_config('request.jwt.claim.sub', u[2]::text, true);
+  assert public.cal_share_inbox_count() = 1, '自分あてのお誘いの数が違う';
+  j := public.cal_share_list();
+  assert jsonb_array_length(j->'received') = 1 and j->'received'->0->>'from_name' = '共 有1', '届いたお誘いに送った人の名前が出ない';
+  assert (select count(*) from public.cal_share_invites) = 1, 'ほかの人あてのお誘いが見える';
+  inv := (j->'received'->0->>'id')::uuid;
+  perform public.cal_share_accept(inv, 'none');
+  assert public.cal_share_inbox_count() = 0, '共有したのに、お誘いが残っている';
+  j := public.cal_share_list();
+  assert jsonb_array_length(j->'links') = 1 and j->'links'->0->>'my_scope' = 'none' and j->'links'->0->>'their_scope' = 'duty_off', '共有の範囲が違う(u2から)';
+  assert j->'views'->0->>'name' = '有1' and j->'views'->0->>'off_name' = '有1・休', '名前のラベルの初期値が下の名前でない';
+  lnk := (j->'links'->0->>'id')::uuid;
+  -- 名前のラベルは直せる。ほかの人の分は直せない
+  update public.cal_share_views set name = 'いち', color = '#123456' where owner_id = u[1];
+  assert (select name from public.cal_share_views where owner_id = u[1]) = 'いち', '名前のラベルを直せない';
+
+  -- u1 から: 名前が見える・範囲・同じ人にはもう送れない
+  perform set_config('request.jwt.claim.sub', u[1]::text, true);
+  j := public.cal_share_list();
+  assert j->'links'->0->>'partner_name' = '共 有2' and j->'links'->0->>'my_scope' = 'duty_off' and j->'links'->0->>'their_scope' = 'none', '共有の範囲が違う(u1から)';
+  assert (select name from public.cal_share_views where owner_id = u[2]) = '有2', 'u2 の変更が u1 の名前のラベルに効いている';
+  ok := false; begin perform public.cal_share_send('8000002', 'mate', 'duty'); exception when unique_violation then ok := true; end;
+  assert ok, '共有中の人に、また送れる';
+  perform public.cal_share_set_scope(lnk, 'duty');
+  assert (select scope_a from public.cal_share_links where id = lnk) = 'duty', '範囲を変えられない';
+  -- 5人まで(共有中1 + 返事待ち 9999999 の1 + 3人 = 5)。6人目は送れない
+  perform public.cal_share_send('8000003', 'mate', 'duty');
+  perform public.cal_share_send('8000004', 'mate', 'duty');
+  perform public.cal_share_send('8000005', 'mate', 'duty');
+  ok := false; begin perform public.cal_share_send('8000006', 'mate', 'duty'); exception when check_violation then ok := true; end;
+  assert ok, '6人目に送れる';
+
+  -- u6 が u1 に送る → u1 は5人なので受けられない
+  perform set_config('request.jwt.claim.sub', u[6]::text, true);
+  perform public.cal_share_send('8000001', 'mate', 'duty');
+  perform set_config('request.jwt.claim.sub', u[1]::text, true);
+  inv := (public.cal_share_list()->'received'->0->>'id')::uuid;
+  ok := false; begin perform public.cal_share_accept(inv, 'duty'); exception when check_violation then ok := true; end;
+  assert ok, '5人いるのに、お誘いを受けられる';
+  -- 断る → 送った側には「共有されませんでした」(期限切れと同じ)
+  perform public.cal_share_decline(inv);
+  perform set_config('request.jwt.claim.sub', u[6]::text, true);
+  assert public.cal_share_list()->'sent'->0->>'state' = 'closed', '断られたお誘いが返事待ちのまま';
+  perform public.cal_share_cancel((public.cal_share_list()->'sent'->0->>'id')::uuid);
+  assert jsonb_array_length(public.cal_share_list()->'sent') = 0, '「共有されませんでした」を消せない';
+  -- ほかの人のお誘いは受けられない
+  ok := false; begin perform public.cal_share_accept(inv, 'duty'); exception when no_data_found then ok := true; end;
+  assert ok, 'ほかの人あてのお誘いを受けられる';
+
+  -- 1日10回まで(u7)
+  perform set_config('request.jwt.claim.sub', u[7]::text, true);
+  for n in 1..10 loop
+    begin perform public.cal_share_send('70000' || lpad(n::text, 2, '0'), 'mate', 'duty'); exception when check_violation then null; end;
+    -- 5人を超えた分は送れない(数えるのは送れた分だけ)。取り消して数を空ける
+    perform public.cal_share_cancel(i.id) from public.cal_share_invites i where i.from_id = u[7];
+  end loop;
+  ok := false; begin perform public.cal_share_send('7000099', 'mate', 'duty'); exception when program_limit_exceeded then ok := true; end;
+  assert ok, '1日に11回送れる';
+
+  -- やめる(u2 から)→ 両方の名前のラベルも消える
+  perform set_config('request.jwt.claim.sub', u[2]::text, true);
+  perform public.cal_share_stop(lnk);
+  assert (select count(*) from public.cal_share_links) = 0, 'やめたのに共有が残る';
+  reset role;
+  assert (select count(*) from public.cal_share_views where viewer_id in (u[1], u[2])) = 0, 'やめたのに名前のラベルが残る';
+
+  -- 退会(ユーザーが消える)と、共有もお誘いも消える
+  delete from auth.users where id = any(u);
+  assert (select count(*) from public.cal_share_invites where from_id = any(u)) = 0, '退会した人のお誘いが残る';
+  perform set_config('request.jwt.claim.sub', '', true);
+end
+$$;

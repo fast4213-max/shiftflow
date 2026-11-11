@@ -202,3 +202,11 @@ details.more > summary::before { content: "▸ "; }
 details.more[open] > summary::before { content: "▾ "; }
 details.more > summary::-webkit-details-marker { display: none; }
 details.more > p { margin-top: 4px; }
+
+/* カレンダーの共有のお誘い(お知らせ。web/js/share.js) */
+.share-inv p { margin: 0 0 6px; }
+.share-inv .seg { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 4px 0 8px; }
+.share-inv .seg label { display: inline-flex; align-items: center; gap: 4px; }
+.share-inv .btns { display: flex; gap: 8px; margin-top: 8px; }
+.share-inv + .share-inv { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
+#mine h2 { margin-top: 0; }

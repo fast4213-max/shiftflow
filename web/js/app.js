@@ -129,6 +129,12 @@ export function renderTopbar(current, { loggedIn = false, isAdmin = false } = {}
       if (list && unseenNotices(list).length) $("nav-notices")?.classList.add("has-dot");
     }).catch(() => {});
   }
+  // 返事をしていない、カレンダーの共有のお誘いがあれば、メニューの「お知らせ」に赤い点を付ける(返事をするまで消えない)
+  if (loggedIn && !isAdmin && current !== "notices.html") {
+    fetchShareInboxCount().then((n) => {
+      if (n) $("nav-notices")?.classList.add("has-dot");
+    }).catch(() => {});
+  }
   // まだ見ていない、お問い合わせの返事があれば、メニューの「お問い合わせ」に赤い点を付ける
   if (loggedIn && !isAdmin && current !== "contact.html") {
     fetchContactReplyAt().then((at) => {
@@ -154,6 +160,18 @@ export async function fetchNotices() {
     const { data, error } = await Promise.race([supabase.rpc("current_notices"), timeout]);
     if (error || !Array.isArray(data)) return null;
     return data.filter((n) => n && typeof n.title === "string");
+  } catch (_) {
+    return null;
+  }
+}
+
+// 返事を待っている、自分あてのカレンダーの共有のお誘いの数(docs/share/DESIGN.md)。読めない・遅い(6秒)ときは null
+export async function fetchShareInboxCount() {
+  if (!configured) return null;
+  const timeout = new Promise((resolve) => setTimeout(() => resolve({ data: null, error: new Error("timeout") }), 6000));
+  try {
+    const { data, error } = await Promise.race([supabase.rpc("cal_share_inbox_count"), timeout]);
+    return error || typeof data !== "number" ? null : data;
   } catch (_) {
     return null;
   }
