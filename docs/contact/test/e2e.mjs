@@ -2677,6 +2677,26 @@ await check("カレンダー設定: 説明の下に 画像・テンプレート�
   await ctx.close();
 });
 
+await check("カレンダー設定: ラベルは自分で20個まで作れる(19個目までは追加できて、20個になると追加のボタンが押せない)", async () => {
+  const { page, ctx, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  await page.click("#tab-settings");
+  await page.waitForSelector("#about");
+  await page.click("#labels summary");
+  assert.ok((await page.textContent("#labels .sub")).includes("20個まで"), "説明が20個まで");
+  // はじめから「その他」が1個。あと19個で20個
+  for (let i = 1; i <= 19; i++) {
+    assert.equal(await page.isDisabled('[data-act="l-add"]'), false, i + "個目を足す前は押せる");
+    await page.fill("#nl-name", "ラベル" + i);
+    await page.click('[data-act="l-add"]');
+    await page.waitForSelector(`[data-lf="name"][value="ラベル${i}"]`);
+  }
+  assert.equal(await page.textContent("#labels .fold-note"), "23個", "勤務・休日・非番 + 自分で作った20個");
+  assert.equal(await page.isDisabled('[data-act="l-add"]'), true, "20個で追加のボタンが押せない");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await check("カレンダー: ログインしていなければログイン画面へ。幅320pxでもはみ出さない", async () => {
   const a = await open("calendar/index.html", { opts: {} });
   await a.page.waitForURL(/\/index\.html$/);

@@ -15,7 +15,7 @@
 - [ ] README・使い方ページ(`help.html`)の、Googleカレンダー前提の文言を直す
 
 ## 2. 新しい表と RLS・Storage の権限(2026-11-02 実装)
-- [x] migration `20261102000001_calendar_tables.sql`: `cal_labels`(勤務・休日・自分で作る10件まで)・`cal_events`(分単位の時刻・複数日・繰り返し・version)・`cal_photos`(1予定3枚・消す日は終了日から1か月)・`cal_stamp_defs`・`cal_stamps`(メモ10件まで)・`cal_todos`・`cal_importants`・`cal_gallery`(1人10枚)
+- [x] migration `20261102000001_calendar_tables.sql`: `cal_labels`(勤務・休日・自分で作る20件まで。11-11 に10件から広げた[migration `20261116000000_cal_label_max_20.sql`。上限は `cal_label_max()` の1か所])・`cal_events`(分単位の時刻・複数日・繰り返し・version)・`cal_photos`(1予定3枚・消す日は終了日から1か月)・`cal_stamp_defs`・`cal_stamps`(メモ10件まで)・`cal_todos`・`cal_importants`・`cal_gallery`(1人10枚)
 - [x] 全部の表: 本人の行だけ(RLS+プロフィールがある人だけ)。他人のラベル・予定・スタンプを使う登録は外部キーで止まる(ユーザーIDも含めた複合キー)
 - [x] 上限: 予定5,000・スタンプ3,000・TODO200・重要メモ100・スタンプの種類40(共通のトリガー `cal_limit`)
 - [x] 写真の消す日は、予定の終了日・繰り返しを変えると自動で合わせる(利用者は書き換えられない)

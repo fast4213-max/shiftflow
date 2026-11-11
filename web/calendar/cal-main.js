@@ -10,7 +10,7 @@ import { createAnnouncer } from "./cal-ann.js?v=dev";
 import * as appIcon from "./cal-icon.js?v=dev";
 import { fetchShare, fetchShareInboxCount, kindText, mdText, receivedAction, receivedHtml, scopeSeg, scopeText, SCOPES, SHARE_MAX, shareRpc } from "../js/share.js?v=dev";
 import {
-  addDays, addMonths, announceItems, ANNOUNCE_MAX, compareForDay, dateKey, datesText, daysInMonth, diffDays, expandEvent, resolveCalView, gridRange, layoutWeek, monthIndex, monthLimits, oldestDate, photosClosed, textOn, todayJst, weekday, whenText, WEEKDAYS,
+  addDays, addMonths, announceItems, ANNOUNCE_MAX, LABEL_MAX, compareForDay, dateKey, datesText, daysInMonth, diffDays, expandEvent, resolveCalView, gridRange, layoutWeek, monthIndex, monthLimits, oldestDate, photosClosed, textOn, todayJst, weekday, whenText, WEEKDAYS,
   shiftSpan, yearsText,
 } from "./cal-core.js?v=dev";
 
@@ -1192,9 +1192,9 @@ function settingsHtml() {
     ${imager ? imager.sectionsHtml() : ""}
     ${templatesCardHtml()}
     <details class="card fold" id="labels" data-fold="labels"${settingsFold.labels ? " open" : ""}><summary><h3>ラベル</h3><span class="fold-note">${vis.length}個</span></summary>
-      <p class="sub">名前と色、並び順を決めます。自分で作れるのは10個までです。勤務・休日・非番のラベルは、勤務の予定の色です(非番は、「〜」とその時間。設定で非番の時間用カレンダーを使っている人だけに出ます)。</p>
+      <p class="sub">名前と色、並び順を決めます。自分で作れるのは${LABEL_MAX}個までです(カレンダーを共有すると、相手が作った分も数えます)。勤務・休日・非番のラベルは、勤務の予定の色です(非番は、「〜」とその時間。設定で非番の時間用カレンダーを使っている人だけに出ます)。</p>
       ${labelRows}
-      <div class="lrow"><input type="color" id="nl-color" value="#8e44ad" aria-label="新しいラベルの色"><input class="in" id="nl-name" maxlength="20" placeholder="新しいラベルの名前" aria-label="新しいラベルの名前"><button class="btn sm pri" data-act="l-add"${customCount >= 10 ? " disabled" : ""}>追加</button></div>
+      <div class="lrow"><input type="color" id="nl-color" value="#8e44ad" aria-label="新しいラベルの色"><input class="in" id="nl-name" maxlength="20" placeholder="新しいラベルの名前" aria-label="新しいラベルの名前"><button class="btn sm pri" data-act="l-add"${customCount >= LABEL_MAX ? " disabled" : ""}>追加</button></div>
       <p class="msg err" id="label-msg"></p></details>
     <details class="card fold" id="calview" data-fold="calview"${settingsFold.calview ? " open" : ""}><summary><h3>このカレンダーに出すもの</h3><span class="fold-note">${esc(calViewNote())}</span></summary>
       <label class="tg"><input type="checkbox" data-cv="cal_show_duty" id="cv-duty"${S.cfg.duty ? " checked" : ""}> 勤務</label>

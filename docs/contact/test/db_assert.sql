@@ -472,17 +472,17 @@ begin
   assert (select count(*) from public.cal_labels) = 4 and (select count(*) from public.cal_labels where kind = 'offduty') = 1, '非番のラベルだけが足されない';
   select id into l1 from public.cal_labels where kind = 'custom';
 
-  -- ラベル: 色の形・名前の長さ・勤務/休日は1つだけ・自分で作るのは10件まで
+  -- ラベル: 色の形・名前の長さ・勤務/休日は1つだけ・自分で作るのは20件まで
   ok := false;
   begin insert into public.cal_labels (name, color) values ('x', 'red'); exception when check_violation then ok := true; end;
   assert ok, '色が #RRGGBB でなくても入る';
   ok := false;
   begin insert into public.cal_labels (kind, name, color) values ('duty', 'もう1つ', '#112233'); exception when unique_violation then ok := true; end;
   assert ok, '勤務のラベルが2つ入る';
-  for n in 1..9 loop insert into public.cal_labels (name, color, sort) values ('ラベル' || n, '#112233', n + 10); end loop;
+  for n in 1..19 loop insert into public.cal_labels (name, color, sort) values ('ラベル' || n, '#112233', n + 10); end loop;
   ok := false;
-  begin insert into public.cal_labels (name, color) values ('11個目', '#112233'); exception when check_violation then ok := true; end;
-  assert ok, '自分で作るラベルが10件を超えて入る';
+  begin insert into public.cal_labels (name, color) values ('21個目', '#112233'); exception when check_violation then ok := true; end;
+  assert ok, '自分で作るラベルが20件を超えて入る';
 
   -- 予定: 分単位の時刻・終日でない予定には開始時刻・同じ日で終了が開始より前は不可・version は更新のたびに +1
   insert into public.cal_events (title, start_date, end_date, all_day, label_id) values ('歯医者', '2026-11-10', '2026-11-10', true, l1) returning id into e1;
@@ -1336,5 +1336,50 @@ begin
   delete from auth.users where id in (ta, hn, nw, adm) or id = any(x);
   delete from public.profiles where user_id = adm;
   perform set_config('request.jwt.claim.sub', '', true);
+end
+$$;
+
+-- ラベルの上限 20 個(cal_label_max)と、共有の取り込み・持って帰るの枠(10個のころは、ここで足りなくなっていた)
+do $$
+declare
+  a uuid := 'cdcdcdcd-0000-4000-8000-0000000000a1';  -- 取り込まれる側(持ち主)
+  b uuid := 'cdcdcdcd-0000-4000-8000-0000000000a2';  -- 持って帰る人
+  lid uuid;
+  lb uuid;
+  n int;
+begin
+  insert into auth.users (id) values (a), (b);
+  insert into public.profiles (user_id, employee_no, family_name, given_name) values
+    (a, '8300001', '甲', '一'), (b, '8300002', '乙', '二');
+  assert public.cal_label_max() = 20, 'ラベルの上限が 20 でない';
+
+  -- 持ち主に 15 個ある(10個のころなら枠がない)→「取り込み」が作られる
+  for n in 1..15 loop insert into public.cal_labels (user_id, created_by, name, color, sort) values (a, a, '持ち主' || n, '#112233', n); end loop;
+  lid := public.cal_couple_fallback(a, b);
+  assert (select name from public.cal_labels where id = lid) = '取り込み', '15個あるのに「取り込み」が作られない';
+  assert (select count(*) from public.cal_labels where user_id = a and kind = 'custom') = 16, '「取り込み」が1つ増えるはず';
+  assert public.cal_couple_fallback(a, b) = lid, '「取り込み」が2つ目に作られる';
+
+  -- 持って帰る: b が作って使っているラベル 3 つは、持ち主側に 16 個あっても、そのまま行き先に作られる
+  for n in 1..3 loop
+    insert into public.cal_labels (user_id, created_by, name, color, sort) values (a, b, '乙の' || n, '#445566', 30 + n) returning id into lb;
+    insert into public.cal_events (user_id, created_by, title, start_date, end_date, label_id) values (a, b, '乙の予定' || n, '2026-12-01', '2026-12-01', lb);
+  end loop;
+  perform public.cal_couple_move(a, b, b);
+  assert (select count(*) from public.cal_labels where user_id = b and kind = 'custom' and name like '乙の%') = 3, '持って帰るラベルが3つそろわない';
+  assert (select count(*) from public.cal_events e join public.cal_labels l on l.id = e.label_id where e.user_id = b and l.user_id = b and l.name like '乙の%') = 3, '予定が持って帰ったラベルにつかない';
+
+  -- 持ち主が 20 個ちょうどなら、それ以上は作られず、予定は既存のラベルにつく(上限を超えない)
+  for n in 1..(20 - (select count(*) from public.cal_labels where user_id = a and kind = 'custom')) loop
+    insert into public.cal_labels (user_id, created_by, name, color, sort) values (a, a, '埋め' || n, '#778899', 60 + n);
+  end loop;
+  assert (select count(*) from public.cal_labels where user_id = a and kind = 'custom') = 20, '20個にそろわない';
+  insert into public.cal_labels (user_id, created_by, name, color, sort) values (b, b, '新しい乙', '#abcdef', 90) returning id into lb;
+  insert into public.cal_events (user_id, created_by, title, start_date, end_date, label_id) values (b, b, '新しい乙の予定', '2026-12-02', '2026-12-02', lb);
+  perform public.cal_couple_move(b, a, b);
+  assert (select count(*) from public.cal_labels where user_id = a and kind = 'custom') = 20, '取り込みで上限の 20 個を超えた';
+  assert (select count(*) from public.cal_events where user_id = a and title = '新しい乙の予定' and label_id is not null) = 1, '枠がないとき、予定のラベルが外れた';
+
+  delete from auth.users where id in (a, b);
 end
 $$;

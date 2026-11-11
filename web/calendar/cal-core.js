@@ -226,6 +226,7 @@ export function datesText(dates, baseYear) {
 
 // ---------- アナウンス(カレンダーの上に、1件ずつ切り替えて流す) ----------
 
+export const LABEL_MAX = 20; // 自分で作れるラベルの数(DB の cal_label_max() と同じ数にする)
 export const ANNOUNCE_MAX = 10; // 上に流すのは10件まで(一覧には全部出す)
 
 // アナウンスに出すものを、出す順に並べる。
