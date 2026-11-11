@@ -1021,7 +1021,10 @@ begin
   assert public.cal_share_inbox_count() = 1, '自分あてのお誘いの数が違う';
   j := public.cal_share_list();
   assert jsonb_array_length(j->'received') = 1 and j->'received'->0->>'from_name' = '共 有1', '届いたお誘いに送った人の名前が出ない';
-  assert (select count(*) from public.cal_share_invites) = 1, 'ほかの人あてのお誘いが見える';
+  -- AR1: お誘いの表は直接読めない(送った人が to_id・status を見て、登録しているかを探れないように)
+  assert not has_table_privilege('authenticated', 'public.cal_share_invites', 'select'), 'お誘いの表を直接読める(登録しているかが分かる)';
+  ok := false; begin perform count(*) from public.cal_share_invites; exception when insufficient_privilege then ok := true; end;
+  assert ok, 'お誘いの表を直接読める';
   inv := (j->'received'->0->>'id')::uuid;
   perform public.cal_share_accept(inv, 'none');
   assert public.cal_share_inbox_count() = 0, '共有したのに、お誘いが残っている';
@@ -1071,7 +1074,7 @@ begin
   for n in 1..10 loop
     begin perform public.cal_share_send('70000' || lpad(n::text, 2, '0'), 'mate', 'duty'); exception when check_violation then null; end;
     -- 5人を超えた分は送れない(数えるのは送れた分だけ)。取り消して数を空ける
-    perform public.cal_share_cancel(i.id) from public.cal_share_invites i where i.from_id = u[7];
+    perform public.cal_share_cancel((x->>'id')::uuid) from jsonb_array_elements(public.cal_share_list()->'sent') x;
   end loop;
   ok := false; begin perform public.cal_share_send('7000099', 'mate', 'duty'); exception when program_limit_exceeded then ok := true; end;
   assert ok, '1日に11回送れる';
@@ -1228,6 +1231,110 @@ begin
   assert (select count(*) from public.cal_events where user_id = hn and title = '新しい予定') = 1, '退会する人の予定が戻らない';
 
   delete from auth.users where id in (ta, hn, ot);
+  perform set_config('request.jwt.claim.sub', '', true);
+end
+$$;
+
+-- カレンダーの共有: 36回目のデバッグ(AR3・AR7・AR8・AR10・AR11)
+do $$
+declare
+  ta uuid := 'efefefef-0000-4000-8000-000000000001';  -- 太郎(持ち主)
+  hn uuid := 'efefefef-0000-4000-8000-000000000002';  -- 花子(招待された側)
+  x  uuid[] := array['efefefef-0000-4000-8000-000000000011', 'efefefef-0000-4000-8000-000000000012', 'efefefef-0000-4000-8000-000000000013', 'efefefef-0000-4000-8000-000000000014']::uuid[];
+  nw uuid := 'efefefef-0000-4000-8000-000000000021';  -- あとから登録する人
+  adm uuid := 'efefefef-0000-4000-8000-0000000000a1';
+  lb uuid;
+  ev_t uuid;
+  ev_h uuid;
+  ok boolean;
+  n int;
+  gone text[];
+  j jsonb;
+begin
+  insert into auth.users (id) values (ta), (hn), (adm);
+  insert into auth.users (id) select unnest(x);
+  insert into public.profiles (user_id, employee_no, family_name, given_name) values (ta, '8200001', '山田', '太郎'), (hn, '8200002', '山田', '花子');
+  insert into public.profiles (user_id, role) values (adm, 'admin');
+  for n in 1..4 loop insert into public.profiles (user_id, employee_no, family_name, given_name) values (x[n], '820001' || n, '仲', '間' || n); end loop;
+
+  set local role authenticated;
+  -- ===== AR11: 送ったあとに登録した人にも届く =====
+  perform set_config('request.jwt.claim.sub', ta::text, true);
+  perform public.cal_share_send('8200099', 'mate', 'duty');
+  reset role;
+  insert into auth.users (id) values (nw);
+  insert into public.profiles (user_id, employee_no, family_name, given_name) values (nw, '8200099', '新', '人');
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub', nw::text, true);
+  assert public.cal_share_inbox_count() = 1, 'あとから登録した人に、お誘いの赤い点が出ない';
+  j := public.cal_share_list();
+  assert jsonb_array_length(j->'received') = 1 and j->'received'->0->>'from_name' = '山田 太郎', 'あとから登録した人に、お誘いが届かない';
+  perform public.cal_share_decline((j->'received'->0->>'id')::uuid);
+  perform set_config('request.jwt.claim.sub', ta::text, true);
+  perform public.cal_share_cancel((x2->>'id')::uuid) from jsonb_array_elements(public.cal_share_list()->'sent') x2;
+
+  -- ===== AR8: お互いに送り合っていても、5人ちょうどなら受けられる =====
+  -- 花子: 仲間4人 + 太郎あてのお誘い(返事待ち)= 5。太郎からのお誘いを受けられる
+  for n in 1..4 loop
+    perform set_config('request.jwt.claim.sub', x[n]::text, true);
+    perform public.cal_share_send('8200002', 'mate', 'duty');
+  end loop;
+  perform set_config('request.jwt.claim.sub', hn::text, true);
+  perform public.cal_share_accept((r->>'id')::uuid, 'duty') from jsonb_array_elements(public.cal_share_list()->'received') r;
+  perform public.cal_share_send('8200001', 'mate', 'duty');
+  perform set_config('request.jwt.claim.sub', ta::text, true);
+  perform public.cal_share_send('8200002', 'couple', 'duty_off');
+  perform set_config('request.jwt.claim.sub', hn::text, true);
+  j := public.cal_share_list();
+  assert jsonb_array_length(j->'links') = 4 and jsonb_array_length(j->'sent') = 1, '準備(仲間4人+返事待ち1)が違う';
+  perform public.cal_share_accept((j->'received'->0->>'id')::uuid, 'duty_off', false);
+  j := public.cal_share_list();
+  assert jsonb_array_length(j->'links') = 5 and jsonb_array_length(j->'sent') = 0, 'お互いに送り合っていると、5人ちょうどで受けられない';
+
+  -- ===== AR3: 相手の予定が入っているラベルは「自分だけ」にできない =====
+  perform set_config('request.jwt.claim.sub', ta::text, true);
+  perform public.cal_ensure_default_labels();
+  insert into public.cal_labels (name, color) values ('ないしょ', '#111111') returning id into lb;
+  insert into public.cal_events (title, start_date, end_date, label_id) values ('太郎の予定', '2026-11-20', '2026-11-20', lb) returning id into ev_t;
+  perform set_config('request.jwt.claim.sub', hn::text, true);
+  perform public.cal_ensure_default_labels();
+  insert into public.cal_events (title, start_date, end_date, label_id) values ('花子の予定', '2026-11-21', '2026-11-21', lb) returning id into ev_h;
+  perform set_config('request.jwt.claim.sub', ta::text, true);
+  ok := false; begin update public.cal_labels set private_to = ta where id = lb; exception when check_violation then ok := true; end;
+  assert ok, '相手の予定が入っているラベルを「自分だけ」にできる(相手から自分の予定が見えなくなる)';
+  -- 相手が予定のラベルを変えたあとは、できる
+  perform set_config('request.jwt.claim.sub', hn::text, true);
+  update public.cal_events set label_id = (select id from public.cal_labels where kind = 'custom' and name = 'その他') where id = ev_h;
+  perform set_config('request.jwt.claim.sub', ta::text, true);
+  update public.cal_labels set private_to = ta where id = lb;
+  assert (select private_to from public.cal_labels where id = lb) = ta, '相手の予定が無いのに「自分だけ」にできない';
+
+  -- ===== AR7: やめるとき、相手の予定に足した写真は行ごと消える(場所を返す) =====
+  insert into public.cal_photos (event_id, path) values (ev_t, ta || '/e-own.jpg');      -- 太郎が自分の予定に
+  insert into public.cal_photos (event_id, path) values (ev_h, ta || '/e-cross.jpg');    -- 太郎が花子の予定に
+  perform set_config('request.jwt.claim.sub', hn::text, true);
+  insert into public.cal_photos (event_id, path) values (ev_h, hn || '/e-own.jpg');      -- 花子が自分の予定に
+  -- 太郎の予定は「自分だけ」のラベルなので、花子からは予定も写真も見えない
+  assert (select count(*) from public.cal_events where id = ev_t) = 0, '「自分だけ」の予定が花子に見える';
+  assert (select count(*) from public.cal_photos) = 2, '花子に見える写真の数が違う';
+  -- ===== AR10: 使用量は、作った人ごと =====
+  reset role;
+  update public.cal_photos set size_bytes = 1000 where created_by = ta;
+  update public.cal_photos set size_bytes = 10 where created_by = hn;
+  set local role authenticated;
+  perform set_config('request.jwt.claim.sub', adm::text, true);
+  j := public.admin_usage()->'top_users';
+  assert (select (t->>'bytes')::int from jsonb_array_elements(j) t where t->>'employee_no' = '8200001') = 2000
+     and (select (t->>'bytes')::int from jsonb_array_elements(j) t where t->>'employee_no' = '8200002') = 10, '使用量が、作った人ごとになっていない: ' || j::text;
+  reset role;
+  gone := public.cal_couple_end_for(hn);
+  assert gone = array[ta || '/e-cross.jpg'], '相手の予定に足した写真の場所が返らない: ' || gone::text;
+  assert (select count(*) from public.cal_photos where user_id = hn) = 1 and (select path from public.cal_photos where user_id = hn) = hn || '/e-own.jpg', '花子の予定の写真が、花子の分だけにならない';
+  assert (select count(*) from public.cal_photos where user_id = ta) = 1, '太郎の予定の写真が残らない';
+  assert (select count(*) from public.cal_events where user_id = hn and id = ev_h) = 1, '花子の予定が戻らない';
+
+  delete from auth.users where id in (ta, hn, nw, adm) or id = any(x);
+  delete from public.profiles where user_id = adm;
   perform set_config('request.jwt.claim.sub', '', true);
 end
 $$;

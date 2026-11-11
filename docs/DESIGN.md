@@ -127,13 +127,14 @@ GitHub の Secrets に入れるもの(最初に本人が1回だけ): `SUPABASE_A
 | `master_periods` | id, office_id, starts_on(切替日), name(ダイヤ改正・ダイヤ修正など)。区所と切替日で1つ | 全員が読む。書くのは管理者の関数だけ(`save_master_period(_all)`・`delete_master_period(_all)`)。区所を足すと、今日からの切替日と、ほかの区所にあるこれからの切替日ができる |
 | `shift_master` | office_id, period_id(どの切替日のマスタか), code, kind, weekday_start, weekday_end, holiday_start, holiday_end, weekday_holiday_start / weekday_holiday_end(平休出勤・退勤), holiday_weekday_start / holiday_weekday_end(休平出勤・退勤), stay(泊), stay_next_holiday(翌休泊), sort_order。主キーは (period_id, code) | 全員が読む。書くのは管理者(切替日ごとに丸ごと入れ替え。`replace_shift_master(区所, 切替日, 行)`) |
 | `user_settings` | user_id, office_id, work_calendar_id, holiday_calendar_id, offduty_calendar_id, split_day_events, split_offduty_events, title_day_time, title_offduty_time, timed_events, verified_at, busy_until, last_registered_at, next_first_pending | 本人だけ。本人が書けるのは、区所・カレンダーID 3つ・登録の設定 5つ(`split_day_events`・`split_offduty_events`・`title_day_time`・`title_offduty_time`・`timed_events`)。`verified_at`・`busy_until`・`last_registered_at`・`next_first_pending`(登録の途中の印)は Edge Function だけが書く |
-| `shift_records` | user_id, date, code, memo, updated_at | 本人だけ |
+| `shift_records` | user_id, date, code, memo, updated_at | 本人だけ(カレンダーの共有をした相手には、`calendar-shifts` が、本人の選んだ範囲の勤務だけを組み立てて返す。メモは先頭の時間だけ) |
 | `holidays` / `holiday_years` | 祝日のキャッシュ | 全員が読む。書くのは Edge Function |
 | `app_secrets` | 共通パスワードのハッシュ | 誰も直接読めない(関数経由だけ) |
 | `auth_attempts` | ログイン・新規登録の失敗回数とロックの時刻(`emp:<社員番号>`・`emp-day:<社員番号>`[長い期間の数え。AD1]・`admin`・`signup:<IP>` ごと) | 誰も直接読めない(関数経由だけ) |
 | `guide_links` | id, label(20文字まで), url(https:// だけ), kind(video/doc), sort_order, visible。最大10件 | 誰でも `current_guide_links()` で表示中のものを読める。書くのは管理者(並べ替えは `move_guide_link`) |
 | `app_icons` | id, name(20文字まで), sort_order, visible。最大20件 | ログインした人は表示中のものを読める(管理者は全部)。書くのは管理者だけ(RLS)。並べ替えは `move_app_icon`。画像は Storage の公開バケット `app-icons`(`<id>/{180,192,512}.png`。入れる・消すは管理者だけ) |
 
+- shiftflowカレンダーの表(`cal_*`)は [`mycalendar/DESIGN.md`](mycalendar/DESIGN.md)、カレンダーの共有の表(`cal_share_invites`・`cal_share_links`・`cal_share_views`・`cal_share_sends`)と関数(`cal_share_*`・`cal_owner()` など)は [`share/DESIGN.md`](share/DESIGN.md) に書く。夫婦の共有をしている2人は、招待した側の `cal_*` の行を2人で読み書きする
 - お知らせ・お問い合わせの表(`notices`・`inquiries`・`inquiry_messages`・`discord_posts`・`rate_limits`・`app_status`)と関数は、ここには書かず [`contact/DESIGN.md`](contact/DESIGN.md) にまとめてある
 - 第1版の `members`(メールの許可リスト)と `admin_secret` / `admin_unlocks`(管理画面のパスワード)は不要になる(`profiles` と管理用ユーザーに置き換え)
 - (第2版を作った当時)DB はまだどこにも作っていなかったので、マイグレーションは初期の1ファイルを作り直した。本番に反映したあとは、反映済みのファイルは書き換えず、新しいファイルを足す
@@ -149,12 +150,13 @@ GitHub の Secrets に入れるもの(最初に本人が1回だけ): `SUPABASE_A
 | `admin-login` | 未ログイン | 管理用パスワードでログインして、管理者のセッションを返す |
 | `sign-up` | 未ログイン | 共通パスワードを確かめて利用者を作る |
 | `change-pin` | ログイン済み | 今の PIN を確かめて、PIN を変える(ほかの端末のログインは消す) |
-| `admin-users` | 管理者 | 利用者の削除、PIN の再設定 |
+| `admin-users` | 管理者 | 利用者の削除(夫婦の共有をしていたら、相手が作ったものを相手のカレンダーへ戻してから)、PIN の再設定 |
 | `app-config` | ログイン済み | サービスアカウントのメールアドレスを返す |
 | `verify-calendar` | ログイン済み | 接続テスト(テスト予定を書いて消す) |
 | `register-month` | ログイン済み | 月の入力を保存してカレンダーに登録 |
 | `delete-month` | ログイン済み | 月のアプリの予定だけ削除(手で入れた予定は消さない)。その月の入力内容(`shift_records`)も消す |
 | `sync-holidays` | ログイン済み | 祝日のキャッシュ |
+| `calendar-shifts` | ログイン済み | shiftflowカレンダー用: 勤務の記録を、勤務入力の設定どおりに予定へ組み立てて返す(読み取りだけ)。`mates: true` で、共有の相手の勤務も、見せてもらえる範囲だけ返す([`share/DESIGN.md`](share/DESIGN.md)) |
 | `contact` / `admin-contact` / `mail-inbound` | 未ログイン・ログイン済み / 管理者 / GAS | お問い合わせとお知らせ。[`contact/DESIGN.md`](contact/DESIGN.md) を見る |
 
 ---

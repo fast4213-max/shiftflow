@@ -99,12 +99,20 @@ on conflict (id) do update set public = false, file_size_limit = 1048576, allowe
 drop policy if exists calendar_select_own on storage.objects;
 drop policy if exists calendar_insert_own on storage.objects;
 drop policy if exists calendar_delete_own on storage.objects;
+-- 読む・消すは、夫婦の共有の相手のフォルダも(2026-11-11 の migration 20261113000000 から。docs/share/DESIGN.md の9章と同じ)。入れるのは自分のフォルダだけ
 create policy calendar_select_own on storage.objects for select to authenticated
-  using (bucket_id = 'calendar' and (storage.foldername(name))[1] = auth.uid()::text and public.is_member());
+  using (bucket_id = 'calendar' and public.is_member()
+         and ((storage.foldername(name))[1] = auth.uid()::text or (storage.foldername(name))[1] = public.cal_partner()::text));
 create policy calendar_insert_own on storage.objects for insert to authenticated
   with check (bucket_id = 'calendar' and (storage.foldername(name))[1] = auth.uid()::text and public.is_member());
 create policy calendar_delete_own on storage.objects for delete to authenticated
-  using (bucket_id = 'calendar' and (storage.foldername(name))[1] = auth.uid()::text and public.is_member());
+  using (bucket_id = 'calendar' and public.is_member()
+         and ((storage.foldername(name))[1] = auth.uid()::text or (storage.foldername(name))[1] = public.cal_partner()::text));
+```
+今の権限を確かめる SQL(読む・消すの条件に `cal_partner` が入っていれば、夫婦の相手の写真が開ける):
+```sql
+select policyname, cmd, coalesce(qual, with_check) as rule from pg_policies
+ where schemaname = 'storage' and tablename = 'objects' and policyname like 'calendar_%';
 ```
 - [ ] 実機で確かめる(デバッグ 24回目の見送り): スタンプの画面で何も選ばずに予定の帯をタップしたとき画面が閉じる動きで困らないか(D5)・Android の画面のキーボードで TODO の「Enterで追加」が効くか[効かなくても＋ボタンで追加できる](D7)・パネルを開いて閉じたあとにページを再読み込みしても、戻るボタンを余分に押さずにアプリを離れられるか(D8)・iPhone で、写真が横向きにならないか(D6を直したあとの確認)
 - [ ] 実機で確かめる(2026-11-08 の修正と追加): 下から出る画面を上の部分から下に引いて閉じられるか・中身のスクロールや入力欄・スライダーの操作で誤って閉じないか(iPhone の Safari とホーム画面のアプリ・Android)・文字スタンプ「ウエハース」などが切れずに出るか・日曜/土曜の端に置いたとき内側に寄るか・「別の日にもコピー」の小さなカレンダーが押しやすいか

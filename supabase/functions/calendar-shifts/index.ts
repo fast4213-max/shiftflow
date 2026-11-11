@@ -1,7 +1,7 @@
 // アプリ内カレンダー用: 指定した期間の勤務の予定と祝日を返す(Google には何も書かない・何も読まない)。
 // 勤務の記録(shift_records)を、利用者の設定(2件・名前に時間・時間つき)どおりに組み立てる(_shared/shift-view.ts)。
 // 読み取りだけで、データは変えない。
-// mates: true のときは、共有で自分に勤務を見せてくれている人の勤務も返す(docs/share/DESIGN.md)。
+// mates: true のときは、共有で自分に勤務を見せてくれている人の勤務も返す(docs/share/DESIGN.md)。メモは先頭の時間だけ。
 //   相手の勤務の記録+相手の区所のマスタ+自分(見る人)の表記の設定で組み立てる。範囲が「勤務だけ」の人の休日は返さない。
 
 import { requireMember } from "../_shared/auth.ts";
@@ -10,7 +10,7 @@ import { AppError, readBody, serve } from "../_shared/http.ts";
 import { addDays, dateKey, daysInMonth, holidayYearsFor } from "../_shared/plan.js";
 import { loadMasterSet } from "../_shared/shift-calendar.ts";
 import { buildShiftViewWithCarry, monthsBetween, validIso, type ViewEvent } from "../_shared/shift-view.ts";
-import { mateView, type ShareLink, sharedOwners } from "../_shared/share.ts";
+import { mateView, type ShareLink, sharedOwners, timeOnlyMemo } from "../_shared/share.ts";
 
 const MAX_MONTHS = 5;
 
@@ -67,10 +67,22 @@ serve(async (req) => {
     return buildShiftViewWithCarry({ months, records, master, holidays: holidays.map((h) => h.date), settings: viewSettings });
   };
 
-  const matesP = body.mates === true ? loadMates() : Promise.resolve(undefined);
+  // 相手の勤務が読めなくても、自分の勤務は返す(matesFailed で画面に知らせる。AR4)
+  let matesFailed = false;
+  const matesP = body.mates === true
+    ? loadMates().catch((e) => {
+      console.error("mates load failed", (e as { code?: string })?.code ?? String((e as Error)?.message ?? e).slice(0, 200));
+      matesFailed = true;
+      return [];
+    })
+    : Promise.resolve(undefined);
+  const withMates = async <T extends Record<string, unknown>>(res: T) => {
+    const mates = await matesP;
+    return matesFailed ? { ...res, mates, matesFailed: true } : { ...res, mates };
+  };
 
   // 区所が未設定なら、自分の勤務の予定は出せない(祝日と、共有の相手の勤務だけ返す)
-  if (!s || !s.office_id) return { shifts: [], holidays, needOffice: true, mates: await matesP };
+  if (!s || !s.office_id) return await withMates({ shifts: [], holidays, needOffice: true });
 
   const [master, recordsRes] = await Promise.all([
     masterOf(s.office_id as number),
@@ -78,7 +90,7 @@ serve(async (req) => {
   ]);
   if (recordsRes.error) throw recordsRes.error;
   const shifts = build(master, (recordsRes.data || []) as { date: string; code: string; memo: string }[]);
-  return { shifts, holidays, needOffice: false, mates: await matesP };
+  return await withMates({ shifts, holidays, needOffice: false });
 
   // 共有の相手の勤務。許可(見せる範囲)はサーバーで確かめる。相手の記録は service_role で読む(本人以外は RLS で読めないため)
   async function loadMates() {
@@ -100,7 +112,8 @@ serve(async (req) => {
         ctx.admin.from("shift_records").select("date, code, memo").eq("user_id", o.ownerId).gte("date", recFrom).lte("date", recTo),
       ]);
       if (recRes.error) throw recRes.error;
-      const rows = (recRes.data || []) as { date: string; code: string; memo: string }[];
+      // メモは、先頭の時間だけにしてから組み立てる(手で書いた言葉は相手に見せない。AR2)
+      const rows = ((recRes.data || []) as { date: string; code: string; memo: string }[]).map((r) => ({ ...r, memo: timeOnlyMemo(r.memo) }));
       return { ownerId: o.ownerId, scope: o.scope, couple: o.couple, shifts: mateView(build(master, rows), o.scope, o.couple) };
     }));
     return built.filter((x) => x !== null);

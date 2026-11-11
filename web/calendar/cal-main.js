@@ -58,6 +58,7 @@ function storageSet(key, value) { try { window.localStorage.setItem(key, value);
 function showBanner() {
   const parts = [];
   if (S.needOffice) parts.push('勤務の予定を出すには、<a href="../settings.html">設定</a>で区所を選んでください。');
+  if (S.matesFailed) parts.push("共有の相手の勤務を読み込めませんでした(自分の勤務は出ています)。少し待ってから、画面を開き直してください。");
   if (S.notice) parts.push(`${S.notice} <button class="bx" data-act="dismiss-notice" aria-label="この案内を閉じる">✕</button>`);
   const b = $("banner");
   b.hidden = !parts.length;
@@ -193,17 +194,18 @@ async function loadShiftsRange(months) {
   const res = await callFunction("calendar-shifts", { from: gridRange(first.y, first.m).from, to: gridRange(last.y, last.m).to, mates: true }, { timeoutMs: 40000 });
   for (const h of res.holidays || []) S.holidays.set(h.date, h.name);
   S.needOffice = !!res.needOffice;
+  S.matesFailed = !!res.matesFailed; // 相手の勤務だけ読めなかった(自分の勤務は返っている。AR4)
   // どのラベルになるかは、画面に出すとき(eventsBetween)に決める(設定を変えても、読み直さなくてよいように)。
   // server の group が無いとき(古い版)は、休日かそれ以外かだけ
   const events = (res.shifts || []).map((e, i) => ({
     src: "shift", id: `s:${first.y}-${first.m}:${e.date}:${i}`, title: e.title, start: e.date, end: e.endDate, allDay: e.allDay,
     startTime: e.startTime, endTime: e.endTime, kind: e.kind || "", group: e.group || (e.calendar === "holiday" ? "off" : "duty"), memo: e.description || "", repeat: "none",
   }));
-  // 共有の相手の勤務(見るだけ)。group は duty か off(非番はサーバーで勤務に入れてある)
+  // 共有の相手の勤務(見るだけ)。group は duty か off(仲間の非番はサーバーで勤務に入れてある。夫婦の相手だけ offduty が来る。AR5)
   for (const m of res.mates || []) {
     (m.shifts || []).forEach((e, i) => events.push({
       src: "mate", owner: m.ownerId, id: `m:${m.ownerId}:${first.y}-${first.m}:${e.date}:${i}`, title: e.title, start: e.date, end: e.endDate, allDay: e.allDay,
-      startTime: e.startTime, endTime: e.endTime, kind: e.kind || "", group: e.group === "off" ? "off" : "duty", memo: e.description || "", repeat: "none",
+      startTime: e.startTime, endTime: e.endTime, kind: e.kind || "", group: e.group === "off" ? "off" : e.group === "offduty" ? "offduty" : "duty", memo: e.description || "", repeat: "none",
     }));
   }
   // 予定は最初の月に入れ、あとの月は「読んだ」印だけ(同じ予定を何度も数えないように)
@@ -225,6 +227,7 @@ async function reloadAll({ keepShifts = false } = {}) {
     throw e;
   }
   S.notice = ""; // 読み直しが成功したので、前の失敗の案内は消す(残ったままにならないように)
+  S.loadedAt = Date.now();
   render();
 }
 
@@ -530,7 +533,9 @@ function dayLabel(d) { return `${Number(d.slice(5, 7))}月${Number(d.slice(8, 10
 function eventRow(e) {
   const when = e.allDay ? "終日" : `${(e.startTime || "").replace(/^0/, "")}${e.endTime ? "〜" + e.endTime.replace(/^0/, "") : ""}`;
   const label = labelOf(e.labelId);
-  const body = e.memo ? `<div class="m">${esc(e.memo)}</div>` : `<div class="m">${esc(when)}${label ? "　" + esc(label.name) : ""}</div>`;
+  // 共有の相手の勤務は、メモ(時間)があっても、誰の勤務か(名前のラベル)を出す(AR9)
+  const who = e.src === "mate" && label ? `<div class="m">${esc(label.name)}</div>` : "";
+  const body = e.memo ? `${who}<div class="m">${esc(e.memo)}</div>` : `<div class="m">${esc(when)}${label ? "　" + esc(label.name) : ""}</div>`;
   const time = e.memo && !e.allDay ? `<div class="m">${esc(when)}</div>` : "";
   return `<button class="erow" data-uid="${esc(e.id)}" style="--c:${esc(colorOf(e.labelId))}"><span class="dot"></span><span><div class="t">${esc(titleOf(e))}</div>${time}${body}</span></button>`;
 }
@@ -1398,9 +1403,20 @@ async function shareAction(act, el) {
         const member = el.dataset.inviter ? el.dataset.partner : S.userId;
         const who = member === S.userId ? "あなた" : `${el.dataset.name}さん`;
         const evs = S.own.filter((e) => e.createdBy === member).length;
+        // 写真は予定についていく。相手の予定に足した写真(ファイルは足した人のフォルダ)は、やめると読めなくなるので消す(AR7・AR9)
         let photos = 0;
-        for (const list of S.photos.values()) photos += list.filter((p) => p.created_by === member).length;
-        if (!window.confirm(`${el.dataset.name}さんとの夫婦の共有をやめますか？\n${who}が作った予定 ${evs}件・写真 ${photos}枚(TODO・重要メモ・画像なども)は、${who}のカレンダーに移ります。`)) return;
+        const cross = [];
+        for (const [eventId, list] of S.photos) {
+          const ev = S.own.find((x) => x.id === eventId);
+          if (!ev) continue;
+          for (const p of list) {
+            if (p.created_by && ev.createdBy && p.created_by !== ev.createdBy) cross.push(p.path);
+            else if (ev.createdBy === member) photos++;
+          }
+        }
+        if (!window.confirm(`${el.dataset.name}さんとの夫婦の共有をやめますか？\n${who}が作った予定 ${evs}件・写真 ${photos}枚(TODO・重要メモ・画像なども)は、${who}のカレンダーに移ります。${cross.length ? `\n相手の予定に足した写真 ${cross.length}枚は消えます。` : ""}`)) return;
+        // ファイルは、やめる前に消す(やめたあとは、相手のフォルダを消せないため)。消せなくても、やめるのは続ける(行はサーバーが消す)
+        if (cross.length) await extras.removeFiles(cross).catch(() => false);
       } else if (!window.confirm(`${el.dataset.name}さんとの共有をやめますか？(お互いのカレンダーから、相手の勤務が消えます)`)) return;
       await shareRpc("cal_share_stop", { p_link: el.dataset.id });
       shareSay(`${el.dataset.name}さんとの共有をやめました。`, "ok");
@@ -1464,6 +1480,8 @@ function goMonth(y, m) {
   scrollToDate(dateKey(y, m, 1), 0, true);
 }
 
+const COUPLE_RELOAD_MS = 60000;
+let coupleReloading = false;
 let scrollQueued = false;
 function onScroll() {
   if (scrollQueued) return;
@@ -1477,6 +1495,12 @@ function onScroll() {
     updateHeader();
     showBanner();
     const y = S.y, m = S.m;
+    // 夫婦のカレンダー: 月を移ったときに、相手が足した予定なども読み直す(1分に1回まで。開いている画面があるときは触らない。AR6)
+    if (couple() && !S.panel && !coupleReloading && Date.now() - (S.loadedAt || 0) > COUPLE_RELOAD_MS) {
+      coupleReloading = true;
+      reloadAll({ keepShifts: true }).catch((e) => fail(e)).finally(() => { coupleReloading = false; });
+      return;
+    }
     ensureAround().then((loaded) => { if (loaded && S.y === y && S.m === m) render(); }).catch((e) => { if (S.y === y && S.m === m) fail(e); });
   });
 }
@@ -1715,6 +1739,7 @@ async function main() {
   const firstShifts = loadShiftsRange([prev, { y: S.y, m: S.m }]).catch((e) => { firstErr = e; });
   await Promise.all([loadLabels(), loadOwn(), extras.load(), loadTemplates(), loadPhotos().catch(() => {}), loadShare(), firstShifts]);
   $("boot").hidden = true;
+  S.loadedAt = Date.now();
   render();
   scrollToDate(S.today, 1); // 今日の週が、上から2段目に来る位置から
   const v = visibleMonth();

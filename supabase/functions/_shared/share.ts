@@ -28,3 +28,14 @@ export function mateView(events: ViewEvent[], scope: Scope, keepOffduty = false)
     .filter((e) => scope === "duty_off" || e.group !== "off")
     .map((e) => ({ ...e, group: e.group === "off" ? "off" : keepOffduty && e.group === "offduty" ? "offduty" : "duty" }));
 }
+
+// 相手に見せるメモは、先頭の時間だけ(「10:00 早出」→「10:00」、「〜9:02 通院」→「〜9:02」)。
+// 手で書いた言葉は見せない。時間で始まらないメモは空にする(マスタの時間に置き換わる。マスタに無ければ何も出ない)。AR2
+const TIME = "[0-9０-９]{1,2}\\s*[:：]\\s*[0-9０-９]{2}";
+const DASH = "(?:から|[〜～~∼〰\\-－−ー―—–‐‑‒─ｰ→⇒])";
+const LEADING_TIME = new RegExp(`^\\s*(${DASH}?\\s*${TIME}(?:\\s*${DASH}(?:\\s*${TIME})?)?)`);
+export function timeOnlyMemo(memo: string | null | undefined): string {
+  const first = String(memo ?? "").split("\n")[0];
+  const m = first.match(LEADING_TIME);
+  return m ? m[1].trim() : "";
+}

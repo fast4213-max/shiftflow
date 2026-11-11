@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { mateView, sharedOwners } from "./share.ts";
+import { mateView, sharedOwners, timeOnlyMemo } from "./share.ts";
 import type { ViewEvent } from "./shift-view.ts";
 
 const A = "a0000000-0000-4000-8000-000000000001";
@@ -37,4 +37,18 @@ Deno.test("sharedOwners・mateView: 夫婦は非番を非番のまま返す(仲�
   assertEquals(sharedOwners(A, links), [{ ownerId: B, scope: "duty", couple: true }]);
   const all = [ev("duty", "1"), ev("off", "公"), ev("offduty", "9:00")];
   assertEquals(mateView(all, "duty", true).map((e) => [e.group, e.title]), [["duty", "1"], ["offduty", "9:00"]]);
+});
+
+Deno.test("timeOnlyMemo: 相手に見せるメモは先頭の時間だけ(手で書いた言葉は落とす)", () => {
+  assertEquals(timeOnlyMemo("10:15〜19:02"), "10:15〜19:02");
+  assertEquals(timeOnlyMemo("10:00 早出"), "10:00");
+  assertEquals(timeOnlyMemo("１０：００～１８：３０　通院のため"), "１０：００～１８：３０");
+  assertEquals(timeOnlyMemo("〜9:02 眠い"), "〜9:02");
+  assertEquals(timeOnlyMemo("9:02"), "9:02");
+  assertEquals(timeOnlyMemo("8:30-9:02\n2行目の言葉"), "8:30-9:02");
+  assertEquals(timeOnlyMemo("10:00から"), "10:00から");
+  assertEquals(timeOnlyMemo("旅行"), "");
+  assertEquals(timeOnlyMemo("早出 10:00"), "");
+  assertEquals(timeOnlyMemo(""), "");
+  assertEquals(timeOnlyMemo(null), "");
 });

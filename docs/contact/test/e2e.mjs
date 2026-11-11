@@ -88,7 +88,7 @@ function backend(opts = {}) {
     // shiftflowカレンダー: 勤務の予定を組み立てる関数と、cal_* の表(メモリの中だけの偽物)
     if (path === "/functions/v1/calendar-shifts") {
       if (opts.shiftsFail) return json({ error: "勤務の予定を読めませんでした。" }, 500);
-      return json({ shifts: opts.shifts || [], holidays: opts.calHolidays || [], needOffice: !!opts.needOffice, ...(body && body.mates ? { mates: opts.mates || [] } : {}) });
+      return json({ shifts: opts.shifts || [], holidays: opts.calHolidays || [], needOffice: !!opts.needOffice, ...(body && body.mates ? { mates: opts.matesFailed ? [] : opts.mates || [], ...(opts.matesFailed ? { matesFailed: true } : {}) } : {}) });
     }
     // カレンダーの共有(docs/share/DESIGN.md)の関数の偽物。呼ばれた中身は st.calls に残る
     if (path.startsWith("/rest/v1/rpc/cal_share_")) {
@@ -4916,6 +4916,83 @@ await check("夫婦: お誘いは種類「夫婦」で送れる。届いた夫�
   assert.deepEqual(errors, []);
   assert.deepEqual(n.errors, []);
   await n.ctx.close();
+});
+
+// ---------- 36回目のデバッグ(AR4・AR5・AR6・AR7・AR9) ----------
+await check("共有(AR4・AR9): 相手の勤務だけ読めないときは、自分の勤務は出て、案内が出る。日の一覧では、相手の勤務に名前のラベルが出る", async () => {
+  const a = await calOpen({}, { share: SHARE_TANAKA, mates: MATES_TANAKA, matesFailed: true });
+  await a.page.waitForSelector('.bar:has-text("25")');
+  await a.page.waitForFunction(() => document.getElementById("banner").textContent.includes("共有の相手の勤務を読み込めませんでした"));
+  assert.equal(await a.page.locator('.bar:has-text("7(8:30)")').count(), 0);
+  assert.deepEqual(a.errors, []);
+  await a.ctx.close();
+  const mates = JSON.parse(JSON.stringify(MATES_TANAKA));
+  mates[0].shifts[0].description = "8:30〜17:00";
+  const { page, ctx, errors } = await calOpen({}, { share: SHARE_TANAKA, mates });
+  await page.waitForSelector('.bar:has-text("7(8:30)")');
+  assert.equal(await page.locator("#banner").isHidden(), true, "読めたときは案内を出さない");
+  await page.click(`.cell[data-date="${today}"] .dn`);
+  await page.waitForSelector("#panel:not([hidden]) .erow");
+  const row = await page.locator('#panel .erow:has-text("7(8:30)")').textContent();
+  assert.ok(row.includes("一郎") && row.includes("8:30〜17:00"), "誰の勤務かが出ない: " + row);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("夫婦(AR5): 相手の非番は、相手の非番のラベル(花子・非)の色で出る", async () => {
+  const mates = JSON.parse(JSON.stringify(COUPLE_MATES));
+  mates[0].shifts.push({ group: "offduty", date: isoAdd(today, 3), endDate: isoAdd(today, 3), allDay: false, startTime: "09:02", endTime: "09:02", calendar: "offduty", kind: "time", title: "9:02", description: "" });
+  const { page, ctx, errors } = await calOpen({}, { share: COUPLE_SHARE, mates, cal: COUPLE_CAL });
+  await page.waitForSelector('.bar:has-text("9:02")');
+  assert.equal(await page.locator('.bar:has-text("9:02")').evaluate((b) => b.style.getPropertyValue("--c")), "#d4607a", "花子・非 の色でない");
+  await page.click('#chips .chip:has-text("花子・非")');
+  assert.equal(await page.locator('.bar:has-text("9:02")').count(), 0, "花子・非 のボタンで隠れない");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("夫婦(AR7・AR9): やめるとき、相手の予定に足した写真はファイルを消してからやめる。確認の枚数は、予定を作った人で数える", async () => {
+  const asked = [];
+  const cal = JSON.parse(JSON.stringify(COUPLE_CAL));
+  cal.cal_photos = [
+    { id: "P1", user_id: "ph", created_by: "u1", event_id: "E2", path: "u1/e-mine.jpg", size_bytes: 1, expires_on: null, created_at: "2026-11-02T00:00:00Z" },   // 自分の予定に自分が
+    { id: "P2", user_id: "ph", created_by: "ph", event_id: "E2", path: "ph/e-cross1.jpg", size_bytes: 1, expires_on: null, created_at: "2026-11-02T00:00:01Z" }, // 自分の予定に相手が
+    { id: "P3", user_id: "ph", created_by: "u1", event_id: "E1", path: "u1/e-cross2.jpg", size_bytes: 1, expires_on: null, created_at: "2026-11-02T00:00:02Z" }, // 相手の予定に自分が
+  ];
+  const { page, ctx, be, errors } = await open("calendar/index.html", { userId: "u1",
+    opts: { profile: USER, shifts: CAL_SHIFTS, share: COUPLE_SHARE, mates: COUPLE_MATES, cal, settings: { holiday_calendar_id: "h", offduty_calendar_id: "o" } },
+    beforeLoad: async (p) => { p.removeAllListeners("dialog"); p.on("dialog", (d) => { asked.push(d.message()); d.accept(); }); } });
+  await page.waitForSelector('.bar:has-text("車検")');
+  await page.click("#tab-settings");
+  await page.click("#share summary");
+  await page.click('[data-act="sh-stop"]');
+  await page.waitForFunction(() => document.getElementById("share-msg") && document.getElementById("share-msg").textContent.includes("やめました"));
+  assert.ok(asked.some((t) => t.includes("予定 1件・写真 1枚") && t.includes("相手の予定に足した写真 2枚は消えます")), asked.join(" / "));
+  assert.deepEqual([...be.st.removed].sort(), ["ph/e-cross1.jpg", "u1/e-cross2.jpg"]);
+  const iStop = be.st.calls.findIndex((c) => c.path.endsWith("/cal_share_stop"));
+  const iDel = be.st.calls.findIndex((c) => c.method === "DELETE" && c.path.startsWith("/storage/v1/object/calendar"));
+  assert.ok(iDel >= 0 && iDel < iStop, "ファイルを消すのが、やめるより後");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("夫婦(AR6): 月を移ったとき、1分たっていれば、相手が足した予定も読み直す(夫婦でない人は読み直さない)", async () => {
+  const run = async (share, cal) => {
+    const { page, ctx, be, errors } = await calOpen({}, { share, mates: [], cal });
+    await page.waitForSelector(".bar");
+    const reads = () => be.st.calls.filter((c) => c.method === "GET" && c.path === "/rest/v1/cal_events").length;
+    const before = reads();
+    // 時計を2分進めてから、次の月へ
+    await page.evaluate(() => { const real = Date.now; Date.now = () => real() + 120000; });
+    await page.click("#next");
+    await page.waitForTimeout(1500);
+    const after = reads();
+    assert.deepEqual(errors, []);
+    await ctx.close();
+    return after - before;
+  };
+  assert.ok((await run(COUPLE_SHARE, COUPLE_CAL)) >= 1, "夫婦なのに、月を移っても予定を読み直さない");
+  assert.equal(await run({ links: [], views: [], sent: [], received: [] }, undefined), 0, "夫婦でないのに、月を移るたびに予定を読み直す");
 });
 
 await browser.close();
