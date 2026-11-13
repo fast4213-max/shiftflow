@@ -121,7 +121,7 @@ function renderUsage() {
   if (!usage) { panel.classList.add("hidden"); return; }
   panel.classList.remove("hidden");
   const rows = [
-    ["データベース", Number(usage.db_bytes), Number(usage.db_limit_bytes)],
+    ["データベース(アプリ分)", Number(usage.db_bytes), Number(usage.db_limit_bytes)],
     ["写真・画像の置き場(Storage)", Number(usage.storage_bytes), Number(usage.storage_limit_bytes)],
   ];
   const box = $("usage-bars");
@@ -149,7 +149,8 @@ function renderUsage() {
   }
   $("usage-detail").textContent =
     `予定の写真 ${usage.photos}枚(${mbText(Number(usage.photo_bytes))})・画像の置き場 ${usage.gallery}枚(${mbText(Number(usage.gallery_bytes))})。` +
-    "写真は予定が終わって1か月で消えます。無料枠は Supabase の無料プランの目安です。";
+    "写真は予定が終わって1か月で消えます。無料枠は Supabase の無料プランの目安です。" +
+    "Supabase の画面は、最初から入っている雛形のデータベース(約15MB)も数えるため、ここより約15MB大きく出ます。";
   const top = $("usage-top");
   top.innerHTML = "";
   if ((usage.top_users || []).length) {
