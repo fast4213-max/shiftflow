@@ -94,6 +94,20 @@ button:disabled { opacity: .35; cursor: default; }
 .bar.cl { margin-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .bar.cr { margin-right: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
 
+/* 月の切り替え(設定の「月の切り替え」)。「縦・くっつける」以外は、1ページが1か月(.mpage)で、画面の高さ(--ph)をその月の週で埋める(--rh はページごと) */
+.mpage { position: relative; height: var(--ph, 100%); overflow: hidden; }
+.cal.hz { overflow-x: auto; overflow-y: hidden; touch-action: pan-x; scrollbar-width: none; }
+.cal.hz::-webkit-scrollbar { display: none; }
+.cal.hz #weeks { display: flex; }
+.cal.hz .mpage { flex: 0 0 100%; min-width: 0; }
+/* 1枚ずつ: めくると1か月ずつピタッと止まる(勢いよくめくっても、1か月ずつ) */
+.cal.snap { scroll-snap-type: y mandatory; }
+.cal.snap.hz { scroll-snap-type: x mandatory; }
+.cal.snap .mpage { scroll-snap-align: start; scroll-snap-stop: always; }
+/* 前後の月の日は、日付の数字を薄く(予定の帯はそのまま) */
+.cell.om .dn, .cell.om .hn { opacity: .35; }
+.cell.om.tdy .dn { opacity: 1; }
+
 /* 下のタブ */
 .tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: center; background: var(--head); padding: 6px env(safe-area-inset-right, 0px) calc(4px + env(safe-area-inset-bottom, 0px)) env(safe-area-inset-left, 0px); position: relative; z-index: 5; }
 .tab { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; font-weight: 700; color: #6a6a6a; padding: 2px 0; }
@@ -143,6 +157,7 @@ textarea.in { min-height: 90px; resize: vertical; }
 .msg { font-size: 13px; margin: 8px 0 0; } .msg.err { color: var(--danger); } .msg.ok { color: #2e7d32; }
 .card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 10px 0; background: var(--card); }
 .card h3 { margin: 0 0 6px; font-size: 14px; }
+.card p.fl { margin: 8px 0 4px; font-weight: 700; } /* カードの中の小見出し(月の切り替えの「向き」「動き方」) */
 .card p, .card li { font-size: 13px; line-height: 1.6; margin: 4px 0; }
 .card ul { padding-left: 18px; margin: 4px 0; }
 /* 設定のいちばん上: お知らせ・お問い合わせを横に2つ */

@@ -369,8 +369,11 @@ export function createExtras(env) {
     const list = [...(els || box.querySelectorAll(".stamp.st-tx"))].filter((el) => el.classList.contains("st-tx") && box.contains(el));
     if (!list.length) return;
     for (const el of list) el.style.removeProperty("--dx"); // 先に全部戻してから、まとめて測る(測るたびに画面を組み直さないように)
-    const b = box.getBoundingClientRect();
+    const whole = box.getBoundingClientRect();
     const shifts = list.map((el) => {
+      // 1ページ1か月のとき(設定の「月の切り替え」)は、そのページの左右の端で測る(横に並べると、全体の箱は画面より広いため)
+      const page = el.closest(".mpage");
+      const b = page ? page.getBoundingClientRect() : whole;
       const r = el.getBoundingClientRect();
       if (!r.width || r.width >= b.width) return 0; // カレンダーより広いときは、ずらしても入らないので、そのまま
       return r.left < b.left ? b.left - r.left : r.right > b.right ? b.right - r.right : 0;
@@ -474,8 +477,10 @@ export function createExtras(env) {
     render();
   }
   function liveStamp(st) {
-    const el = document.querySelector(`.stamp[data-sid="${CSS.escape(st.id)}"]`);
-    if (el) { el.style.setProperty("--s", st.size); el.style.setProperty("--r", st.rotation + "deg"); fitStamps([el]); }
+    // 1ページ1か月のときは、月の境目の週が前後のページの両方に出るので、同じスタンプが2つあることがある。全部を直す
+    const els = [...document.querySelectorAll(`.stamp[data-sid="${CSS.escape(st.id)}"]`)];
+    for (const el of els) { el.style.setProperty("--s", st.size); el.style.setProperty("--r", st.rotation + "deg"); }
+    if (els.length) fitStamps(els);
   }
   async function saveStampFields(st) {
     const { error } = await supabase.from("cal_stamps").update({ size: st.size, rotation: st.rotation }).eq("id", st.id);

@@ -19,6 +19,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const HIDDEN_KEY = "shiftflow-cal-hidden";
 const STAMPS_OFF_KEY = "shiftflow-cal-stamps-off"; // スタンプを全部隠す(この端末だけ。ラベルの表示と同じ)
 const THEME_KEY = "shiftflow-cal-theme";
+const FLIP_KEY = "shiftflow-cal-flip"; // 月の切り替え(この端末だけ): 「向き:動き方」= "v:cont"(縦・くっつける。はじめ)・"v:page"・"h:cont"・"h:page"
 appIcon.applySaved(); // 前に選んだホーム画面のアイコンを、アイコンの指定に反映する(「ホーム画面に追加」の前に済ませておく)
 const FALLBACK = { duty: "#3b6fd4", off: "#e0553f", custom: "#6b7280" };
 const REPEAT = { none: "なし", daily: "毎日", weekly: "毎週", monthly: "毎月", yearly: "毎年" };
@@ -127,6 +128,23 @@ function applyTheme() {
   const t = storageGet(THEME_KEY);
   if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
   else document.documentElement.removeAttribute("data-theme");
+}
+
+// 月の切り替え: 向き(縦・横)と動き方(くっつける・1枚ずつ)。「縦・くっつける」は週が途切れず縦に続く(今までどおり)。
+// それ以外は1ページが1か月(その月の週で画面の高さを埋める)。「1枚ずつ」は、めくると1か月ずつピタッと止まる
+let flip = { dir: "v", page: false };
+function loadFlip() {
+  const [dir, mode] = String(storageGet(FLIP_KEY) || "").split(":");
+  flip = { dir: dir === "h" ? "h" : "v", page: mode === "page" };
+}
+const paged = () => flip.dir === "h" || flip.page;
+function applyFlip() {
+  const cal = $("cal");
+  cal.classList.toggle("pg", paged());
+  cal.classList.toggle("hz", flip.dir === "h");
+  cal.classList.toggle("snap", flip.page);
+  // 向きを変えたら、もう片方の向きのスクロールは0に戻す
+  if (flip.dir === "h") cal.scrollTop = 0; else cal.scrollLeft = 0;
 }
 
 // ---------- データの読み込み ----------
@@ -342,7 +360,13 @@ function updateHeader() {
   $("next").disabled = monthIndex(S.y, S.m) >= monthIndex(lim.max.y, lim.max.m);
 }
 
-// 描き直す。スクロールの位置は変えない(週の高さは一定なので、同じ週が同じ場所に来る)
+// 1ページ1か月のときの、ページの大きさ(横は画面の幅、縦は画面の高さ)と、今のスクロールの位置
+const pageSize = () => (flip.dir === "h" ? $("cal").clientWidth : $("cal").clientHeight) || 1;
+const scrollPos = () => (flip.dir === "h" ? $("cal").scrollLeft : $("cal").scrollTop);
+let lastPageSize = 0; // 前に描いたときのページの大きさ(描き直しで、同じ月の位置に戻すため)
+let lastCalSize = ""; // 前に描いたときのカレンダーの幅と高さ(大きさが変わったら描き直す)
+
+// 描き直す。スクロールの位置は変えない(週の高さは一定なので、同じ週が同じ場所に来る。1ページ1か月のときは、同じ月の同じ位置)
 function render() {
   const r = listRange();
   updateHeader();
@@ -350,30 +374,85 @@ function render() {
   showBanner();
   const events = eventsBetween(r.from, r.to);
   S.byUid = new Map(events.map((e) => [e.id, e]));
-  const weeks = [];
-  for (let ws = r.from; ws <= r.to; ws = addDays(ws, 7)) weeks.push(ws);
   // 帯を並べられる段の数(週の高さ − 帯の始まり)÷(帯の高さ+すきま)。家族カレンダーと同じ数値
   const cv = (n, d) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(n)) || d;
-  const maxLanes = Math.max(1, Math.floor((rowHeight() - cv("--bart", 17)) / (cv("--bar", 12) + cv("--bgap", 1.5))));
+  const lanesFor = (rh) => Math.max(1, Math.floor((rh - cv("--bart", 17)) / (cv("--bar", 12) + cv("--bgap", 1.5))));
   const cal = $("cal");
-  const keep = cal.scrollTop;
-  $("weeks").innerHTML = weeks.map((ws) => weekHtml(ws, events, maxLanes)).join("");
-  cal.scrollTop = keep;
+  if (paged()) {
+    const at = lastPageSize ? scrollPos() / lastPageSize : -1; // 今、何ページ目(小数)にいるか
+    const ph = cal.clientHeight;
+    cal.style.setProperty("--ph", `${ph}px`);
+    const lim = monthLimits(S.today);
+    let html = "";
+    for (let i = monthIndex(lim.min.y, lim.min.m); i <= monthIndex(lim.max.y, lim.max.m); i++) {
+      const y = Math.floor(i / 12), m = (i % 12) + 1;
+      const g = gridRange(y, m);
+      const n = Math.round((diffDays(g.from, g.to) + 1) / 7); // 週の数(4〜6)
+      const rh = ph / n; // その月の週で、画面の高さをちょうど埋める
+      const ym = dateKey(y, m, 1).slice(0, 7);
+      let wk = "";
+      for (let ws = g.from; ws <= g.to; ws = addDays(ws, 7)) wk += weekHtml(ws, events, lanesFor(rh), ym);
+      html += `<section class="mpage" data-ym="${ym}" style="--rh:${rh}px" aria-label="${y}年${m}月">${wk}</section>`;
+    }
+    $("weeks").innerHTML = html;
+    lastPageSize = pageSize();
+    // ページの大きさが変わったときだけ、同じ月の位置に入れ直す(同じ値を入れ直すと、なめらかに動いている途中の動きが止まるため)
+    if (at >= 0 && Math.abs(Math.round(at * lastPageSize) - scrollPos()) >= 1) {
+      const v = Math.round(at * lastPageSize);
+      if (flip.dir === "h") cal.scrollLeft = v; else cal.scrollTop = v;
+    }
+  } else {
+    lastPageSize = 0;
+    const weeks = [];
+    for (let ws = r.from; ws <= r.to; ws = addDays(ws, 7)) weeks.push(ws);
+    const keep = cal.scrollTop;
+    $("weeks").innerHTML = weeks.map((ws) => weekHtml(ws, events, lanesFor(rowHeight()))).join("");
+    if (cal.scrollTop !== keep) cal.scrollTop = keep; // 同じ値は入れ直さない(なめらかに動いている途中の動きが止まるため)
+  }
+  lastCalSize = `${cal.clientWidth}x${cal.clientHeight}`;
+  resumeScroll();
   extras.hydrate($("weeks"));
   extras.fitStamps(); // 横に長い文字のスタンプが、左右の端で切れないように(AN1・AN2)
   refreshAnn();
 }
 
-// 日付の週を、上から rowsAbove 段目に置く
+// なめらかに動いている途中の行き先。途中で描き直す(前後の月が読めたときなど)と動きが止まるので、描き直したあとに動き直す。
+// 指で触ったら、行き先は忘れる(動かしている指と取り合わないように)
+let scrollGoal = null;
+function scrollCal(pos, smooth) {
+  const opt = { ...pos, behavior: smooth ? "smooth" : "auto" };
+  scrollGoal = smooth ? { pos, until: Date.now() + 1500 } : null;
+  $("cal").scrollTo(opt);
+}
+function resumeScroll() {
+  if (!scrollGoal) return;
+  if (Date.now() > scrollGoal.until) { scrollGoal = null; return; }
+  $("cal").scrollTo({ ...scrollGoal.pos, behavior: "smooth" });
+}
+// 1ページ1か月のとき: その月のページへ動く
+function scrollToMonth(y, m, smooth = false) {
+  const lim = monthLimits(S.today);
+  const idx = Math.max(0, monthIndex(y, m) - monthIndex(lim.min.y, lim.min.m));
+  const v = idx * pageSize();
+  scrollCal(flip.dir === "h" ? { left: v } : { top: v }, smooth);
+}
+// 日付の週を、上から rowsAbove 段目に置く(1ページ1か月のときは、その日の月のページへ)
 function scrollToDate(d, rowsAbove = 0, smooth = false) {
+  if (paged()) return scrollToMonth(Number(d.slice(0, 4)), Number(d.slice(5, 7)), smooth);
   const r = listRange();
   const ws = addDays(d, -weekday(d));
   const idx = Math.round(diffDays(r.from, ws) / 7);
-  $("cal").scrollTo({ top: Math.max(0, (idx - rowsAbove) * rowHeight()), behavior: smooth ? "smooth" : "auto" });
+  scrollCal({ top: Math.max(0, (idx - rowsAbove) * rowHeight()) }, smooth);
 }
 // 今、見ている月(画面の上から1週ちょっと下の週の、まん中の日の月)
 function visibleMonth() {
   const cal = $("cal");
+  // 1ページ1か月のときは、半分より多く見えているページの月
+  if (paged()) {
+    const lim = monthLimits(S.today);
+    const last = monthIndex(lim.max.y, lim.max.m) - monthIndex(lim.min.y, lim.min.m);
+    return addMonths(lim.min.y, lim.min.m, Math.min(last, Math.max(0, Math.round(scrollPos() / pageSize()))));
+  }
   // いちばん下まで来たら、最後の月(それより先へは進めないので、上の週の月のままにならないように)
   if (cal.scrollTop + cal.clientHeight >= cal.scrollHeight - 2) { const l = monthLimits(S.today).max; return { y: l.y, m: l.m }; }
   const rh = rowHeight();
@@ -382,13 +461,14 @@ function visibleMonth() {
   return { y: Number(d.slice(0, 4)), m: Number(d.slice(5, 7)) };
 }
 
-function weekHtml(ws, events, maxLanes) {
+// ym: 1ページ1か月のときの、そのページの月("2026-11")。前後の月の日は、日付の数字を薄くする(om)
+function weekHtml(ws, events, maxLanes, ym = "") {
   const { bars, over } = layoutWeek(ws, events, maxLanes);
   let cells = "";
   for (let c = 0; c < 7; c++) {
     const d = addDays(ws, c);
     const hol = S.holidays.get(d);
-    const cls = ["cell", c === 0 ? "sun" : c === 6 ? "sat" : "", hol ? "hol" : "", d === S.today ? "tdy" : "", Number(d.slice(5, 7)) % 2 === 0 ? "alt" : "", imager && imager.isMarked(d) ? "mk" : ""].filter(Boolean).join(" ");
+    const cls = ["cell", c === 0 ? "sun" : c === 6 ? "sat" : "", hol ? "hol" : "", d === S.today ? "tdy" : "", Number(d.slice(5, 7)) % 2 === 0 ? "alt" : "", ym && d.slice(0, 7) !== ym ? "om" : "", imager && imager.isMarked(d) ? "mk" : ""].filter(Boolean).join(" ");
     const wd = WEEKDAYS[c];
     // 日付の横に祝日の名前(赤い小さな字)。例: 「3 文化の日」
     cells += `<div class="${cls}" data-date="${d}" role="button" tabindex="0" aria-label="${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日(${wd})${hol ? " " + esc(hol) : ""}"><span class="dtop"><span class="dn">${Number(d.slice(8, 10))}</span>${hol ? `<span class="hn">${esc(hol)}</span>` : ""}</span>${over[c] ? `<span class="more">+${over[c]}</span>` : ""}</div>`;
@@ -1187,7 +1267,7 @@ function settingsHtml() {
         <li><b>1つのアカウントで1人分</b>のカレンダーです。ほかの利用者と勤務を見せ合うときは、この設定の「👥 カレンダーの共有」で、相手の社員番号にお誘いを送ります(5人まで。見せる範囲は自分で決めます。相手の勤務は名前のラベルで出て、見るだけです)。夫婦は、招待した人のカレンダーを2人で一緒に使えます(予定・TODO・写真なども2人で見て直せます。「自分だけ」にしたラベルの予定は相手に見えません)。アプリを使っていない家族には、勤務をGoogleカレンダーに登録して共有します。</li>
         <li><b>画像にする</b>: 下の「月のカレンダーを画像にする」と「選んだ日に〇をつけて画像にする」で、カレンダーを1枚の画像にして、LINEで送ったり印刷したりできます(画像は端末の中で作ります)。</li>
         <li>ホーム画面に追加すると、アプリのように開けます。最初に1回、社員番号とPINでログインします。</li>
-        <li>ホーム画面のアイコンと、画面の色合いは、この設定の下の方で変えられます。「ラベル」と「このカレンダーに出すもの」は、見出しを押すと開きます。</li>
+        <li>ホーム画面のアイコン、画面の色合い、<b>月の切り替え</b>(縦・横、くっつける・1枚ずつ)は、この設定の下の方で変えられます。「ラベル」と「このカレンダーに出すもの」は、見出しを押すと開きます。</li>
       </ul></details>
     ${imager ? imager.sectionsHtml() : ""}
     ${templatesCardHtml()}
@@ -1207,6 +1287,13 @@ function settingsHtml() {
     <div class="card"><h3>画面の色合い</h3><div class="seg" role="radiogroup">
       ${[["auto", "自動"], ["light", "ライト"], ["dark", "ダーク"]].map(([v, t]) => `<label><input type="radio" name="theme" value="${v}"${theme === v ? " checked" : ""}><span>${t}</span></label>`).join("")}
     </div><p class="sub">「自動」は、端末のダークモードの設定に合わせます。この端末だけの設定です。</p></div>
+    <div class="card" id="flip"><h3>月の切り替え</h3>
+      <p class="fl">向き</p><div class="seg" role="radiogroup" aria-label="向き">
+      ${[["v", "縦"], ["h", "横"]].map(([v, t]) => `<label><input type="radio" name="flipdir" value="${v}"${flip.dir === v ? " checked" : ""}><span>${t}</span></label>`).join("")}
+      </div>
+      <p class="fl">動き方</p><div class="seg" role="radiogroup" aria-label="動き方">
+      ${[["cont", "くっつける"], ["page", "1枚ずつ"]].map(([v, t]) => `<label><input type="radio" name="flipmode" value="${v}"${(flip.page ? "page" : "cont") === v ? " checked" : ""}><span>${t}</span></label>`).join("")}
+      </div><p class="sub">「くっつける」は、月と月がつながっていて、指を離した所で止まります。「1枚ずつ」は、めくると1か月ずつピタッと止まります。「縦・くっつける」以外は、1か月が1画面になり、前後の月の日は数字が薄く出ます。この端末だけの設定です。</p></div>
     <div class="card" id="my-usage"><h3>あなたの写真・画像の量</h3><p>${esc(usageText())}</p><p class="sub">画像の置き場は1人10枚(夫婦のカレンダーは20枚)まで、予定の写真は1つの予定に3枚までです。写真は予定が終わって1か月で消えます。</p></div>
   </div>`);
 }
@@ -1474,11 +1561,34 @@ async function shareFieldChanged(el) {
 // ---------- 月の移動 ----------
 
 // 月の移動(◀ ▶ のボタン): その月の最初の週が上に来るまで、なめらかに動く。月の表示と読み込みは、スクロールの動きに合わせて追いかける
+// 素早く続けて押したときは、動いている途中の月(表示はまだ前の月)ではなく、行き先の月から数える(押した回数ぶん進む)
+let navTarget = null;
 function goMonth(y, m) {
   const lim = monthLimits(S.today);
   const idx = monthIndex(y, m);
   if (idx < monthIndex(lim.min.y, lim.min.m) || idx > monthIndex(lim.max.y, lim.max.m)) return;
+  navTarget = { y, m, at: Date.now() };
   scrollToDate(dateKey(y, m, 1), 0, true);
+}
+function stepMonth(n) {
+  const base = navTarget && Date.now() - navTarget.at < 700 && !(navTarget.y === S.y && navTarget.m === S.m) ? navTarget : S;
+  const t = addMonths(base.y, base.m, n);
+  goMonth(t.y, t.m);
+}
+
+// 月の切り替えの設定を変えたとき: 保存して、今見ている月のまま並べ方を変える
+function setFlip(change) {
+  const y = S.y, m = S.m;
+  flip = { ...flip, ...change };
+  storageSet(FLIP_KEY, `${flip.dir}:${flip.page ? "page" : "cont"}`);
+  applyFlip();
+  lastPageSize = 0; // 前の並べ方の位置は使わない(下で、その月へ動く)
+  render();
+  if (paged()) scrollToMonth(y, m);
+  else if (S.today.slice(0, 7) === dateKey(y, m, 1).slice(0, 7)) scrollToDate(S.today, 1); // 今日の月なら、起動したときと同じ位置
+  else scrollToDate(dateKey(y, m, 1), 0);
+  S.y = y; S.m = m;
+  updateHeader();
 }
 
 const COUPLE_RELOAD_MS = 60000;
@@ -1509,10 +1619,11 @@ function onScroll() {
 // ---------- 起動 ----------
 
 function bind() {
-  $("prev").addEventListener("click", () => { const n = addMonths(S.y, S.m, -1); goMonth(n.y, n.m); });
-  $("next").addEventListener("click", () => { const n = addMonths(S.y, S.m, 1); goMonth(n.y, n.m); });
+  $("prev").addEventListener("click", () => stepMonth(-1));
+  $("next").addEventListener("click", () => stepMonth(1));
   const toToday = () => { closePanel(); scrollToDate(S.today, 1, true); };
   $("cal").addEventListener("scroll", onScroll, { passive: true });
+  for (const t of ["touchstart", "wheel", "pointerdown"]) $("cal").addEventListener(t, () => { scrollGoal = null; }, { passive: true });
   $("today").addEventListener("click", toToday);
   $("tab-today").addEventListener("click", toToday);
   $("tab-new").addEventListener("click", () => {
@@ -1675,6 +1786,7 @@ function bind() {
     }
     if (el.dataset.shscope || el.dataset.mv) return shareFieldChanged(el);
     if (el.name === "theme") { storageSet(THEME_KEY, el.value); applyTheme(); return; }
+    if (el.name === "flipdir" || el.name === "flipmode") { setFlip(el.name === "flipdir" ? { dir: el.value } : { page: el.value === "page" }); return; }
     if (el.name === "appicon") { appIcon.choose(el.value); return; }
     if (el.dataset.cv) {
       saveCalView(el.dataset.cv, el.checked).then(() => { setPanel(settingsHtml()); render(); }).catch((err) => { el.checked = !el.checked; const m = $("cv-msg"); if (m) m.textContent = friendlyText(err.message || String(err)); });
@@ -1699,10 +1811,26 @@ function bind() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => { if (window.innerWidth !== lastW) { lastW = window.innerWidth; render(); } }, 150);
   });
+  // 1ページ1か月のときは、カレンダーの高さが変わったら(アナウンス・案内・スタンプの列が出た・消えた、画面を回したなど)、
+  // ページの高さと週の高さを合わせ直す。描いたときと同じ大きさなら何もしない(描き直しが続かないように)
+  if (window.ResizeObserver) {
+    let roQueued = false;
+    new ResizeObserver(() => {
+      if (roQueued || !paged()) return;
+      roQueued = true;
+      requestAnimationFrame(() => {
+        roQueued = false;
+        const cal = $("cal");
+        if (paged() && `${cal.clientWidth}x${cal.clientHeight}` !== lastCalSize) render();
+      });
+    }).observe($("cal"));
+  }
 }
 
 async function main() {
   applyTheme();
+  loadFlip();
+  applyFlip();
   const session = await currentSession();
   if (!session) return go("index.html");
   const profile = await loadProfile(session);
