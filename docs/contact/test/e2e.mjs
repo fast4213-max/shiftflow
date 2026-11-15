@@ -2613,7 +2613,7 @@ await check("カレンダー(月の切り替え): 設定の「画面の色合い
   // 開き直しても覚えている(横・1枚ずつ)。今日の月から始まる
   await page.reload();
   await page.waitForSelector(".bar");
-  assert.equal(await page.$eval("#cal", (c) => c.className), "cal pg hz snap");
+  assert.equal(await page.$eval("#cal", (c) => c.className), "cal hz snap");
   assert.equal(await calHdr(page), ymStr(t));
   assert.ok(await pageAligned(page, t.y, t.m), "今日の月のページから");
   // ▶ で次の月のページ。◀ を素早く2回で、2か月戻る。今日で今日の月
@@ -2631,6 +2631,30 @@ await check("カレンダー(月の切り替え): 設定の「画面の色合い
   await waitHdr(page, ymStr(t));
   await page.waitForTimeout(700);
   assert.ok(await pageAligned(page, t.y, t.m));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("カレンダー(月の切り替え・AU4): パソコンで横にしたとき、縦のホイールでも動く(くっつける: 横にスクロール / 1枚ずつ: 1回で1か月。続けて回しても1か月)", async () => {
+  const { page, ctx, errors } = await calOpen({});
+  await page.waitForSelector(".bar");
+  const t = { y: Number(today.slice(0, 4)), m: Number(today.slice(5, 7)) };
+  await setFlipStore(page, "h:page");
+  await page.mouse.move(200, 300);
+  await page.mouse.wheel(0, 120);
+  await waitHdr(page, ymStr(ymOf(t.y, t.m + 1)));
+  await page.mouse.wheel(0, 40); // 続けて回しても、すぐには進まない
+  await page.waitForTimeout(200);
+  assert.equal(await calHdr(page), ymStr(ymOf(t.y, t.m + 1)));
+  await page.waitForTimeout(800);
+  await page.mouse.wheel(0, -120);
+  await waitHdr(page, ymStr(t));
+  await setFlipStore(page, "h:cont");
+  const x0 = await page.$eval("#cal", (c) => c.scrollLeft);
+  await page.mouse.move(200, 300);
+  await page.mouse.wheel(0, 150);
+  await page.waitForTimeout(400);
+  assert.equal(Math.round(await page.$eval("#cal", (c) => c.scrollLeft) - x0), 150, "縦のホイールで横に動く");
   assert.deepEqual(errors, []);
   await ctx.close();
 });

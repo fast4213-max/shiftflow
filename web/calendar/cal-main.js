@@ -140,7 +140,6 @@ function loadFlip() {
 const paged = () => flip.dir === "h" || flip.page;
 function applyFlip() {
   const cal = $("cal");
-  cal.classList.toggle("pg", paged());
   cal.classList.toggle("hz", flip.dir === "h");
   cal.classList.toggle("snap", flip.page);
   // 向きを変えたら、もう片方の向きのスクロールは0に戻す
@@ -361,7 +360,8 @@ function updateHeader() {
 }
 
 // 1ページ1か月のときの、ページの大きさ(横は画面の幅、縦は画面の高さ)と、今のスクロールの位置
-const pageSize = () => (flip.dir === "h" ? $("cal").clientWidth : $("cal").clientHeight) || 1;
+// 実際の大きさで測る(clientWidth は整数に丸まり、幅が小数の端末で、ページがずれていくため。AU3)
+const pageSize = () => { const r = $("cal").getBoundingClientRect(); return (flip.dir === "h" ? r.width : r.height) || 1; };
 const scrollPos = () => (flip.dir === "h" ? $("cal").scrollLeft : $("cal").scrollTop);
 let lastPageSize = 0; // 前に描いたときのページの大きさ(描き直しで、同じ月の位置に戻すため)
 let lastCalSize = ""; // 前に描いたときのカレンダーの幅と高さ(大きさが変わったら描き直す)
@@ -1644,6 +1644,16 @@ function bind() {
   $("next").addEventListener("click", () => stepMonth(1));
   const toToday = () => { closePanel(); scrollToDate(S.today, 1, true); };
   $("cal").addEventListener("scroll", onScroll, { passive: true });
+  // パソコンで「横」のとき、マウスの縦のホイールでも動かす(くっつける: 横にスクロール / 1枚ずつ: 1回で1か月)。AU4
+  let wheelAt = 0;
+  $("cal").addEventListener("wheel", (ev) => {
+    if (flip.dir !== "h" || ev.ctrlKey || Math.abs(ev.deltaY) <= Math.abs(ev.deltaX)) return;
+    ev.preventDefault();
+    if (!flip.page) { $("cal").scrollLeft += ev.deltaY; return; }
+    if (Date.now() - wheelAt < 450 || Math.abs(ev.deltaY) < 4) return; // 勢いのついた回転で、何か月も進まないように
+    wheelAt = Date.now();
+    stepMonth(ev.deltaY > 0 ? 1 : -1);
+  }, { passive: false });
   for (const t of ["touchstart", "wheel", "pointerdown"]) $("cal").addEventListener(t, () => { scrollGoal = null; }, { passive: true });
   $("today").addEventListener("click", toToday);
   $("tab-today").addEventListener("click", toToday);
