@@ -394,7 +394,9 @@ function render() {
       const y = Math.floor(i / 12), m = (i % 12) + 1;
       const g = gridRange(y, m);
       const n = Math.round((diffDays(g.from, g.to) + 1) / 7); // 週の数(4〜6)
-      const rh = ph / n; // その月の週で、画面の高さをちょうど埋める
+      // 1枚ずつは、その月の週(4〜6)で画面の高さをちょうど埋める。横・くっつけるは、2か月が並んで見えるので、
+      // 月ごとに行の高さが違うと行がそろわない。全部の月を6週ぶんの高さにそろえる(4〜5週の月は、下が空く)
+      const rh = flip.page ? ph / n : ph / 6;
       const ym = dateKey(y, m, 1).slice(0, 7);
       let wk = "";
       for (let ws = g.from; ws <= g.to; ws = addDays(ws, 7)) wk += weekHtml(ws, events, lanesFor(rh), ym);

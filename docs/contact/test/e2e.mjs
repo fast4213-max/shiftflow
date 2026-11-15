@@ -2600,6 +2600,13 @@ await check("カレンダー(月の切り替え): 設定の「画面の色合い
       omOpacity: om ? Number(getComputedStyle(om.querySelector(".dn")).opacity) : 0, inOpacity: Number(getComputedStyle(inMonth.querySelector(".dn")).opacity) };
   }, ym);
   assert.ok(Math.abs(pg.h - pg.ch) <= 1 && Math.abs(pg.sum - pg.ch) <= 1, JSON.stringify(pg));
+  // 横・くっつける: 2か月が並んで見えるので、どの月も行の高さが同じ(6週ぶん)で、行がそろう
+  await page.click('input[name="flipmode"][value="cont"] + span');
+  await page.waitForTimeout(300);
+  const rhs = await page.$$eval(".mpage", (ps) => [...new Set(ps.map((p) => Math.round(p.querySelector(".week").getBoundingClientRect().height)))]);
+  assert.equal(rhs.length, 1, "横・くっつける: 行の高さが月で違う: " + rhs);
+  await page.click('input[name="flipmode"][value="page"] + span');
+  await page.waitForTimeout(300);
   assert.ok(pg.weeks >= 4 && pg.weeks <= 6, JSON.stringify(pg));
   assert.equal(pg.bad, 0, "前後の月の日だけに印");
   assert.ok(pg.omOpacity < 0.5 && pg.inOpacity === 1, JSON.stringify(pg));
