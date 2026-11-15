@@ -2549,6 +2549,106 @@ await check("カレンダー: 月がそのまま縦に続く。スクロール�
   await ctx.close();
 });
 
+// 月の切り替え(設定の「画面の色合い」の下。縦・横 × くっつける・1枚ずつ。この端末に覚える。2026-11-15)
+const calHdr = (page) => page.evaluate(() => `${document.getElementById("ty").textContent}-${document.getElementById("tm").textContent.replace("月", "")}`);
+const waitHdr = (page, h) => page.waitForFunction((h) => `${document.getElementById("ty").textContent}-${document.getElementById("tm").textContent.replace("月", "")}` === h, h);
+const ymOf = (y, m) => { const t = y * 12 + (m - 1); return { y: Math.floor(t / 12), m: (t % 12) + 1 }; };
+const ymStr = (o) => `${o.y}-${o.m}`;
+// 見ている月のページ(.mpage)が、カレンダーの左上にちょうど合っているか(1px まで)
+const pageAligned = (page, y, m) => page.evaluate(([y, m]) => {
+  const ym = `${y}-${String(m).padStart(2, "0")}`;
+  const p = document.querySelector(`.mpage[data-ym="${ym}"]`), c = document.getElementById("cal");
+  if (!p) return false;
+  const a = p.getBoundingClientRect(), b = c.getBoundingClientRect();
+  return Math.abs(a.left - b.left) <= 1 && Math.abs(a.top - b.top) <= 1;
+}, [y, m]);
+const setFlipStore = async (page, v) => { await page.evaluate((v) => localStorage.setItem("shiftflow-cal-flip", v), v); await page.reload(); await page.waitForSelector(".bar"); };
+
+await check("カレンダー(月の切り替え): 設定の「画面の色合い」の下。縦・横 × くっつける・1枚ずつに変えても見ている月のまま。縦・くっつける以外は1ページ1か月(その月の週で高さを埋める・前後の月の日は数字が薄い)。この端末に覚える。◀▶(素早く2回)・今日で動く", async () => {
+  const { page, ctx, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  const t = { y: Number(today.slice(0, 4)), m: Number(today.slice(5, 7)) };
+  const next = ymOf(t.y, t.m + 1), prev = ymOf(t.y, t.m - 1);
+  const months = (t.y + 1) * 12 + 11 - ((t.y * 12 + t.m - 1) - 12) + 1; // 12か月前の月〜来年12月
+  await page.click("#next");
+  await waitHdr(page, ymStr(next));
+  await page.click("#tab-settings");
+  await page.waitForSelector("#flip");
+  assert.equal(await page.$eval("#flip", (c) => c.previousElementSibling.querySelector("h3").textContent), "画面の色合い");
+  assert.equal(await page.$eval('input[name="flipdir"]:checked', (e) => e.value), "v", "はじめは縦");
+  assert.equal(await page.$eval('input[name="flipmode"]:checked', (e) => e.value), "cont", "はじめはくっつける");
+  for (const [name, v, want] of [["flipdir", "h", "h:cont"], ["flipmode", "page", "h:page"], ["flipdir", "v", "v:page"], ["flipmode", "cont", "v:cont"], ["flipdir", "h", "h:cont"], ["flipmode", "page", "h:page"]]) {
+    await page.click(`input[name="${name}"][value="${v}"] + span`);
+    await page.waitForTimeout(300);
+    assert.equal(await page.evaluate(() => localStorage.getItem("shiftflow-cal-flip")), want);
+    assert.equal(await calHdr(page), ymStr(next), want + " にしても見ている月のまま");
+    const n = await page.locator(".mpage").count();
+    if (want === "v:cont") { assert.equal(n, 0, "縦・くっつけるは今までどおり週が続く"); continue; }
+    assert.equal(n, months, want + ": 1ページ1か月");
+    assert.ok(await pageAligned(page, next.y, next.m), want + ": その月のページがちょうど見えている");
+  }
+  // 1ページの高さはカレンダーの高さ。週の高さの合計もちょうど同じ。前後の月の日だけ、数字が薄い
+  const ym = `${next.y}-${String(next.m).padStart(2, "0")}`;
+  const pg = await page.evaluate((ym) => {
+    const p = document.querySelector(`.mpage[data-ym="${ym}"]`), c = document.getElementById("cal");
+    const weeks = [...p.querySelectorAll(".week")];
+    const cells = [...p.querySelectorAll(".cell")];
+    const bad = cells.filter((e) => e.classList.contains("om") === (e.dataset.date.slice(0, 7) === ym)).length;
+    const om = cells.find((e) => e.classList.contains("om") && !e.classList.contains("tdy"));
+    const inMonth = cells.find((e) => !e.classList.contains("om"));
+    return { h: p.getBoundingClientRect().height, ch: c.clientHeight, sum: weeks.reduce((a, w) => a + w.getBoundingClientRect().height, 0), weeks: weeks.length, bad,
+      omOpacity: om ? Number(getComputedStyle(om.querySelector(".dn")).opacity) : 0, inOpacity: Number(getComputedStyle(inMonth.querySelector(".dn")).opacity) };
+  }, ym);
+  assert.ok(Math.abs(pg.h - pg.ch) <= 1 && Math.abs(pg.sum - pg.ch) <= 1, JSON.stringify(pg));
+  assert.ok(pg.weeks >= 4 && pg.weeks <= 6, JSON.stringify(pg));
+  assert.equal(pg.bad, 0, "前後の月の日だけに印");
+  assert.ok(pg.omOpacity < 0.5 && pg.inOpacity === 1, JSON.stringify(pg));
+  // 開き直しても覚えている(横・1枚ずつ)。今日の月から始まる
+  await page.reload();
+  await page.waitForSelector(".bar");
+  assert.equal(await page.$eval("#cal", (c) => c.className), "cal pg hz snap");
+  assert.equal(await calHdr(page), ymStr(t));
+  assert.ok(await pageAligned(page, t.y, t.m), "今日の月のページから");
+  // ▶ で次の月のページ。◀ を素早く2回で、2か月戻る。今日で今日の月
+  await page.click("#next");
+  await waitHdr(page, ymStr(next));
+  await page.waitForTimeout(700);
+  assert.ok(await pageAligned(page, next.y, next.m), "▶ でちょうど次の月のページ");
+  await page.click("#prev");
+  await page.waitForTimeout(120);
+  await page.click("#prev");
+  await waitHdr(page, ymStr(prev));
+  await page.waitForTimeout(700);
+  assert.ok(await pageAligned(page, prev.y, prev.m), "◀◀ でちょうど2か月前のページ");
+  await page.click("#today");
+  await waitHdr(page, ymStr(t));
+  await page.waitForTimeout(700);
+  assert.ok(await pageAligned(page, t.y, t.m));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+await check("カレンダー(月の切り替え・AU1): 横・縦の1枚ずつ・横のくっつけるで、画面を回しても(幅・高さを変えても)見ている月のまま。1枚ずつはページの境目にちょうど止まる", async () => {
+  const { page, ctx, errors } = await calOpen();
+  await page.waitForSelector(".bar");
+  const t = { y: Number(today.slice(0, 4)), m: Number(today.slice(5, 7)) };
+  for (const f of ["h:page", "h:cont", "v:page"]) {
+    await page.setViewportSize({ width: 390, height: 780 });
+    await setFlipStore(page, f);
+    let cur = t;
+    for (let i = 0; i < 3; i++) { cur = ymOf(cur.y, cur.m + 1); await page.click("#next"); await waitHdr(page, ymStr(cur)); await page.waitForTimeout(500); }
+    await page.waitForTimeout(500);
+    for (const [w, h] of [[780, 390], [390, 780], [1100, 800], [390, 780]]) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.waitForTimeout(700);
+      assert.equal(await calHdr(page), ymStr(cur), `${f} ${w}x${h}`);
+      if (f.endsWith("page")) assert.ok(await pageAligned(page, cur.y, cur.m), `${f} ${w}x${h}: ページの境目に止まる`);
+    }
+  }
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 await check("カレンダー: 区所を決めていない人には、設定へのご案内。勤務の予定が読めなくても、自分の予定は出て、案内を出す", async () => {
   const a = await calOpen({}, { needOffice: true, shifts: [] });
   await a.page.waitForSelector("#banner:not([hidden])");
@@ -2616,13 +2716,13 @@ await check("カレンダー設定: いちばん上に お知らせ・お問い�
   await ctx.close();
 });
 
-await check("カレンダー設定: 説明の下に 画像・テンプレート・ラベル・出すもの・共有・アイコン・色合い・写真の量の順。ラベルと出すものは閉じていて、押すと開く。ラベルの追加・色・名前・並び替え・削除(使っているラベルは消せない)", async () => {
+await check("カレンダー設定: 説明の下に 画像・テンプレート・ラベル・出すもの・共有・アイコン・色合い・月の切り替え・写真の量の順。ラベルと出すものは閉じていて、押すと開く。ラベルの追加・色・名前・並び替え・削除(使っているラベルは消せない)", async () => {
   const { page, ctx, be, errors } = await calOpen();
   await page.waitForSelector(".bar");
   await page.click("#tab-settings");
   await page.waitForSelector("#about");
   const order = await page.$$eval("#panel .card", (els) => els.map((e) => e.querySelector("h3").textContent));
-  assert.deepEqual(order, ["shiftflowカレンダーについて", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "予定のテンプレート", "ラベル", "このカレンダーに出すもの", "👥 カレンダーの共有", "ホーム画面のアイコン", "画面の色合い", "あなたの写真・画像の量"]);
+  assert.deepEqual(order, ["shiftflowカレンダーについて", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "予定のテンプレート", "ラベル", "このカレンダーに出すもの", "👥 カレンダーの共有", "ホーム画面のアイコン", "画面の色合い", "月の切り替え", "あなたの写真・画像の量"]);
   assert.ok((await page.textContent("#about")).includes("1つのアカウントで1人分"));
   // ラベル・このカレンダーに出すものは、最初は閉じていて、見出しの横に一言が出る
   for (const id of ["labels", "calview"]) assert.equal(await page.$eval("#" + id, (d) => d.open), false, id);
@@ -3180,7 +3280,7 @@ await check("カレンダー設定: 自分の写真・画像の量が出る(MB�
   const text = await page.textContent("#my-usage");
   assert.ok(text.includes("約 3.5MB(画像の置き場 1/10枚・予定の写真 1枚)"), text);
   const order = await page.$$eval("#panel .card", (els) => els.map((e) => e.querySelector("h3").textContent));
-  assert.deepEqual(order, ["shiftflowカレンダーについて", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "予定のテンプレート", "ラベル", "このカレンダーに出すもの", "👥 カレンダーの共有", "ホーム画面のアイコン", "画面の色合い", "あなたの写真・画像の量"]);
+  assert.deepEqual(order, ["shiftflowカレンダーについて", "月のカレンダーを画像にする", "選んだ日に〇をつけて画像にする", "予定のテンプレート", "ラベル", "このカレンダーに出すもの", "👥 カレンダーの共有", "ホーム画面のアイコン", "画面の色合い", "月の切り替え", "あなたの写真・画像の量"]);
   await ctx.close();
 });
 
@@ -4977,14 +5077,18 @@ await check("共有(AR4・AR9): 相手の勤務だけ読めないときは、自
   await ctx.close();
 });
 
-await check("夫婦(AR5): 相手の非番は、相手の非番のラベル(花子・非)の色で出る", async () => {
+await check("夫婦(AR5・#15): 相手の勤務は1段で届き、泊の翌日の「〜(9:02)」も相手の勤務のラベル(花子)の色で出る。相手の「・非」のボタンは出さない(自分の「太郎・非」は出す)", async () => {
   const mates = JSON.parse(JSON.stringify(COUPLE_MATES));
-  mates[0].shifts.push({ group: "offduty", date: isoAdd(today, 3), endDate: isoAdd(today, 3), allDay: false, startTime: "09:02", endTime: "09:02", calendar: "offduty", kind: "time", title: "9:02", description: "" });
+  // サーバーは、相手の勤務を、あなたが2段の設定でも1段で返す(非番の時間の帯は作らない。calendar-shifts の mateViewSettings)
+  mates[0].shifts.push({ group: "duty", date: isoAdd(today, 3), endDate: isoAdd(today, 3), allDay: true, startTime: "", endTime: "", calendar: "work", kind: "day", title: "〜(9:02)", description: "" });
   const { page, ctx, errors } = await calOpen({}, { share: COUPLE_SHARE, mates, cal: COUPLE_CAL });
-  await page.waitForSelector('.bar:has-text("9:02")');
-  assert.equal(await page.locator('.bar:has-text("9:02")').evaluate((b) => b.style.getPropertyValue("--c")), "#d4607a", "花子・非 の色でない");
-  await page.click('#chips .chip:has-text("花子・非")');
-  assert.equal(await page.locator('.bar:has-text("9:02")').count(), 0, "花子・非 のボタンで隠れない");
+  await page.waitForSelector('.bar:has-text("〜(9:02)")');
+  assert.equal(await page.locator('.bar:has-text("〜(9:02)")').evaluate((b) => b.style.getPropertyValue("--c")), "#cc0000", "花子 の色でない");
+  const chips = await page.locator("#chips .chip").allTextContents();
+  assert.ok(chips.includes("太郎・非"), "自分の非番のボタンは出す: " + chips.join(","));
+  assert.ok(!chips.includes("花子・非"), "相手の非番のボタンは出さない: " + chips.join(","));
+  await page.click('#chips .chip:text-is("花子")');
+  assert.equal(await page.locator('.bar:has-text("〜(9:02)")').count(), 0, "花子 のボタンで隠れない");
   assert.deepEqual(errors, []);
   await ctx.close();
 });

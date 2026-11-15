@@ -365,6 +365,11 @@ const pageSize = () => (flip.dir === "h" ? $("cal").clientWidth : $("cal").clien
 const scrollPos = () => (flip.dir === "h" ? $("cal").scrollLeft : $("cal").scrollTop);
 let lastPageSize = 0; // 前に描いたときのページの大きさ(描き直しで、同じ月の位置に戻すため)
 let lastCalSize = ""; // 前に描いたときのカレンダーの幅と高さ(大きさが変わったら描き直す)
+// 1ページ1か月のとき、最後に落ち着いていた位置(何ページ目か。小数)。大きさが変わったときは、描き直す前に
+// ブラウザがスクロールの位置を切り詰めたり合わせ直したりするので、その位置ではなく、これで同じ月に戻す(AU1)
+let pagePos = -1;
+const calResized = () => { const c = $("cal"); return `${c.clientWidth}x${c.clientHeight}` !== lastCalSize; };
+const notePagePos = () => { if (paged() && lastPageSize && !calResized()) pagePos = scrollPos() / lastPageSize; };
 
 // 描き直す。スクロールの位置は変えない(週の高さは一定なので、同じ週が同じ場所に来る。1ページ1か月のときは、同じ月の同じ位置)
 function render() {
@@ -379,7 +384,8 @@ function render() {
   const lanesFor = (rh) => Math.max(1, Math.floor((rh - cv("--bart", 17)) / (cv("--bar", 12) + cv("--bgap", 1.5))));
   const cal = $("cal");
   if (paged()) {
-    const at = lastPageSize ? scrollPos() / lastPageSize : -1; // 今、何ページ目(小数)にいるか
+    const oldSize = lastPageSize;
+    const at = !oldSize ? -1 : pagePos >= 0 ? pagePos : scrollPos() / oldSize; // 今、何ページ目(小数)にいるか
     const ph = cal.clientHeight;
     cal.style.setProperty("--ph", `${ph}px`);
     const lim = monthLimits(S.today);
@@ -396,9 +402,15 @@ function render() {
     }
     $("weeks").innerHTML = html;
     lastPageSize = pageSize();
-    // ページの大きさが変わったときだけ、同じ月の位置に入れ直す(同じ値を入れ直すと、なめらかに動いている途中の動きが止まるため)
-    if (at >= 0 && Math.abs(Math.round(at * lastPageSize) - scrollPos()) >= 1) {
-      const v = Math.round(at * lastPageSize);
+    // ページの大きさが変わったとき(画面を回した・窓の幅を変えた・高さが変わった)だけ、同じ月の位置に入れ直す。
+    // 同じ大きさのときは触らない(同じ値を入れ直すと、なめらかに動いている途中の動きが止まるため)。
+    // 描き直す前にブラウザが位置を切り詰めたり(狭くなったとき)、新しい大きさで合わせ直したり(1枚ずつ)しているので、
+    // 今の位置ではなく、最後に落ち着いていた位置(pagePos)から戻す(横向きにすると別の月に飛んでいた。AU1)。
+    // 1枚ずつはページのちょうど境目に、くっつけるは止めていた途中の位置のまま
+    if (oldSize && oldSize !== lastPageSize && at >= 0) {
+      scrollGoal = null; // 動いている途中の行き先は、前の大きさの位置なので使わない
+      const idx = flip.page ? Math.round(at) : at;
+      const v = Math.round(Math.max(0, idx) * lastPageSize);
       if (flip.dir === "h") cal.scrollLeft = v; else cal.scrollTop = v;
     }
   } else {
@@ -410,6 +422,8 @@ function render() {
     if (cal.scrollTop !== keep) cal.scrollTop = keep; // 同じ値は入れ直さない(なめらかに動いている途中の動きが止まるため)
   }
   lastCalSize = `${cal.clientWidth}x${cal.clientHeight}`;
+  pagePos = -1;
+  notePagePos();
   resumeScroll();
   extras.hydrate($("weeks"));
   extras.fitStamps(); // 横に長い文字のスタンプが、左右の端で切れないように(AN1・AN2)
@@ -423,6 +437,7 @@ function scrollCal(pos, smooth) {
   const opt = { ...pos, behavior: smooth ? "smooth" : "auto" };
   scrollGoal = smooth ? { pos, until: Date.now() + 1500 } : null;
   $("cal").scrollTo(opt);
+  if (!smooth) notePagePos();
 }
 function resumeScroll() {
   if (!scrollGoal) return;
@@ -1599,6 +1614,10 @@ function onScroll() {
   scrollQueued = true;
   requestAnimationFrame(() => {
     scrollQueued = false;
+    // 1ページ1か月で、大きさが変わってから描き直すまでのあいだのスクロールは、ブラウザが位置を切り詰めた・合わせ直しただけ。
+    // 月の表示も、戻す位置も変えない(描き直したあと、正しい位置で、もう一度ここに来る)
+    if (paged() && calResized()) return;
+    notePagePos();
     const v = visibleMonth();
     if (v.y === S.y && v.m === S.m) return;
     S.y = v.y; S.m = v.m;
